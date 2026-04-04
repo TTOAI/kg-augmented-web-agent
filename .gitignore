@@ -1,0 +1,11 @@
+.DS_Store
+.omx/
+.venv/
+__pycache__/
+*.pyc
+
+/output/
+/playwright-report/
+/test-results/
+/config.json
+/config/webarena_verified.json
