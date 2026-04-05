@@ -25,7 +25,6 @@ from site_adaptive_webagent.runtime.types import (
     TaskRun,
     ValidationRecord,
     ValidatorRule,
-    WorkflowHint,
 )
 
 from .fixtures import (
@@ -40,7 +39,6 @@ from .fixtures import (
     make_task_run,
     make_validation_record,
     make_validator_rule,
-    make_workflow_hint,
 )
 
 
@@ -64,22 +62,6 @@ class PriorStoreTests(unittest.TestCase):
                 profile.onboarding_status,
                 profile.default_execution_mode,
                 profile.prior_confidence,
-            ),
-        )
-        self.connection.commit()
-
-    def _insert_workflow_hint(self, hint: WorkflowHint) -> None:
-        import json
-
-        self.connection.execute(
-            "INSERT INTO workflow_hints VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                hint.workflow_hint_id,
-                hint.site_id,
-                hint.task_family,
-                json.dumps(hint.typical_step_order),
-                json.dumps(hint.branch_points),
-                json.dumps(hint.expected_terminal_states),
             ),
         )
         self.connection.commit()
@@ -164,30 +146,6 @@ class PriorStoreTests(unittest.TestCase):
         result = self.store.get_site_profile(profile.site_id)
         self.assertEqual(result, profile)
 
-    def test_get_workflow_hints_returns_empty_when_not_found(self) -> None:
-        result = self.store.get_workflow_hints("nonexistent", "task_family")
-        self.assertEqual(result, [])
-
-    def test_get_workflow_hints_round_trip(self) -> None:
-        profile = make_site_profile()
-        self._insert_site_profile(profile)
-        hint = make_workflow_hint(site_id=profile.site_id)
-        self._insert_workflow_hint(hint)
-        results = self.store.get_workflow_hints(profile.site_id, hint.task_family)
-        self.assertEqual(results, [hint])
-
-    def test_get_workflow_hints_filters_by_task_family(self) -> None:
-        profile = make_site_profile()
-        self._insert_site_profile(profile)
-        hint_a = make_workflow_hint(site_id=profile.site_id, task_family="search")
-        hint_b = make_workflow_hint(site_id=profile.site_id, task_family="checkout")
-        self._insert_workflow_hint(hint_a)
-        self._insert_workflow_hint(hint_b)
-
-        results = self.store.get_workflow_hints(profile.site_id, "search")
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].task_family, "search")
-
     def test_get_action_schemas_round_trip(self) -> None:
         profile = make_site_profile()
         self._insert_site_profile(profile)
@@ -234,19 +192,16 @@ class PriorStoreTests(unittest.TestCase):
 
     def test_get_prior_bundle_assembles_all_prior_data(self) -> None:
         profile = make_site_profile()
-        hint = make_workflow_hint(site_id=profile.site_id)
         schema = make_action_schema(site_id=profile.site_id)
-        rule = make_validator_rule(site_id=profile.site_id, task_family=hint.task_family)
+        rule = make_validator_rule(site_id=profile.site_id)
         self._insert_site_profile(profile)
-        self._insert_workflow_hint(hint)
         self._insert_action_schema(schema)
         self._insert_validator_rule(rule)
 
-        bundle = self.store.get_prior_bundle(profile.site_id, hint.task_family)
+        bundle = self.store.get_prior_bundle(profile.site_id, rule.task_family)
         self.assertIsNotNone(bundle)
         assert bundle is not None
         self.assertEqual(bundle.site_profile, profile)
-        self.assertEqual(bundle.workflow_hints, [hint])
         self.assertEqual(bundle.action_schemas, [schema])
         self.assertEqual(bundle.validator_rules, [rule])
 
@@ -255,10 +210,8 @@ class ExecutionStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.connection = sqlite3.connect(":memory:")
         bootstrap_runtime_schema(self.connection)
-        # prior_store setup for FK
         self.prior_store = PriorStore(self.connection)
         self.store = ExecutionStore(self.connection)
-        # insert a site_profile and validator_rule / failure_pattern for FK
         profile = make_site_profile()
         self.connection.execute(
             "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -272,7 +225,6 @@ class ExecutionStoreTests(unittest.TestCase):
                 profile.prior_confidence,
             ),
         )
-        import json
         rule = make_validator_rule(site_id=profile.site_id)
         self.connection.execute(
             "INSERT INTO validator_rules VALUES (?, ?, ?, ?, ?)",

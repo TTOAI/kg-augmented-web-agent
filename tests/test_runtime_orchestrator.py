@@ -17,6 +17,7 @@ from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
 from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
 from site_adaptive_webagent.runtime.intent import analyze_intent
 from site_adaptive_webagent.runtime.types import BrowserSession, PriorBundle, RunContext, RunRequest
+from site_adaptive_webagent.runtime.router import RouteInput
 
 from .fixtures import (
     FakePage,
@@ -26,7 +27,6 @@ from .fixtures import (
     make_policy_rule,
     make_site_profile,
     make_validator_rule,
-    make_workflow_hint,
 )
 
 
@@ -45,7 +45,6 @@ def _seed_site(
     prior_confidence: PriorConfidence = PriorConfidence.SUFFICIENT,
     rule_type: str = "always_pass",
     policy_type: str = "allow",
-    include_workflow_hint: bool = True,
     include_action_schema: bool = True,
     include_failure_pattern: bool = True,
 ) -> None:
@@ -60,15 +59,6 @@ def _seed_site(
         (profile.site_id, profile.site_key, profile.domain, profile.login_type,
          profile.onboarding_status, profile.default_execution_mode, profile.prior_confidence),
     )
-
-    if include_workflow_hint:
-        hint = make_workflow_hint(site_id=site_id, task_family=task_family)
-        conn.execute(
-            "INSERT INTO workflow_hints VALUES (?, ?, ?, ?, ?, ?)",
-            (hint.workflow_hint_id, hint.site_id, hint.task_family,
-             json.dumps(hint.typical_step_order), json.dumps(hint.branch_points),
-             json.dumps(hint.expected_terminal_states)),
-        )
 
     if include_action_schema:
         schema = make_action_schema(site_id=site_id)
@@ -133,7 +123,6 @@ class BuildRouteInputTests(unittest.TestCase):
         route_input = _build_route_input(context, None)
 
         self.assertEqual(route_input.site_onboarding_status, SiteOnboardingStatus.DRAFT)
-        self.assertFalse(route_input.task_family_matches)
         self.assertEqual(route_input.prior_confidence, PriorConfidence.INSUFFICIENT)
         self.assertFalse(route_input.approval_required)
 
@@ -142,11 +131,9 @@ class BuildRouteInputTests(unittest.TestCase):
             onboarding_status=SiteOnboardingStatus.ACTIVE,
             prior_confidence=PriorConfidence.SUFFICIENT,
         )
-        hint = make_workflow_hint()
         schema = make_action_schema()
         bundle = PriorBundle(
             site_profile=profile,
-            workflow_hints=[hint],
             action_schemas=[schema],
         )
         context = RunContext(
@@ -158,10 +145,8 @@ class BuildRouteInputTests(unittest.TestCase):
         route_input = _build_route_input(context, bundle)
 
         self.assertEqual(route_input.site_onboarding_status, SiteOnboardingStatus.ACTIVE)
-        self.assertTrue(route_input.task_family_matches)
         self.assertEqual(route_input.prior_confidence, PriorConfidence.SUFFICIENT)
         self.assertFalse(route_input.approval_required)
-        self.assertTrue(route_input.workflow_hint_available)
         self.assertTrue(route_input.action_schema_available)
         self.assertEqual(route_input.page_type_id, "dashboard")
 
@@ -268,10 +253,10 @@ class AcceptanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.route, RouteKind.FALLBACK)
         self.assertEqual(result.final_status, TaskRunStatus.HANDOFF)
 
-    async def test_partial_prior_when_workflow_hint_missing(self) -> None:
-        """workflow_hint 없는 active site → PARTIAL_PRIOR → FAILED."""
+    async def test_partial_prior_when_action_schema_missing(self) -> None:
+        """action_schema 없는 active site → PARTIAL_PRIOR → FAILED."""
         conn = _make_connection()
-        _seed_site(conn, include_workflow_hint=False, include_action_schema=True)
+        _seed_site(conn, include_action_schema=False)
         orchestrator = _make_orchestrator(conn)
         request, context = _make_request()
 

@@ -95,22 +95,18 @@ def _build_route_input(run_context: RunContext, prior_bundle: PriorBundle | None
     if prior_bundle is None:
         return RouteInput(
             site_onboarding_status=SiteOnboardingStatus.DRAFT,
-            task_family_matches=False,
             prior_confidence=PriorConfidence.INSUFFICIENT,
             approval_required=False,
-            workflow_hint_available=False,
             action_schema_available=False,
             page_type_id=run_context.page_type_id,
         )
 
     return RouteInput(
         site_onboarding_status=prior_bundle.site_profile.onboarding_status,
-        task_family_matches=len(prior_bundle.workflow_hints) > 0,
         prior_confidence=prior_bundle.site_profile.prior_confidence,
         approval_required=any(
             r.policy_type == "approval_required" for r in prior_bundle.policy_rules
         ),
-        workflow_hint_available=len(prior_bundle.workflow_hints) > 0,
         action_schema_available=len(prior_bundle.action_schemas) > 0,
         page_type_id=run_context.page_type_id,
     )

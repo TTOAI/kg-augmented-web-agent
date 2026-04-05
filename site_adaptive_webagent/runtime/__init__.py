@@ -36,7 +36,6 @@ from .types import (
     TaskType,
     ValidationRecord,
     ValidatorRule,
-    WorkflowHint,
 )
 from .validator import validate
 
@@ -77,7 +76,6 @@ __all__ = [
     "ValidationRecord",
     "ValidationResult",
     "ValidatorRule",
-    "WorkflowHint",
     "bootstrap_runtime_schema",
     "validate",
 ]

@@ -129,18 +129,6 @@ class ActionSchema:
 
 
 @dataclass(slots=True)
-class WorkflowHint:
-    """task family별 workflow 힌트."""
-
-    workflow_hint_id: str
-    site_id: str
-    task_family: str
-    typical_step_order: list[str] = field(default_factory=list)
-    branch_points: list[str] = field(default_factory=list)
-    expected_terminal_states: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
 class ValidatorRule:
     """성공 판정 규칙."""
 
@@ -180,7 +168,6 @@ class PriorBundle:
     site_profile: SiteProfile
     page_types: list[PageType] = field(default_factory=list)
     action_schemas: list[ActionSchema] = field(default_factory=list)
-    workflow_hints: list[WorkflowHint] = field(default_factory=list)
     validator_rules: list[ValidatorRule] = field(default_factory=list)
     policy_rules: list[PolicyRule] = field(default_factory=list)
     failure_patterns: list[FailurePattern] = field(default_factory=list)

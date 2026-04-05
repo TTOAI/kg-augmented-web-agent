@@ -33,16 +33,6 @@ CREATE TABLE IF NOT EXISTS action_schemas (
     FOREIGN KEY (site_id) REFERENCES site_profiles(site_id)
 );
 
-CREATE TABLE IF NOT EXISTS workflow_hints (
-    workflow_hint_id TEXT PRIMARY KEY,
-    site_id TEXT NOT NULL,
-    task_family TEXT NOT NULL,
-    typical_step_order TEXT NOT NULL,
-    branch_points TEXT NOT NULL,
-    expected_terminal_states TEXT NOT NULL,
-    FOREIGN KEY (site_id) REFERENCES site_profiles(site_id)
-);
-
 CREATE TABLE IF NOT EXISTS validator_rules (
     validator_rule_id TEXT PRIMARY KEY,
     site_id TEXT NOT NULL,

@@ -32,7 +32,6 @@ from site_adaptive_webagent.runtime.types import (
     TaskRun,
     ValidationRecord,
     ValidatorRule,
-    WorkflowHint,
 )
 
 
@@ -56,7 +55,6 @@ class RuntimeContractTests(unittest.TestCase):
                 "site_profile",
                 "page_types",
                 "action_schemas",
-                "workflow_hints",
                 "validator_rules",
                 "policy_rules",
                 "failure_patterns",
@@ -82,14 +80,6 @@ class RuntimeContractTests(unittest.TestCase):
                 "preconditions",
                 "postconditions",
                 "preferred_locator_strategy",
-            },
-            WorkflowHint: {
-                "workflow_hint_id",
-                "site_id",
-                "task_family",
-                "typical_step_order",
-                "branch_points",
-                "expected_terminal_states",
             },
             ValidatorRule: {
                 "validator_rule_id",
@@ -219,7 +209,6 @@ class RuntimeSchemaTests(unittest.TestCase):
                 "site_profiles",
                 "page_types",
                 "action_schemas",
-                "workflow_hints",
                 "validator_rules",
                 "policy_rules",
                 "failure_patterns",
@@ -230,6 +219,13 @@ class RuntimeSchemaTests(unittest.TestCase):
                 "approval_events",
             }.issubset(tables)
         )
+
+    def test_workflow_hints_table_does_not_exist(self) -> None:
+        tables = {
+            row[0]
+            for row in self.connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        self.assertNotIn("workflow_hints", tables)
 
     def test_task_run_child_tables_keep_foreign_keys(self) -> None:
         child_tables = {
@@ -252,7 +248,6 @@ class RuntimeSchemaTests(unittest.TestCase):
             "site_profiles",
             "page_types",
             "action_schemas",
-            "workflow_hints",
             "validator_rules",
             "policy_rules",
             "failure_patterns",
@@ -278,109 +273,39 @@ class StrategyRouterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.router = StrategyRouter()
 
-    def test_selects_fast_path_when_all_conditions_are_met(self) -> None:
-        decision = self.router.route(
-            RouteInput(
-                site_onboarding_status=SiteOnboardingStatus.ACTIVE,
-                task_family_matches=True,
-                prior_confidence=PriorConfidence.SUFFICIENT,
-                approval_required=False,
-                workflow_hint_available=True,
-                action_schema_available=True,
-                page_type_id="dashboard",
-            )
+    def _base_input(self, **overrides) -> RouteInput:
+        defaults = dict(
+            site_onboarding_status=SiteOnboardingStatus.ACTIVE,
+            prior_confidence=PriorConfidence.SUFFICIENT,
+            approval_required=False,
+            action_schema_available=True,
+            page_type_id="dashboard",
         )
+        defaults.update(overrides)
+        return RouteInput(**defaults)
 
+    def test_selects_fast_path_when_all_conditions_are_met(self) -> None:
+        decision = self.router.route(self._base_input())
         self.assertEqual(decision.route, RouteKind.FAST_PATH)
 
-    def test_selects_partial_prior_when_task_family_does_not_match(self) -> None:
-        decision = self.router.route(
-            RouteInput(
-                site_onboarding_status=SiteOnboardingStatus.ACTIVE,
-                task_family_matches=False,
-                prior_confidence=PriorConfidence.SUFFICIENT,
-                approval_required=False,
-                workflow_hint_available=True,
-                action_schema_available=True,
-                page_type_id="dashboard",
-            )
-        )
-
+    def test_selects_partial_prior_when_action_schema_missing(self) -> None:
+        decision = self.router.route(self._base_input(action_schema_available=False))
         self.assertEqual(decision.route, RouteKind.PARTIAL_PRIOR)
 
     def test_selects_partial_prior_when_confidence_is_insufficient(self) -> None:
-        decision = self.router.route(
-            RouteInput(
-                site_onboarding_status=SiteOnboardingStatus.ACTIVE,
-                task_family_matches=True,
-                prior_confidence=PriorConfidence.INSUFFICIENT,
-                approval_required=False,
-                workflow_hint_available=True,
-                action_schema_available=True,
-                page_type_id="dashboard",
-            )
-        )
-
-        self.assertEqual(decision.route, RouteKind.PARTIAL_PRIOR)
-
-    def test_selects_partial_prior_when_required_prior_is_missing(self) -> None:
-        decision = self.router.route(
-            RouteInput(
-                site_onboarding_status=SiteOnboardingStatus.ACTIVE,
-                task_family_matches=True,
-                prior_confidence=PriorConfidence.SUFFICIENT,
-                approval_required=False,
-                workflow_hint_available=False,
-                action_schema_available=True,
-                page_type_id="dashboard",
-            )
-        )
-
+        decision = self.router.route(self._base_input(prior_confidence=PriorConfidence.INSUFFICIENT))
         self.assertEqual(decision.route, RouteKind.PARTIAL_PRIOR)
 
     def test_selects_fallback_when_page_type_is_unresolved(self) -> None:
-        decision = self.router.route(
-            RouteInput(
-                site_onboarding_status=SiteOnboardingStatus.ACTIVE,
-                task_family_matches=True,
-                prior_confidence=PriorConfidence.SUFFICIENT,
-                approval_required=False,
-                workflow_hint_available=True,
-                action_schema_available=True,
-                page_type_id="unresolved",
-            )
-        )
-
+        decision = self.router.route(self._base_input(page_type_id="unresolved"))
         self.assertEqual(decision.route, RouteKind.FALLBACK)
 
     def test_selects_fallback_when_site_is_not_active(self) -> None:
-        decision = self.router.route(
-            RouteInput(
-                site_onboarding_status=SiteOnboardingStatus.DRAFT,
-                task_family_matches=True,
-                prior_confidence=PriorConfidence.SUFFICIENT,
-                approval_required=False,
-                workflow_hint_available=True,
-                action_schema_available=True,
-                page_type_id="dashboard",
-            )
-        )
-
+        decision = self.router.route(self._base_input(site_onboarding_status=SiteOnboardingStatus.DRAFT))
         self.assertEqual(decision.route, RouteKind.FALLBACK)
 
     def test_approval_first_overrides_other_conditions(self) -> None:
-        decision = self.router.route(
-            RouteInput(
-                site_onboarding_status=SiteOnboardingStatus.ACTIVE,
-                task_family_matches=True,
-                prior_confidence=PriorConfidence.SUFFICIENT,
-                approval_required=True,
-                workflow_hint_available=True,
-                action_schema_available=True,
-                page_type_id="dashboard",
-            )
-        )
-
+        decision = self.router.route(self._base_input(approval_required=True))
         self.assertEqual(decision.route, RouteKind.APPROVAL_FIRST)
 
 

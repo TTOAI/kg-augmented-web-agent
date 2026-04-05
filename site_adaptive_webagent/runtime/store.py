@@ -17,7 +17,6 @@ from .types import (
     TaskRun,
     ValidationRecord,
     ValidatorRule,
-    WorkflowHint,
 )
 
 
@@ -77,25 +76,6 @@ class PriorStore:
                 page_key=row[2],
                 url_patterns=json.loads(row[3]),
                 structural_signals=json.loads(row[4]),
-            )
-            for row in rows
-        ]
-
-    def get_workflow_hints(self, site_id: str, task_family: str) -> list[WorkflowHint]:
-        rows = self._conn.execute(
-            "SELECT workflow_hint_id, site_id, task_family, typical_step_order, "
-            "branch_points, expected_terminal_states "
-            "FROM workflow_hints WHERE site_id = ? AND task_family = ?",
-            (site_id, task_family),
-        ).fetchall()
-        return [
-            WorkflowHint(
-                workflow_hint_id=row[0],
-                site_id=row[1],
-                task_family=row[2],
-                typical_step_order=json.loads(row[3]),
-                branch_points=json.loads(row[4]),
-                expected_terminal_states=json.loads(row[5]),
             )
             for row in rows
         ]
@@ -180,7 +160,6 @@ class PriorStore:
             site_profile=site_profile,
             page_types=self.get_page_types(site_id),
             action_schemas=self.get_action_schemas(site_id),
-            workflow_hints=self.get_workflow_hints(site_id, task_family),
             validator_rules=self.get_validator_rules(site_id, task_family),
             policy_rules=self.get_policy_rules(site_id),
             failure_patterns=self.get_failure_patterns(site_id),

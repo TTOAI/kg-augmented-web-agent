@@ -10,10 +10,8 @@ class RouteInput:
     """라우팅에 필요한 최소 입력."""
 
     site_onboarding_status: SiteOnboardingStatus
-    task_family_matches: bool
     prior_confidence: PriorConfidence
     approval_required: bool
-    workflow_hint_available: bool
     action_schema_available: bool
     page_type_id: str = "unresolved"
 
@@ -49,9 +47,7 @@ class StrategyRouter:
             )
 
         if (
-            route_input.task_family_matches
-            and route_input.prior_confidence is PriorConfidence.SUFFICIENT
-            and route_input.workflow_hint_available
+            route_input.prior_confidence is PriorConfidence.SUFFICIENT
             and route_input.action_schema_available
         ):
             return RouteDecision(
@@ -61,5 +57,5 @@ class StrategyRouter:
 
         return RouteDecision(
             route=RouteKind.PARTIAL_PRIOR,
-            reason="온보딩 사이트이지만 prior 또는 task match가 충분하지 않습니다",
+            reason="온보딩 사이트이지만 prior 또는 action schema가 충분하지 않습니다",
         )

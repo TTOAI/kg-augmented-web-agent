@@ -25,7 +25,6 @@ from site_adaptive_webagent.runtime.types import (
     TaskRun,
     ValidationRecord,
     ValidatorRule,
-    WorkflowHint,
 )
 
 _SITE_ID = "gitlab"
@@ -46,21 +45,6 @@ def make_site_profile(
         onboarding_status=onboarding_status,
         default_execution_mode="fast_path",
         prior_confidence=prior_confidence,
-    )
-
-
-def make_workflow_hint(
-    *,
-    site_id: str = _SITE_ID,
-    task_family: str = _TASK_FAMILY,
-) -> WorkflowHint:
-    return WorkflowHint(
-        workflow_hint_id=str(uuid.uuid4()),
-        site_id=site_id,
-        task_family=task_family,
-        typical_step_order=["navigate", "inspect"],
-        branch_points=["login_required"],
-        expected_terminal_states=["validated"],
     )
 
 
