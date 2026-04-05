@@ -27,6 +27,24 @@ class PriorStore:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._conn = connection
 
+    def ensure_site_profile(self, site_id: str) -> None:
+        """site_id에 대한 SiteProfile이 없으면 DRAFT 상태로 자동 등록한다.
+
+        처음 만나는 site를 DRAFT로 기록해두는 onboarding 첫 단계.
+        task_runs FK 제약을 만족시키기 위해 orchestrator가 호출한다.
+        """
+        if self.get_site_profile(site_id) is not None:
+            return
+        self._conn.execute(
+            "INSERT INTO site_profiles "
+            "(site_id, site_key, domain, login_type, onboarding_status, "
+            "default_execution_mode, prior_confidence) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (site_id, site_id, site_id, "unknown",
+             SiteOnboardingStatus.DRAFT, "fallback", PriorConfidence.INSUFFICIENT),
+        )
+        self._conn.commit()
+
     def get_site_profile(self, site_id: str) -> SiteProfile | None:
         row = self._conn.execute(
             "SELECT site_id, site_key, domain, login_type, onboarding_status, "

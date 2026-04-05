@@ -118,7 +118,7 @@ def _make_request(
 
 
 class BuildRouteInputTests(unittest.TestCase):
-    """_build_route_input 단위 테스트."""
+    """_build_route_input 단위 테스트 (동기)."""
 
     def test_returns_fallback_input_when_prior_bundle_is_none(self) -> None:
         context = RunContext(
@@ -177,17 +177,17 @@ class BuildRouteInputTests(unittest.TestCase):
         self.assertTrue(route_input.approval_required)
 
 
-class AcceptanceTests(unittest.TestCase):
-    """핵심 분기 acceptance 시나리오."""
+class AcceptanceTests(unittest.IsolatedAsyncioTestCase):
+    """핵심 분기 acceptance 시나리오 (비동기)."""
 
-    def test_fast_path_success(self) -> None:
+    async def test_fast_path_success(self) -> None:
         """active site + 모든 prior + always_pass rule → VALIDATED."""
         conn = _make_connection()
         _seed_site(conn, rule_type="always_pass")
         orchestrator = _make_orchestrator(conn)
         request, context = _make_request()
 
-        result = orchestrator.run(request, context)
+        result = await orchestrator.run(request, context)
 
         self.assertEqual(result.route, RouteKind.FAST_PATH)
         self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
@@ -200,27 +200,17 @@ class AcceptanceTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(row[0], TaskRunStatus.VALIDATED)
 
-    def test_validator_fail_then_recovery_then_pass(self) -> None:
-        """always_fail rule → recovery 실행 → always_pass rule 재검증 → VALIDATED.
-
-        validator_rules를 always_fail → always_pass 순서로 넣으면
-        validate([fail]) → FAIL, recovery 후 validate([fail]) 재실행 → FAIL이 된다.
-        따라서 이 시나리오는 recovery 후 always_pass 규칙으로 교체하는 대신,
-        failure_patterns 없는 상태에서 recovery FAILED → HANDOFF 경로를 이용한다.
-        실제로 "recovery 후 pass"를 테스트하려면 executor에서 재검증용 규칙을 분리해야 하므로
-        이 테스트에서는 recovery_used=True + final_status=VALIDATED 경로를 확인한다:
-        always_fail + failure_pattern 있으면 recovery SUCCESS → 재검증(같은 rules) → FAIL → HANDOFF.
-        """
+    async def test_validator_fail_then_recovery_then_handoff(self) -> None:
+        """always_fail + failure_pattern → recovery SUCCESS → 재검증 fail → HANDOFF."""
         conn = _make_connection()
         _seed_site(conn, rule_type="always_fail", include_failure_pattern=True)
         orchestrator = _make_orchestrator(conn)
         request, context = _make_request()
 
-        result = orchestrator.run(request, context)
+        result = await orchestrator.run(request, context)
 
         self.assertEqual(result.route, RouteKind.FAST_PATH)
         self.assertTrue(result.recovery_used)
-        # recovery 후 재검증도 always_fail이므로 HANDOFF
         self.assertEqual(result.final_status, TaskRunStatus.HANDOFF)
 
         recovery_rows = conn.execute(
@@ -229,27 +219,27 @@ class AcceptanceTests(unittest.TestCase):
         ).fetchall()
         self.assertEqual(len(recovery_rows), 1)
 
-    def test_validator_fail_no_failure_pattern_gives_handoff(self) -> None:
+    async def test_validator_fail_no_failure_pattern_gives_handoff(self) -> None:
         """always_fail + failure_patterns 없음 → recovery FAILED → HANDOFF."""
         conn = _make_connection()
         _seed_site(conn, rule_type="always_fail", include_failure_pattern=False)
         orchestrator = _make_orchestrator(conn)
         request, context = _make_request()
 
-        result = orchestrator.run(request, context)
+        result = await orchestrator.run(request, context)
 
         self.assertEqual(result.route, RouteKind.FAST_PATH)
         self.assertEqual(result.final_status, TaskRunStatus.HANDOFF)
         self.assertTrue(result.recovery_used)
 
-    def test_approval_first_records_event_and_returns_approval_wait(self) -> None:
+    async def test_approval_first_records_event_and_returns_approval_wait(self) -> None:
         """approval_required policy → APPROVAL_WAIT + ApprovalEvent(REQUESTED) 기록."""
         conn = _make_connection()
         _seed_site(conn, policy_type="approval_required")
         orchestrator = _make_orchestrator(conn)
         request, context = _make_request()
 
-        result = orchestrator.run(request, context)
+        result = await orchestrator.run(request, context)
 
         self.assertEqual(result.route, RouteKind.APPROVAL_FIRST)
         self.assertEqual(result.final_status, TaskRunStatus.APPROVAL_WAIT)
@@ -263,29 +253,88 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(len(approval_rows), 1)
         self.assertEqual(approval_rows[0][0], ApprovalEventStatus.REQUESTED)
 
-    def test_fallback_when_site_is_draft(self) -> None:
+    async def test_fallback_when_site_is_draft(self) -> None:
         """onboarding_status=DRAFT인 site → FALLBACK → HANDOFF."""
         conn = _make_connection()
         _seed_site(conn, onboarding_status=SiteOnboardingStatus.DRAFT)
         orchestrator = _make_orchestrator(conn)
         request, context = _make_request()
 
-        result = orchestrator.run(request, context)
+        result = await orchestrator.run(request, context)
 
         self.assertEqual(result.route, RouteKind.FALLBACK)
         self.assertEqual(result.final_status, TaskRunStatus.HANDOFF)
 
-    def test_partial_prior_when_workflow_hint_missing(self) -> None:
+    async def test_partial_prior_when_workflow_hint_missing(self) -> None:
         """workflow_hint 없는 active site → PARTIAL_PRIOR → FAILED."""
         conn = _make_connection()
         _seed_site(conn, include_workflow_hint=False, include_action_schema=True)
         orchestrator = _make_orchestrator(conn)
         request, context = _make_request()
 
-        result = orchestrator.run(request, context)
+        result = await orchestrator.run(request, context)
 
         self.assertEqual(result.route, RouteKind.PARTIAL_PRIOR)
         self.assertEqual(result.final_status, TaskRunStatus.FAILED)
+
+    async def test_execute_fn_overrides_stub_and_maps_success(self) -> None:
+        """execute_fn 제공 시 stub 대신 실행되고 SUCCESS → VALIDATED 매핑."""
+        conn = _make_connection()
+        _seed_site(conn, rule_type="always_pass")
+        orchestrator = _make_orchestrator(conn)
+        request, context = _make_request()
+
+        class _FakeResult:
+            status = "SUCCESS"
+
+        async def _fake_execute() -> _FakeResult:
+            return _FakeResult()
+
+        result = await orchestrator.run(request, context, execute_fn=_fake_execute)
+
+        self.assertEqual(result.route, RouteKind.FAST_PATH)
+        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
+        self.assertFalse(result.validator_used)   # execute_fn 경로는 stub validator 미사용
+        self.assertFalse(result.recovery_used)
+
+    async def test_execute_fn_maps_not_found_to_failed(self) -> None:
+        """execute_fn이 NOT_FOUND_ERROR 반환 시 FAILED 매핑."""
+        conn = _make_connection()
+        _seed_site(conn, rule_type="always_pass")
+        orchestrator = _make_orchestrator(conn)
+        request, context = _make_request()
+
+        class _FakeResult:
+            status = "NOT_FOUND_ERROR"
+
+        async def _fake_execute() -> _FakeResult:
+            return _FakeResult()
+
+        result = await orchestrator.run(request, context, execute_fn=_fake_execute)
+
+        self.assertEqual(result.final_status, TaskRunStatus.FAILED)
+
+    async def test_fallback_with_execute_fn_runs_browser(self) -> None:
+        """prior 없는 상황(FALLBACK)에서도 execute_fn이 제공되면 브라우저 실행."""
+        conn = _make_connection()
+        _seed_site(conn, onboarding_status=SiteOnboardingStatus.DRAFT)
+        orchestrator = _make_orchestrator(conn)
+        request, context = _make_request()
+
+        class _FakeResult:
+            status = "SUCCESS"
+
+        called: list[bool] = []
+
+        async def _fake_execute() -> _FakeResult:
+            called.append(True)
+            return _FakeResult()
+
+        result = await orchestrator.run(request, context, execute_fn=_fake_execute)
+
+        self.assertEqual(result.route, RouteKind.FALLBACK)
+        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
+        self.assertTrue(called)
 
 
 if __name__ == "__main__":

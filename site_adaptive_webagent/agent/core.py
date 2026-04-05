@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 import re
 from typing import Any, Literal
 
 from .types import AgentRunResult, TaskStatus, TaskType
+from site_adaptive_webagent.runtime.orchestrator import RuntimeOrchestrator, RuntimeRunResult
+from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
+from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
+from site_adaptive_webagent.runtime.types import RunContext, RunRequest
 
 IntentAction = Literal["goto_url", "inspect_page", "click_target", "search_target", "unsupported"]
 
@@ -148,30 +153,56 @@ async def run_agent(  # noqa: PLR0913
     pages: list[Any],
     task_output_dir: Path,
 ) -> AgentRunResult:
-    """공용 baseline 웹 에이전트 정책을 실행한다."""
+    """RuntimeOrchestrator를 통해 baseline 웹 에이전트 정책을 실행한다."""
     del context, task_id, task_output_dir
 
     if not pages:
         return AgentRunResult.unknown_error("이 task에서 열린 페이지가 없습니다")
 
     plan = analyze_intent(intent)
-    if plan.action == "unsupported":
-        return ExecutionOutcome(
-            task_type=plan.task_type,
-            status="UNKNOWN_ERROR",
-            error_details=f"지원하지 않는 baseline intent 입니다: {intent}",
-        ).to_agent_result()
 
-    primary_page = pages[0]
-    initial_observation = await observe_page(primary_page)
-    outcome = await execute_plan(
-        plan=plan,
-        sites=sites,
-        start_urls=start_urls,
-        page=primary_page,
-        observation=initial_observation,
+    captured: list[AgentRunResult] = []
+
+    async def _execute() -> AgentRunResult:
+        if plan.action == "unsupported":
+            result = ExecutionOutcome(
+                task_type=plan.task_type,
+                status="UNKNOWN_ERROR",
+                error_details=f"지원하지 않는 baseline intent 입니다: {intent}",
+            ).to_agent_result()
+        else:
+            primary_page = pages[0]
+            observation = await observe_page(primary_page)
+            outcome = await execute_plan(
+                plan=plan,
+                sites=sites,
+                start_urls=start_urls,
+                page=primary_page,
+                observation=observation,
+            )
+            result = outcome.to_agent_result()
+        captured.append(result)
+        return result
+
+    conn = sqlite3.connect(":memory:")
+    bootstrap_runtime_schema(conn)
+    orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn))
+
+    primary_site = sites[0] if sites else "unknown"
+    task_family = plan.task_type.lower()
+
+    await orchestrator.run(
+        RunRequest(request_text=intent, task_family=task_family),
+        RunContext(
+            site_id=primary_site,
+            page_type_id="unresolved",
+            task_family=task_family,
+            state_summary=intent,
+        ),
+        execute_fn=_execute,
     )
-    return outcome.to_agent_result()
+
+    return captured[0] if captured else AgentRunResult.unknown_error("실행 결과가 없습니다")
 
 
 async def execute_plan(

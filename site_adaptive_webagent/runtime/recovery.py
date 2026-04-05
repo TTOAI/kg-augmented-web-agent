@@ -8,7 +8,7 @@ from .store import ExecutionStore
 from .types import FailurePattern, RecoveryRecord
 
 
-def execute_recovery(
+async def execute_recovery(
     *,
     task_run_id: str,
     failure_patterns: list[FailurePattern],

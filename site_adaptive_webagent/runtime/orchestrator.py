@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from .enums import PriorConfidence, RouteKind, SiteOnboardingStatus, TaskRunStatus
-from .executor import execute_approval_first, execute_fallback, execute_fast_path, execute_partial_prior
+from .executor import ExecuteFn, execute_approval_first, execute_fallback, execute_fast_path, execute_partial_prior
 from .router import RouteInput, StrategyRouter
 from .store import ExecutionStore, PriorStore
 from .types import PriorBundle, RunContext, RunRequest, TaskRun
@@ -31,7 +33,17 @@ class RuntimeOrchestrator:
         self._execution_store = execution_store
         self._router = StrategyRouter()
 
-    def run(self, run_request: RunRequest, run_context: RunContext) -> RuntimeRunResult:
+    async def run(
+        self,
+        run_request: RunRequest,
+        run_context: RunContext,
+        *,
+        execute_fn: ExecuteFn | None = None,
+    ) -> RuntimeRunResult:
+        """prior 조회 → 라우팅 → 실행 → 기록 순으로 처리한다.
+
+        execute_fn: 실제 브라우저 실행 코루틴. 없으면 결정론적 stub을 사용한다.
+        """
         now = datetime.now(timezone.utc).isoformat()
         task_run_id = str(uuid.uuid4())
 
@@ -55,13 +67,15 @@ class RuntimeOrchestrator:
             validator_used=False,
             recovery_used=False,
         )
+        self._prior_store.ensure_site_profile(run_context.site_id)
         self._execution_store.save_task_run(task_run)
 
-        final_status, validator_used, recovery_used = _dispatch(
+        final_status, validator_used, recovery_used = await _dispatch(
             route=route_decision.route,
             task_run_id=task_run_id,
             prior_bundle=prior_bundle,
             execution_store=self._execution_store,
+            execute_fn=execute_fn,
         )
 
         ended_at = datetime.now(timezone.utc).isoformat()
@@ -102,38 +116,42 @@ def _build_route_input(run_context: RunContext, prior_bundle: PriorBundle | None
     )
 
 
-def _dispatch(
+async def _dispatch(
     *,
     route: RouteKind,
     task_run_id: str,
     prior_bundle: PriorBundle | None,
     execution_store: ExecutionStore,
+    execute_fn: ExecuteFn | None,
 ) -> tuple[TaskRunStatus, bool, bool]:
     """route 결과에 따라 적절한 executor로 위임한다."""
     if route == RouteKind.APPROVAL_FIRST:
-        return execute_approval_first(
+        return await execute_approval_first(
             task_run_id=task_run_id,
             execution_store=execution_store,
         )
 
     if route == RouteKind.FALLBACK:
-        return execute_fallback(
+        return await execute_fallback(
             task_run_id=task_run_id,
             execution_store=execution_store,
+            execute_fn=execute_fn,
         )
 
     if route == RouteKind.PARTIAL_PRIOR:
-        return execute_partial_prior(
+        return await execute_partial_prior(
             task_run_id=task_run_id,
             execution_store=execution_store,
+            execute_fn=execute_fn,
         )
 
     # FAST_PATH
     validator_rules = prior_bundle.validator_rules if prior_bundle else []
     failure_patterns = prior_bundle.failure_patterns if prior_bundle else []
-    return execute_fast_path(
+    return await execute_fast_path(
         task_run_id=task_run_id,
         validator_rules=validator_rules,
         failure_patterns=failure_patterns,
         execution_store=execution_store,
+        execute_fn=execute_fn,
     )
