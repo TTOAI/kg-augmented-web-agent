@@ -15,10 +15,13 @@ from site_adaptive_webagent.runtime.orchestrator import RuntimeOrchestrator, _bu
 from site_adaptive_webagent.runtime.router import RouteInput
 from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
 from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
-from site_adaptive_webagent.runtime.types import PriorBundle, RunContext, RunRequest
+from site_adaptive_webagent.runtime.intent import analyze_intent
+from site_adaptive_webagent.runtime.types import BrowserSession, PriorBundle, RunContext, RunRequest
 
 from .fixtures import (
+    FakePage,
     make_action_schema,
+    make_fake_page,
     make_failure_pattern,
     make_policy_rule,
     make_site_profile,
@@ -277,64 +280,97 @@ class AcceptanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.route, RouteKind.PARTIAL_PRIOR)
         self.assertEqual(result.final_status, TaskRunStatus.FAILED)
 
-    async def test_execute_fn_overrides_stub_and_maps_success(self) -> None:
-        """execute_fn 제공 시 stub 대신 실행되고 SUCCESS → VALIDATED 매핑."""
+    async def test_browser_session_retrieve_success(self) -> None:
+        """browser_session 제공 시 FakePage에서 값 추출 → execution_outcome 반환."""
         conn = _make_connection()
         _seed_site(conn, rule_type="always_pass")
         orchestrator = _make_orchestrator(conn)
-        request, context = _make_request()
 
-        class _FakeResult:
-            status = "SUCCESS"
+        page = make_fake_page(
+            url="https://example.com/dashboard",
+            title_text="Dashboard",
+            headings=["Todo Count: 5"],
+        )
+        plan = analyze_intent("Find the todo count")
+        request = RunRequest(request_text="Find the todo count", task_family="retrieve")
+        context = RunContext(
+            site_id="gitlab",
+            page_type_id="dashboard",
+            task_family="retrieve",
+            state_summary="",
+        )
 
-        async def _fake_execute() -> _FakeResult:
-            return _FakeResult()
+        result = await orchestrator.run(
+            request, context,
+            browser_session=BrowserSession(pages=[page], sites=["gitlab"],
+                                           start_urls=["https://example.com"], plan=plan),
+        )
 
-        result = await orchestrator.run(request, context, execute_fn=_fake_execute)
-
-        self.assertEqual(result.route, RouteKind.FAST_PATH)
         self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
-        self.assertFalse(result.validator_used)   # execute_fn 경로는 stub validator 미사용
-        self.assertFalse(result.recovery_used)
+        self.assertIsNotNone(result.execution_outcome)
+        assert result.execution_outcome is not None
+        self.assertEqual(result.execution_outcome.status, "SUCCESS")
+        self.assertEqual(result.execution_outcome.retrieved_data, ["Todo Count: 5"])
 
-    async def test_execute_fn_maps_not_found_to_failed(self) -> None:
-        """execute_fn이 NOT_FOUND_ERROR 반환 시 FAILED 매핑."""
+    async def test_browser_session_not_found_maps_to_failed(self) -> None:
+        """browser_session에서 NOT_FOUND_ERROR → FAILED."""
         conn = _make_connection()
         _seed_site(conn, rule_type="always_pass")
         orchestrator = _make_orchestrator(conn)
-        request, context = _make_request()
 
-        class _FakeResult:
-            status = "NOT_FOUND_ERROR"
+        page = make_fake_page(
+            url="https://example.com/dashboard",
+            title_text="Dashboard",
+            headings=[],
+        )
+        plan = analyze_intent("Find the nonexistent widget count")
+        request = RunRequest(request_text="Find the nonexistent widget count", task_family="retrieve")
+        context = RunContext(
+            site_id="gitlab",
+            page_type_id="dashboard",
+            task_family="retrieve",
+            state_summary="",
+        )
 
-        async def _fake_execute() -> _FakeResult:
-            return _FakeResult()
-
-        result = await orchestrator.run(request, context, execute_fn=_fake_execute)
+        result = await orchestrator.run(
+            request, context,
+            browser_session=BrowserSession(pages=[page], sites=["gitlab"],
+                                           start_urls=["https://example.com"], plan=plan),
+        )
 
         self.assertEqual(result.final_status, TaskRunStatus.FAILED)
+        assert result.execution_outcome is not None
+        self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
 
-    async def test_fallback_with_execute_fn_runs_browser(self) -> None:
-        """prior 없는 상황(FALLBACK)에서도 execute_fn이 제공되면 브라우저 실행."""
+    async def test_fallback_with_browser_session_runs_browser(self) -> None:
+        """DRAFT site + browser_session → FALLBACK 경로에서도 브라우저 실행."""
         conn = _make_connection()
         _seed_site(conn, onboarding_status=SiteOnboardingStatus.DRAFT)
         orchestrator = _make_orchestrator(conn)
-        request, context = _make_request()
 
-        class _FakeResult:
-            status = "SUCCESS"
+        page = make_fake_page(
+            url="https://example.com/todos",
+            title_text="Todos",
+            headings=["Todo Count: 5"],
+        )
+        plan = analyze_intent("Find the todo count")
+        request = RunRequest(request_text="Find the todo count", task_family="retrieve")
+        context = RunContext(
+            site_id="gitlab",
+            page_type_id="unresolved",
+            task_family="retrieve",
+            state_summary="",
+        )
 
-        called: list[bool] = []
-
-        async def _fake_execute() -> _FakeResult:
-            called.append(True)
-            return _FakeResult()
-
-        result = await orchestrator.run(request, context, execute_fn=_fake_execute)
+        result = await orchestrator.run(
+            request, context,
+            browser_session=BrowserSession(pages=[page], sites=["gitlab"],
+                                           start_urls=["https://example.com"], plan=plan),
+        )
 
         self.assertEqual(result.route, RouteKind.FALLBACK)
         self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
-        self.assertTrue(called)
+        self.assertIsNotNone(result.execution_outcome)
 
 
 if __name__ == "__main__":

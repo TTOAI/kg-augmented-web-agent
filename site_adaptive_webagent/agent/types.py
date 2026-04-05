@@ -1,17 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
-TaskType = Literal["RETRIEVE", "MUTATE", "NAVIGATE"]
-TaskStatus = Literal[
-    "SUCCESS",
-    "ACTION_NOT_ALLOWED_ERROR",
-    "PERMISSION_DENIED_ERROR",
-    "NOT_FOUND_ERROR",
-    "DATA_VALIDATION_ERROR",
-    "UNKNOWN_ERROR",
-]
+from site_adaptive_webagent.runtime.types import TaskStatus, TaskType
+
 RetrievedItem = str | int | float | bool | dict[str, Any] | None
 
 

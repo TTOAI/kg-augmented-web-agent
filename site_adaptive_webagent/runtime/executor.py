@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Any
 
+from .browser import execute_plan, observe_page
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
 from .recovery import execute_recovery
 from .store import ExecutionStore
-from .types import ApprovalEvent, FailurePattern, StepRecord, ValidatorRule
+from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, StepRecord, ValidatorRule
 from .validator import validate
 
-# execute_fn 타입 alias: 인자 없이 호출하면 AgentRunResult-like 객체를 반환하는 코루틴
-ExecuteFn = Callable[[], Awaitable[Any]]
-
-_AGENT_TO_TASK_STATUS: dict[str, TaskRunStatus] = {
+_TASK_TO_RUN_STATUS: dict[str, TaskRunStatus] = {
     "SUCCESS": TaskRunStatus.VALIDATED,
     "ACTION_NOT_ALLOWED_ERROR": TaskRunStatus.HANDOFF,
     "PERMISSION_DENIED_ERROR": TaskRunStatus.HANDOFF,
@@ -24,30 +20,26 @@ _AGENT_TO_TASK_STATUS: dict[str, TaskRunStatus] = {
 }
 
 
-def _map_agent_status(agent_status: str) -> TaskRunStatus:
-    return _AGENT_TO_TASK_STATUS.get(agent_status, TaskRunStatus.FAILED)
-
-
 async def execute_fast_path(
     *,
     task_run_id: str,
     validator_rules: list[ValidatorRule],
     failure_patterns: list[FailurePattern],
     execution_store: ExecutionStore,
-    execute_fn: ExecuteFn | None = None,
-) -> tuple[TaskRunStatus, bool, bool]:
+    browser_session: BrowserSession | None = None,
+) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """fast path 실행.
 
-    execute_fn이 있으면 실제 브라우저 실행 결과를 TaskRunStatus로 매핑한다.
+    browser_session이 있으면 실제 브라우저 실행 결과를 TaskRunStatus로 매핑한다.
     없으면 결정론적 stub(validator → recovery → 재검증)을 실행한다.
 
-    Returns: (final_status, validator_used, recovery_used)
+    Returns: (final_status, validator_used, recovery_used, execution_outcome)
     """
-    if execute_fn is not None:
+    if browser_session is not None:
         return await _run_with_browser(
             task_run_id=task_run_id,
             step_type="fast_path",
-            execute_fn=execute_fn,
+            browser_session=browser_session,
             execution_store=execution_store,
         )
 
@@ -60,7 +52,7 @@ async def execute_fast_path(
 
     if result == ValidationResult.PASS:
         execution_store.save_step_record(_finish_step(step, StepRecordStatus.SUCCEEDED, "validator pass"))
-        return TaskRunStatus.VALIDATED, validator_used, recovery_used
+        return TaskRunStatus.VALIDATED, validator_used, recovery_used, None
 
     recovery_result = await execute_recovery(
         task_run_id=task_run_id,
@@ -71,33 +63,33 @@ async def execute_fast_path(
 
     if recovery_result != RecoveryResult.SUCCESS:
         execution_store.save_step_record(_finish_step(step, StepRecordStatus.FAILED, "recovery 실패"))
-        return TaskRunStatus.HANDOFF, validator_used, recovery_used
+        return TaskRunStatus.HANDOFF, validator_used, recovery_used, None
 
     revalidation_result = validate(validator_rules)
     if revalidation_result == ValidationResult.PASS:
         execution_store.save_step_record(_finish_step(step, StepRecordStatus.SUCCEEDED, "재검증 pass"))
-        return TaskRunStatus.VALIDATED, validator_used, recovery_used
+        return TaskRunStatus.VALIDATED, validator_used, recovery_used, None
 
     execution_store.save_step_record(_finish_step(step, StepRecordStatus.FAILED, "재검증 실패 → handoff"))
-    return TaskRunStatus.HANDOFF, validator_used, recovery_used
+    return TaskRunStatus.HANDOFF, validator_used, recovery_used, None
 
 
 async def execute_partial_prior(
     *,
     task_run_id: str,
     execution_store: ExecutionStore,
-    execute_fn: ExecuteFn | None = None,
-) -> tuple[TaskRunStatus, bool, bool]:
+    browser_session: BrowserSession | None = None,
+) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """partial prior path 실행.
 
-    execute_fn이 있으면 실제 브라우저 실행을 수행한다. (prior 안내 없는 best-effort)
+    browser_session이 있으면 실제 브라우저 실행을 수행한다. (prior 안내 없는 best-effort)
     없으면 FAILED stub을 반환한다.
     """
-    if execute_fn is not None:
+    if browser_session is not None:
         return await _run_with_browser(
             task_run_id=task_run_id,
             step_type="partial_prior",
-            execute_fn=execute_fn,
+            browser_session=browser_session,
             execution_store=execution_store,
         )
 
@@ -105,25 +97,25 @@ async def execute_partial_prior(
     execution_store.save_step_record(
         _finish_step(step, StepRecordStatus.FAILED, "prior 불충분으로 실행 실패")
     )
-    return TaskRunStatus.FAILED, False, False
+    return TaskRunStatus.FAILED, False, False, None
 
 
 async def execute_fallback(
     *,
     task_run_id: str,
     execution_store: ExecutionStore,
-    execute_fn: ExecuteFn | None = None,
-) -> tuple[TaskRunStatus, bool, bool]:
+    browser_session: BrowserSession | None = None,
+) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """fallback path 실행.
 
-    execute_fn이 있으면 prior 없이 범용 브라우저 실행을 수행한다.
+    browser_session이 있으면 prior 없이 범용 브라우저 실행을 수행한다.
     없으면 HANDOFF stub을 반환한다.
     """
-    if execute_fn is not None:
+    if browser_session is not None:
         return await _run_with_browser(
             task_run_id=task_run_id,
             step_type="fallback",
-            execute_fn=execute_fn,
+            browser_session=browser_session,
             execution_store=execution_store,
         )
 
@@ -131,14 +123,14 @@ async def execute_fallback(
     execution_store.save_step_record(
         _finish_step(step, StepRecordStatus.SKIPPED, "site 미온보딩으로 handoff")
     )
-    return TaskRunStatus.HANDOFF, False, False
+    return TaskRunStatus.HANDOFF, False, False, None
 
 
 async def execute_approval_first(
     *,
     task_run_id: str,
     execution_store: ExecutionStore,
-) -> tuple[TaskRunStatus, bool, bool]:
+) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """approval-first path stub 실행. ApprovalEvent(REQUESTED)를 기록하고 APPROVAL_WAIT 반환."""
     event = ApprovalEvent(
         approval_event_id=str(uuid.uuid4()),
@@ -149,7 +141,7 @@ async def execute_approval_first(
         recorded_at=datetime.now(timezone.utc).isoformat(),
     )
     execution_store.save_approval_event(event)
-    return TaskRunStatus.APPROVAL_WAIT, False, False
+    return TaskRunStatus.APPROVAL_WAIT, False, False, None
 
 
 # --- 내부 헬퍼 ---
@@ -158,18 +150,34 @@ async def _run_with_browser(
     *,
     task_run_id: str,
     step_type: str,
-    execute_fn: ExecuteFn,
+    browser_session: BrowserSession,
     execution_store: ExecutionStore,
-) -> tuple[TaskRunStatus, bool, bool]:
-    """execute_fn을 실행하고 AgentRunResult.status를 TaskRunStatus로 매핑한다."""
-    agent_result = await execute_fn()
-    agent_status = getattr(agent_result, "status", "UNKNOWN_ERROR")
-    task_status = _map_agent_status(agent_status)
+) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome]:
+    """브라우저를 실행하고 ExecutionOutcome을 TaskRunStatus로 매핑한다."""
+    primary_page = browser_session.pages[0]
+    observation = await observe_page(primary_page)
+
+    if browser_session.plan.action == "unsupported":
+        outcome = ExecutionOutcome(
+            task_type=browser_session.plan.task_type,
+            status="UNKNOWN_ERROR",
+            error_details=f"지원하지 않는 intent입니다",
+        )
+    else:
+        outcome = await execute_plan(
+            plan=browser_session.plan,
+            sites=browser_session.sites,
+            start_urls=browser_session.start_urls,
+            page=primary_page,
+            observation=observation,
+        )
+
+    task_status = _TASK_TO_RUN_STATUS.get(outcome.status, TaskRunStatus.FAILED)
     step_status = StepRecordStatus.SUCCEEDED if task_status == TaskRunStatus.VALIDATED else StepRecordStatus.FAILED
 
     step = _make_step(task_run_id, step_type)
-    execution_store.save_step_record(_finish_step(step, step_status, agent_status))
-    return task_status, False, False
+    execution_store.save_step_record(_finish_step(step, step_status, outcome.status))
+    return task_status, False, False, outcome
 
 
 def _make_step(task_run_id: str, step_type: str) -> StepRecord:

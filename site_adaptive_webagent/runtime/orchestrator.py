@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
 from .enums import PriorConfidence, RouteKind, SiteOnboardingStatus, TaskRunStatus
-from .executor import ExecuteFn, execute_approval_first, execute_fallback, execute_fast_path, execute_partial_prior
+from .executor import execute_approval_first, execute_fallback, execute_fast_path, execute_partial_prior
 from .router import RouteInput, StrategyRouter
 from .store import ExecutionStore, PriorStore
-from .types import PriorBundle, RunContext, RunRequest, TaskRun
+from .types import BrowserSession, ExecutionOutcome, PriorBundle, RunContext, RunRequest, TaskRun
 
 
 @dataclass(slots=True)
@@ -22,6 +20,7 @@ class RuntimeRunResult:
     final_status: TaskRunStatus
     validator_used: bool
     recovery_used: bool
+    execution_outcome: ExecutionOutcome | None = None
     error_details: str | None = None
 
 
@@ -38,11 +37,11 @@ class RuntimeOrchestrator:
         run_request: RunRequest,
         run_context: RunContext,
         *,
-        execute_fn: ExecuteFn | None = None,
+        browser_session: BrowserSession | None = None,
     ) -> RuntimeRunResult:
         """prior 조회 → 라우팅 → 실행 → 기록 순으로 처리한다.
 
-        execute_fn: 실제 브라우저 실행 코루틴. 없으면 결정론적 stub을 사용한다.
+        browser_session: 실제 브라우저 실행 컨텍스트. 없으면 결정론적 stub을 사용한다.
         """
         now = datetime.now(timezone.utc).isoformat()
         task_run_id = str(uuid.uuid4())
@@ -70,12 +69,12 @@ class RuntimeOrchestrator:
         self._prior_store.ensure_site_profile(run_context.site_id)
         self._execution_store.save_task_run(task_run)
 
-        final_status, validator_used, recovery_used = await _dispatch(
+        final_status, validator_used, recovery_used, execution_outcome = await _dispatch(
             route=route_decision.route,
             task_run_id=task_run_id,
             prior_bundle=prior_bundle,
             execution_store=self._execution_store,
-            execute_fn=execute_fn,
+            browser_session=browser_session,
         )
 
         ended_at = datetime.now(timezone.utc).isoformat()
@@ -87,6 +86,7 @@ class RuntimeOrchestrator:
             final_status=final_status,
             validator_used=validator_used,
             recovery_used=recovery_used,
+            execution_outcome=execution_outcome,
         )
 
 
@@ -122,8 +122,8 @@ async def _dispatch(
     task_run_id: str,
     prior_bundle: PriorBundle | None,
     execution_store: ExecutionStore,
-    execute_fn: ExecuteFn | None,
-) -> tuple[TaskRunStatus, bool, bool]:
+    browser_session: BrowserSession | None,
+) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """route 결과에 따라 적절한 executor로 위임한다."""
     if route == RouteKind.APPROVAL_FIRST:
         return await execute_approval_first(
@@ -135,14 +135,14 @@ async def _dispatch(
         return await execute_fallback(
             task_run_id=task_run_id,
             execution_store=execution_store,
-            execute_fn=execute_fn,
+            browser_session=browser_session,
         )
 
     if route == RouteKind.PARTIAL_PRIOR:
         return await execute_partial_prior(
             task_run_id=task_run_id,
             execution_store=execution_store,
-            execute_fn=execute_fn,
+            browser_session=browser_session,
         )
 
     # FAST_PATH
@@ -153,5 +153,5 @@ async def _dispatch(
         validator_rules=validator_rules,
         failure_patterns=failure_patterns,
         execution_store=execution_store,
-        execute_fn=execute_fn,
+        browser_session=browser_session,
     )

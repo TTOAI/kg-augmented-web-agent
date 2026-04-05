@@ -1,7 +1,8 @@
-"""테스트용 fake 데이터 팩토리."""
+"""테스트용 fake 데이터 팩토리 및 Playwright stub."""
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from site_adaptive_webagent.runtime.enums import (
     ApprovalEventStatus,
@@ -204,4 +205,102 @@ def make_approval_event(
         approval_status=approval_status,
         reason="policy rule이 사전 승인을 요구합니다",
         recorded_at="2025-01-01T00:00:00Z",
+    )
+
+
+# --- Playwright stub (테스트용 가짜 페이지) ---
+
+class FakeElementLocator:
+    def __init__(self, page: "FakePage", selector: str, index: int) -> None:
+        self.page = page
+        self.selector = selector
+        self.index = index
+
+    async def inner_text(self) -> str:
+        return self.page.selector_texts[self.selector][self.index]
+
+    async def click(self) -> None:
+        self.page.apply_click(self.selector, self.index)
+
+    async def fill(self, value: str) -> None:
+        self.page.last_filled = value
+
+    async def press(self, key: str) -> None:
+        self.page.last_pressed = key
+
+
+class FakeLocator:
+    def __init__(self, page: "FakePage", selector: str) -> None:
+        self.page = page
+        self.selector = selector
+
+    async def all_inner_texts(self) -> list[str]:
+        return list(self.page.selector_texts.get(self.selector, []))
+
+    async def count(self) -> int:
+        return len(self.page.selector_texts.get(self.selector, []))
+
+    def nth(self, index: int) -> FakeElementLocator:
+        return FakeElementLocator(self.page, self.selector, index)
+
+
+class FakePage:
+    def __init__(
+        self,
+        *,
+        url: str,
+        title_text: str,
+        selector_texts: dict[str, list[str]],
+        click_updates: dict[tuple[str, int], dict[str, Any]] | None = None,
+    ) -> None:
+        self.url = url
+        self._title = title_text
+        self.selector_texts = selector_texts
+        self.click_updates = click_updates or {}
+        self.last_filled: str | None = None
+        self.last_pressed: str | None = None
+
+    async def title(self) -> str:
+        return self._title
+
+    def locator(self, selector: str) -> FakeLocator:
+        return FakeLocator(self, selector)
+
+    async def goto(self, url: str) -> None:
+        self.url = url
+
+    def apply_click(self, selector: str, index: int) -> None:
+        update = self.click_updates.get((selector, index), {})
+        if "url" in update:
+            self.url = str(update["url"])
+        if "title" in update:
+            self._title = str(update["title"])
+        if "selector_texts" in update:
+            self.selector_texts = dict(update["selector_texts"])
+
+
+def make_fake_page(
+    *,
+    url: str = "https://example.com",
+    title_text: str = "Page",
+    headings: list[str] | None = None,
+    text_lines: list[str] | None = None,
+    links: list[str] | None = None,
+    buttons: list[str] | None = None,
+) -> FakePage:
+    """기본값을 채운 FakePage를 생성한다."""
+    return FakePage(
+        url=url,
+        title_text=title_text,
+        selector_texts={
+            "h1": headings or [],
+            "h2": [],
+            "[role='heading']": [],
+            "main": text_lines or [],
+            "article": [],
+            "body": text_lines or [],
+            "a": links or [],
+            "button": buttons or [],
+            "[role='button']": [],
+        },
     )
