@@ -53,14 +53,13 @@ class PriorStoreTests(unittest.TestCase):
 
     def _insert_site_profile(self, profile: SiteProfile) -> None:
         self.connection.execute(
-            "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?)",
             (
                 profile.site_id,
-                profile.site_key,
-                profile.domain,
-                profile.login_type,
+                profile.display_name,
+                profile.base_url,
+                profile.auth_type,
                 profile.onboarding_status,
-                profile.default_execution_mode,
                 profile.prior_confidence,
             ),
         )
@@ -70,14 +69,19 @@ class PriorStoreTests(unittest.TestCase):
         import json
 
         self.connection.execute(
-            "INSERT INTO action_schemas VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO action_schemas VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 schema.action_schema_id,
                 schema.site_id,
                 schema.action_key,
+                schema.display_name,
+                schema.description,
+                schema.source_page_key,
+                schema.target_page_key,
                 json.dumps(schema.preconditions),
                 json.dumps(schema.postconditions),
-                schema.preferred_locator_strategy,
+                schema.locator_strategy,
+                schema.locator_value,
             ),
         )
         self.connection.commit()
@@ -103,7 +107,7 @@ class PriorStoreTests(unittest.TestCase):
                 rule.site_id,
                 rule.action_key,
                 rule.policy_type,
-                rule.policy_decision,
+                rule.reason,
             ),
         )
         self.connection.commit()
@@ -125,11 +129,13 @@ class PriorStoreTests(unittest.TestCase):
         import json
 
         self.connection.execute(
-            "INSERT INTO page_types VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO page_types VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 page_type.page_type_id,
                 page_type.site_id,
                 page_type.page_key,
+                page_type.display_name,
+                page_type.description,
                 json.dumps(page_type.url_patterns),
                 json.dumps(page_type.structural_signals),
             ),
@@ -214,14 +220,13 @@ class ExecutionStoreTests(unittest.TestCase):
         self.store = ExecutionStore(self.connection)
         profile = make_site_profile()
         self.connection.execute(
-            "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?)",
             (
                 profile.site_id,
-                profile.site_key,
-                profile.domain,
-                profile.login_type,
+                profile.display_name,
+                profile.base_url,
+                profile.auth_type,
                 profile.onboarding_status,
-                profile.default_execution_mode,
                 profile.prior_confidence,
             ),
         )

@@ -55,18 +55,20 @@ def _seed_site(
         prior_confidence=prior_confidence,
     )
     conn.execute(
-        "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (profile.site_id, profile.site_key, profile.domain, profile.login_type,
-         profile.onboarding_status, profile.default_execution_mode, profile.prior_confidence),
+        "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?)",
+        (profile.site_id, profile.display_name, profile.base_url, profile.auth_type,
+         profile.onboarding_status, profile.prior_confidence),
     )
 
     if include_action_schema:
         schema = make_action_schema(site_id=site_id)
         conn.execute(
-            "INSERT INTO action_schemas VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO action_schemas VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (schema.action_schema_id, schema.site_id, schema.action_key,
+             schema.display_name, schema.description, schema.source_page_key,
+             schema.target_page_key,
              json.dumps(schema.preconditions), json.dumps(schema.postconditions),
-             schema.preferred_locator_strategy),
+             schema.locator_strategy, schema.locator_value),
         )
 
     rule = make_validator_rule(site_id=site_id, task_family=task_family, rule_type=rule_type)
@@ -79,7 +81,7 @@ def _seed_site(
     conn.execute(
         "INSERT INTO policy_rules VALUES (?, ?, ?, ?, ?)",
         (policy.policy_rule_id, policy.site_id, policy.action_key,
-         policy.policy_type, policy.policy_decision),
+         policy.policy_type, policy.reason),
     )
 
     if include_failure_pattern:

@@ -27,27 +27,21 @@ class PriorStore:
         self._conn = connection
 
     def ensure_site_profile(self, site_id: str) -> None:
-        """site_id에 대한 SiteProfile이 없으면 DRAFT 상태로 자동 등록한다.
-
-        처음 만나는 site를 DRAFT로 기록해두는 onboarding 첫 단계.
-        task_runs FK 제약을 만족시키기 위해 orchestrator가 호출한다.
-        """
+        """site_id에 대한 SiteProfile이 없으면 DRAFT 상태로 자동 등록한다."""
         if self.get_site_profile(site_id) is not None:
             return
         self._conn.execute(
             "INSERT INTO site_profiles "
-            "(site_id, site_key, domain, login_type, onboarding_status, "
-            "default_execution_mode, prior_confidence) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (site_id, site_id, site_id, "unknown",
-             SiteOnboardingStatus.DRAFT, "fallback", PriorConfidence.INSUFFICIENT),
+            "(site_id, display_name, base_url, auth_type, onboarding_status, prior_confidence) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (site_id, site_id, "", "none",
+             SiteOnboardingStatus.DRAFT, PriorConfidence.INSUFFICIENT),
         )
         self._conn.commit()
 
     def get_site_profile(self, site_id: str) -> SiteProfile | None:
         row = self._conn.execute(
-            "SELECT site_id, site_key, domain, login_type, onboarding_status, "
-            "default_execution_mode, prior_confidence "
+            "SELECT site_id, display_name, base_url, auth_type, onboarding_status, prior_confidence "
             "FROM site_profiles WHERE site_id = ?",
             (site_id,),
         ).fetchone()
@@ -55,17 +49,17 @@ class PriorStore:
             return None
         return SiteProfile(
             site_id=row[0],
-            site_key=row[1],
-            domain=row[2],
-            login_type=row[3],
+            display_name=row[1],
+            base_url=row[2],
+            auth_type=row[3],
             onboarding_status=SiteOnboardingStatus(row[4]),
-            default_execution_mode=row[5],
-            prior_confidence=PriorConfidence(row[6]),
+            prior_confidence=PriorConfidence(row[5]),
         )
 
     def get_page_types(self, site_id: str) -> list[PageType]:
         rows = self._conn.execute(
-            "SELECT page_type_id, site_id, page_key, url_patterns, structural_signals "
+            "SELECT page_type_id, site_id, page_key, display_name, description, "
+            "url_patterns, structural_signals "
             "FROM page_types WHERE site_id = ?",
             (site_id,),
         ).fetchall()
@@ -74,16 +68,19 @@ class PriorStore:
                 page_type_id=row[0],
                 site_id=row[1],
                 page_key=row[2],
-                url_patterns=json.loads(row[3]),
-                structural_signals=json.loads(row[4]),
+                display_name=row[3],
+                description=row[4],
+                url_patterns=json.loads(row[5]),
+                structural_signals=json.loads(row[6]),
             )
             for row in rows
         ]
 
     def get_action_schemas(self, site_id: str) -> list[ActionSchema]:
         rows = self._conn.execute(
-            "SELECT action_schema_id, site_id, action_key, preconditions, "
-            "postconditions, preferred_locator_strategy "
+            "SELECT action_schema_id, site_id, action_key, display_name, description, "
+            "source_page_key, target_page_key, preconditions, postconditions, "
+            "locator_strategy, locator_value "
             "FROM action_schemas WHERE site_id = ?",
             (site_id,),
         ).fetchall()
@@ -92,9 +89,14 @@ class PriorStore:
                 action_schema_id=row[0],
                 site_id=row[1],
                 action_key=row[2],
-                preconditions=json.loads(row[3]),
-                postconditions=json.loads(row[4]),
-                preferred_locator_strategy=row[5],
+                display_name=row[3],
+                description=row[4],
+                source_page_key=row[5],
+                target_page_key=row[6],
+                preconditions=json.loads(row[7]),
+                postconditions=json.loads(row[8]),
+                locator_strategy=row[9],
+                locator_value=row[10],
             )
             for row in rows
         ]
@@ -118,7 +120,7 @@ class PriorStore:
 
     def get_policy_rules(self, site_id: str) -> list[PolicyRule]:
         rows = self._conn.execute(
-            "SELECT policy_rule_id, site_id, action_key, policy_type, policy_decision "
+            "SELECT policy_rule_id, site_id, action_key, policy_type, reason "
             "FROM policy_rules WHERE site_id = ?",
             (site_id,),
         ).fetchall()
@@ -128,7 +130,7 @@ class PriorStore:
                 site_id=row[1],
                 action_key=row[2],
                 policy_type=row[3],
-                policy_decision=row[4],
+                reason=row[4],
             )
             for row in rows
         ]

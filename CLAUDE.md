@@ -79,8 +79,8 @@ webarena-verified CLI → run_webarena_verified.py
 - `core.py` — the full baseline agent: `run_agent()` → `analyze_intent()` → `execute_plan()`. Takes a natural-language `intent` and Playwright `pages`, returns `AgentRunResult`. Intent is classified into one of three `TaskType`s (RETRIEVE / NAVIGATE / MUTATE), then dispatched to the corresponding shallow Playwright execution path.
 - `types.py` — `AgentRunResult` and its `TaskType`/`TaskStatus` literals. This is the benchmark contract: the adapter writes it as `agent_response.json`.
 
-**Runtime layer** (`site_adaptive_webagent/runtime/`): Site-adaptive prior knowledge and execution routing — not wired to the agent yet, schema only.
-- `types.py` — dataclasses for `SiteProfile`, `PageType`, `ActionSchema`, `WorkflowHint`, `ValidatorRule`, `PolicyRule`, `FailurePattern`, `PriorBundle`, and execution records (`TaskRun`, `StepRecord`, etc.).
+**Runtime layer** (`site_adaptive_webagent/runtime/`): Site-adaptive prior knowledge and execution routing.
+- `types.py` — dataclasses for `SiteProfile`, `PageType`, `ActionSchema`, `ValidatorRule`, `PolicyRule`, `FailurePattern`, `PriorBundle`, and execution records (`TaskRun`, `StepRecord`, etc.). `PageType` and `ActionSchema` form the site graph (nodes and edges). `ActionSchema.source_page_key → target_page_key` makes transitions explicit.
 - `enums.py` — all enum values (`RouteKind`, `TaskRunStatus`, `PriorConfidence`, etc.).
 - `schema.py` — SQLite DDL for two groups: *prior store* (site knowledge) and *execution memory* (run history). Initialized via `bootstrap_runtime_schema(connection)`.
 - `router.py` — `StrategyRouter.route()` implements a deterministic decision table: `FAST_PATH` (all conditions met) → `PARTIAL_PRIOR` (active site, but prior/task mismatch) → `FALLBACK` (site not active or page type unresolved) → `APPROVAL_FIRST` (policy requires it, overrides everything).

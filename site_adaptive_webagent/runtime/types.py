@@ -97,35 +97,41 @@ class SiteProfile:
     """사이트 수준 prior."""
 
     site_id: str
-    site_key: str
-    domain: str
-    login_type: str
+    display_name: str
+    base_url: str
+    auth_type: str
     onboarding_status: SiteOnboardingStatus
-    default_execution_mode: str
     prior_confidence: PriorConfidence
 
 
 @dataclass(slots=True)
 class PageType:
-    """페이지 유형 prior."""
+    """페이지 유형 prior — 사이트 그래프의 노드."""
 
     page_type_id: str
     site_id: str
     page_key: str
+    display_name: str = ""
+    description: str = ""
     url_patterns: list[str] = field(default_factory=list)
     structural_signals: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class ActionSchema:
-    """반복 액션 정의."""
+    """반복 액션 정의 — 사이트 그래프의 엣지."""
 
     action_schema_id: str
     site_id: str
     action_key: str
+    display_name: str = ""
+    description: str = ""
+    source_page_key: str = ""
+    target_page_key: str | None = None
     preconditions: list[str] = field(default_factory=list)
     postconditions: list[str] = field(default_factory=list)
-    preferred_locator_strategy: str = ""
+    locator_strategy: str = ""
+    locator_value: str = ""
 
 
 @dataclass(slots=True)
@@ -147,7 +153,7 @@ class PolicyRule:
     site_id: str
     action_key: str
     policy_type: str
-    policy_decision: str
+    reason: str = ""
 
 
 @dataclass(slots=True)

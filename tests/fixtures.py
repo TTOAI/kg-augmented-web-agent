@@ -39,11 +39,10 @@ def make_site_profile(
 ) -> SiteProfile:
     return SiteProfile(
         site_id=site_id,
-        site_key=site_id,
-        domain=f"{site_id}.example.com",
-        login_type="ui",
+        display_name=site_id,
+        base_url=f"https://{site_id}.example.com",
+        auth_type="session",
         onboarding_status=onboarding_status,
-        default_execution_mode="fast_path",
         prior_confidence=prior_confidence,
     )
 
@@ -53,9 +52,14 @@ def make_action_schema(*, site_id: str = _SITE_ID) -> ActionSchema:
         action_schema_id=str(uuid.uuid4()),
         site_id=site_id,
         action_key="click_dashboard",
+        display_name="대시보드로 이동",
+        description="프로젝트 대시보드 페이지로 이동한다.",
+        source_page_key="home",
+        target_page_key="dashboard",
         preconditions=["logged_in"],
         postconditions=["dashboard_visible"],
-        preferred_locator_strategy="role",
+        locator_strategy="role",
+        locator_value="",
     )
 
 
@@ -84,7 +88,7 @@ def make_policy_rule(
         site_id=site_id,
         action_key="click_dashboard",
         policy_type=policy_type,
-        policy_decision="allow",
+        reason="",
     )
 
 
@@ -103,6 +107,8 @@ def make_page_type(*, site_id: str = _SITE_ID) -> PageType:
         page_type_id=str(uuid.uuid4()),
         site_id=site_id,
         page_key="dashboard",
+        display_name="프로젝트 대시보드",
+        description="프로젝트 개요, 지표, 빠른 링크를 보여주는 페이지.",
         url_patterns=["/dashboard"],
         structural_signals=["h1.dashboard-title"],
     )

@@ -6,11 +6,10 @@ import sqlite3
 PRIOR_STORE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS site_profiles (
     site_id TEXT PRIMARY KEY,
-    site_key TEXT NOT NULL,
-    domain TEXT NOT NULL,
-    login_type TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    auth_type TEXT NOT NULL,
     onboarding_status TEXT NOT NULL,
-    default_execution_mode TEXT NOT NULL,
     prior_confidence TEXT NOT NULL
 );
 
@@ -18,6 +17,8 @@ CREATE TABLE IF NOT EXISTS page_types (
     page_type_id TEXT PRIMARY KEY,
     site_id TEXT NOT NULL,
     page_key TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT NOT NULL,
     url_patterns TEXT NOT NULL,
     structural_signals TEXT NOT NULL,
     FOREIGN KEY (site_id) REFERENCES site_profiles(site_id)
@@ -27,9 +28,14 @@ CREATE TABLE IF NOT EXISTS action_schemas (
     action_schema_id TEXT PRIMARY KEY,
     site_id TEXT NOT NULL,
     action_key TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    source_page_key TEXT NOT NULL,
+    target_page_key TEXT,
     preconditions TEXT NOT NULL,
     postconditions TEXT NOT NULL,
-    preferred_locator_strategy TEXT NOT NULL,
+    locator_strategy TEXT NOT NULL,
+    locator_value TEXT NOT NULL,
     FOREIGN KEY (site_id) REFERENCES site_profiles(site_id)
 );
 
@@ -47,7 +53,7 @@ CREATE TABLE IF NOT EXISTS policy_rules (
     site_id TEXT NOT NULL,
     action_key TEXT NOT NULL,
     policy_type TEXT NOT NULL,
-    policy_decision TEXT NOT NULL,
+    reason TEXT NOT NULL,
     FOREIGN KEY (site_id) REFERENCES site_profiles(site_id)
 );
 
