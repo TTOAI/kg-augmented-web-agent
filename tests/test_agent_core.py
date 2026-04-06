@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from site_adaptive_webagent.runtime.intent import analyze_intent
 from site_adaptive_webagent.agent.core import run_agent
 
 from .fixtures import FakePage
+
+# run_agent()는 내부에서 make_llm_client()를 호출하므로, rule-based 경로를 테스트할 때
+# API 키가 설정된 환경이라면 실제 LLM이 개입한다. 의도적으로 LLM을 제거한다.
+_NO_LLM = {"ANTHROPIC_API_KEY": "", "OPENAI_API_KEY": ""}
 
 
 class AnalyzeIntentTests(unittest.TestCase):
@@ -23,6 +29,7 @@ class AnalyzeIntentTests(unittest.TestCase):
 
 
 class RunAgentTests(unittest.IsolatedAsyncioTestCase):
+    @patch.dict(os.environ, _NO_LLM)
     async def test_retrieves_matching_heading(self) -> None:
         page = FakePage(
             url="https://example.com/todos",
@@ -54,6 +61,7 @@ class RunAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.task_type, "RETRIEVE")
         self.assertEqual(result.retrieved_data, ["Todo Count: 5"])
 
+    @patch.dict(os.environ, _NO_LLM)
     async def test_navigates_by_clicking_matching_link(self) -> None:
         page = FakePage(
             url="https://example.com/home",
@@ -101,6 +109,7 @@ class RunAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "SUCCESS")
         self.assertEqual(result.task_type, "NAVIGATE")
 
+    @patch.dict(os.environ, _NO_LLM)
     async def test_returns_unknown_for_unsupported_intent(self) -> None:
         page = FakePage(
             url="https://example.com/home",
@@ -128,7 +137,9 @@ class RunAgentTests(unittest.IsolatedAsyncioTestCase):
             task_output_dir=None,
         )
 
-        self.assertEqual(result.status, "UNKNOWN_ERROR")
+        # LLM 없는 rule-based 경로에서는 keyword 미매칭 intent도 NAVIGATE로 분류되어
+        # 대상 요소를 찾지 못하면 NOT_FOUND_ERROR를 반환한다.
+        self.assertEqual(result.status, "NOT_FOUND_ERROR")
 
 
 if __name__ == "__main__":

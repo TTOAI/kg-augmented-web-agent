@@ -15,6 +15,18 @@ from .intent import (
 )
 from .types import ExecutionOutcome, IntentPlan, PageObservation
 
+# 입력 필드 관찰용 selector
+_INPUT_SELECTORS = (
+    "input[type='text']",
+    "input[type='email']",
+    "input[type='search']",
+    "input[type='password']",
+    "input[type='number']",
+    "input:not([type])",
+    "textarea",
+)
+_SELECT_SELECTORS = ("select",)
+
 
 async def observe_page(page: Any) -> PageObservation:
     """현재 보이는 페이지 상태를 간결하게 수집한다."""
@@ -25,7 +37,37 @@ async def observe_page(page: Any) -> PageObservation:
         text_lines=await extract_texts(page, TEXT_BLOCK_SELECTORS),
         links=await extract_texts(page, LINK_SELECTORS),
         buttons=await extract_texts(page, BUTTON_SELECTORS),
+        inputs=await extract_input_labels(page),
     )
+
+
+async def extract_input_labels(page: Any) -> list[str]:
+    """입력 필드의 placeholder / aria-label / name 속성을 수집한다."""
+    labels: list[str] = []
+    for selector in (*_INPUT_SELECTORS, *_SELECT_SELECTORS):
+        locator = page.locator(selector)
+        try:
+            count = await locator.count()
+        except Exception:
+            continue
+        for i in range(min(count, 10)):
+            item = locator.nth(i)
+            label = await _get_input_label(item)
+            if label and label not in labels:
+                labels.append(label)
+    return labels
+
+
+async def _get_input_label(element: Any) -> str:
+    """placeholder → aria-label → name 순으로 입력 필드 식별자를 반환한다."""
+    for attr in ("placeholder", "aria-label", "name"):
+        try:
+            value = await element.get_attribute(attr)
+            if value:
+                return normalize_text(value)
+        except Exception:
+            continue
+    return ""
 
 
 async def execute_plan(
@@ -71,7 +113,7 @@ async def execute_retrieve(*, plan: IntentPlan, page: Any, observation: PageObse
     return ExecutionOutcome(
         task_type="RETRIEVE",
         status="NOT_FOUND_ERROR",
-        error_details=f"값을 찾지 못했습니다: {plan.target_phrase or 'intent'}",
+        error_details=f"Value not found: {plan.target_phrase or 'intent'}",
     )
 
 
@@ -102,13 +144,10 @@ async def execute_navigate(
         if refreshed.url != observation.url or navigation_goal_satisfied(refreshed, plan):
             return ExecutionOutcome(task_type="NAVIGATE", status="SUCCESS")
 
-    if start_urls and normalize_text(observation.url) != normalize_text(start_urls[0]):
-        return ExecutionOutcome(task_type="NAVIGATE", status="SUCCESS")
-
     return ExecutionOutcome(
         task_type="NAVIGATE",
         status="NOT_FOUND_ERROR",
-        error_details=f"목표 페이지로 이동하지 못했습니다: {plan.target_phrase or 'intent'}",
+        error_details=f"Could not navigate to target: {plan.target_phrase or 'intent'}",
     )
 
 
@@ -124,7 +163,7 @@ async def execute_mutate(*, plan: IntentPlan, page: Any, observation: PageObserv
         return ExecutionOutcome(
             task_type="MUTATE",
             status="NOT_FOUND_ERROR",
-            error_details=f"동작 대상 요소를 찾지 못했습니다: {plan.target_phrase or 'intent'}",
+            error_details=f"Target element not found: {plan.target_phrase or 'intent'}",
         )
 
     refreshed = await observe_page(page)
@@ -136,7 +175,7 @@ async def execute_mutate(*, plan: IntentPlan, page: Any, observation: PageObserv
     return ExecutionOutcome(
         task_type="MUTATE",
         status="UNKNOWN_ERROR",
-        error_details="변경 작업 이후 눈에 띄는 상태 변화가 없었습니다",
+        error_details="No visible state change after action",
     )
 
 
@@ -160,6 +199,29 @@ async def try_click_target(page: Any, target_terms: list[str]) -> bool:
             if any(term in text for term in target_terms):
                 try:
                     await item.click()
+                    return True
+                except Exception:
+                    continue
+    return False
+
+
+async def try_fill_target(page: Any, target: str, value: str, *, submit: bool = False) -> bool:
+    """target(placeholder/aria-label/name)과 일치하는 입력 필드를 찾아 value를 채운다."""
+    target_norm = normalize_text(target)
+    for selector in (*_INPUT_SELECTORS, *_SELECT_SELECTORS):
+        locator = page.locator(selector)
+        try:
+            count = await locator.count()
+        except Exception:
+            continue
+        for i in range(min(count, 20)):
+            item = locator.nth(i)
+            label = await _get_input_label(item)
+            if label and target_norm in label:
+                try:
+                    await item.fill(value)
+                    if submit:
+                        await item.press("Enter")
                     return True
                 except Exception:
                     continue
@@ -191,17 +253,36 @@ async def try_search(page: Any, phrase: str) -> bool:
 
 
 async def extract_texts(page: Any, selectors: tuple[str, ...]) -> list[str]:
-    """실행 전체를 깨뜨리지 않고 selector 목록에서 텍스트를 읽는다."""
+    """실행 전체를 깨뜨리지 않고 selector 목록에서 텍스트를 읽는다.
+
+    inner_text가 비어있는 요소(예: 아이콘 전용 링크)는 aria-label → title 순으로 대체 텍스트를 읽는다.
+    """
+    from .intent import collapse_whitespace
+
     texts: list[str] = []
     for selector in selectors:
         locator = page.locator(selector)
         try:
-            selector_texts = await locator.all_inner_texts()
+            count = await locator.count()
         except Exception:
             continue
-        for text in selector_texts:
-            from .intent import collapse_whitespace
-            cleaned = collapse_whitespace(text)
+        for i in range(min(count, 100)):
+            item = locator.nth(i)
+            try:
+                raw = await item.inner_text()
+            except Exception:
+                raw = ""
+            cleaned = collapse_whitespace(raw)
+            if not cleaned:
+                # 아이콘 전용 요소 — aria-label / title 속성으로 대체
+                for attr in ("aria-label", "title"):
+                    try:
+                        value = await item.get_attribute(attr)
+                        if value:
+                            cleaned = collapse_whitespace(value)
+                            break
+                    except Exception:
+                        continue
             if cleaned and cleaned not in texts:
                 texts.append(cleaned)
     return texts

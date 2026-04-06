@@ -32,4 +32,6 @@ def _evaluate_rule(rule: ValidatorRule) -> ValidationResult:
         return ValidationResult.PASS
     if rule.rule_type == "always_fail":
         return ValidationResult.FAIL
+    # llm_judge, element_visible, text_contains, url_matches 등 실행 컨텍스트가
+    # 필요한 규칙은 현재 stub에서 PARTIAL로 처리한다.
     return ValidationResult.PARTIAL

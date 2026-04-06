@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
-from .browser import execute_plan, observe_page
+from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
+from .llm import LLMClient, build_action_request, build_system_prompt, parse_llm_action
 from .recovery import execute_recovery
 from .store import ExecutionStore
-from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, StepRecord, ValidatorRule
+from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, PageObservation, PriorBundle, StepRecord, ValidatorRule
 from .validator import validate
 
 _TASK_TO_RUN_STATUS: dict[str, TaskRunStatus] = {
@@ -27,11 +29,15 @@ async def execute_fast_path(
     failure_patterns: list[FailurePattern],
     execution_store: ExecutionStore,
     browser_session: BrowserSession | None = None,
+    task: str = "",
+    llm: LLMClient | None = None,
+    prior_bundle: PriorBundle | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """fast path 실행.
 
     browser_session이 있으면 실제 브라우저 실행 결과를 TaskRunStatus로 매핑한다.
     없으면 결정론적 stub(validator → recovery → 재검증)을 실행한다.
+    llm이 있으면 LLM 기반 액션 루프를 사용한다.
 
     Returns: (final_status, validator_used, recovery_used, execution_outcome)
     """
@@ -41,6 +47,9 @@ async def execute_fast_path(
             step_type="fast_path",
             browser_session=browser_session,
             execution_store=execution_store,
+            task=task,
+            llm=llm,
+            prior_bundle=prior_bundle,
         )
 
     # --- stub 동작 ---
@@ -79,6 +88,9 @@ async def execute_partial_prior(
     task_run_id: str,
     execution_store: ExecutionStore,
     browser_session: BrowserSession | None = None,
+    task: str = "",
+    llm: LLMClient | None = None,
+    prior_bundle: PriorBundle | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """partial prior path 실행.
 
@@ -91,6 +103,9 @@ async def execute_partial_prior(
             step_type="partial_prior",
             browser_session=browser_session,
             execution_store=execution_store,
+            task=task,
+            llm=llm,
+            prior_bundle=prior_bundle,
         )
 
     step = _make_step(task_run_id, "partial_prior")
@@ -105,6 +120,9 @@ async def execute_fallback(
     task_run_id: str,
     execution_store: ExecutionStore,
     browser_session: BrowserSession | None = None,
+    task: str = "",
+    llm: LLMClient | None = None,
+    prior_bundle: PriorBundle | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """fallback path 실행.
 
@@ -117,6 +135,9 @@ async def execute_fallback(
             step_type="fallback",
             browser_session=browser_session,
             execution_store=execution_store,
+            task=task,
+            llm=llm,
+            prior_bundle=prior_bundle,
         )
 
     step = _make_step(task_run_id, "fallback")
@@ -152,8 +173,14 @@ async def _run_with_browser(
     step_type: str,
     browser_session: BrowserSession,
     execution_store: ExecutionStore,
+    task: str = "",
+    llm: LLMClient | None = None,
+    prior_bundle: PriorBundle | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome]:
-    """브라우저를 실행하고 ExecutionOutcome을 TaskRunStatus로 매핑한다."""
+    """브라우저를 실행하고 ExecutionOutcome을 TaskRunStatus로 매핑한다.
+
+    llm이 있으면 LLM 기반 액션 루프를 사용하고, 없으면 규칙 기반 execute_plan을 사용한다.
+    """
     primary_page = browser_session.pages[0]
     observation = await observe_page(primary_page)
 
@@ -161,7 +188,16 @@ async def _run_with_browser(
         outcome = ExecutionOutcome(
             task_type=browser_session.plan.task_type,
             status="UNKNOWN_ERROR",
-            error_details=f"지원하지 않는 intent입니다",
+            error_details="Unsupported intent",
+        )
+    elif llm is not None:
+        outcome = await _execute_with_llm(
+            task=task or browser_session.plan.target_phrase or "complete the task",
+            task_type=browser_session.plan.task_type,
+            page=primary_page,
+            observation=observation,
+            llm=llm,
+            prior_bundle=prior_bundle,
         )
     else:
         outcome = await execute_plan(
@@ -178,6 +214,85 @@ async def _run_with_browser(
     step = _make_step(task_run_id, step_type)
     execution_store.save_step_record(_finish_step(step, step_status, outcome.status))
     return task_status, False, False, outcome
+
+
+async def _execute_with_llm(
+    *,
+    task: str,
+    task_type: str,
+    page: Any,
+    observation: PageObservation,
+    llm: LLMClient,
+    prior_bundle: PriorBundle | None,
+    max_steps: int = 5,
+) -> ExecutionOutcome:
+    """LLM 기반 액션 루프. 최대 max_steps번 LLM에 물어보며 태스크를 완수한다.
+
+    대화 히스토리를 누적해 LLM이 이전 스텝 맥락을 활용할 수 있게 한다.
+    """
+    system = build_system_prompt(prior_bundle)
+    current_obs = observation
+    messages: list[dict[str, str]] = []
+
+    for _ in range(max_steps):
+        user_msg = build_action_request(task=task, observation=current_obs)
+        messages.append({"role": "user", "content": user_msg})
+
+        response = llm.complete(system=system, messages=messages)
+        messages.append({"role": "assistant", "content": response})
+
+        action = parse_llm_action(response)
+        action_type = action.get("action", "not_found")
+
+        if action_type == "extract":
+            value = action.get("value", "")
+            label = action.get("label", "")
+            if value:
+                display = f"{label}: {value}" if label else value
+                return ExecutionOutcome(task_type=task_type, status="SUCCESS", retrieved_data=[display])
+            return ExecutionOutcome(
+                task_type=task_type,
+                status="NOT_FOUND_ERROR",
+                error_details="LLM extract action missing value",
+            )
+
+        if action_type == "not_found":
+            return ExecutionOutcome(
+                task_type=task_type,
+                status="NOT_FOUND_ERROR",
+                error_details=action.get("reasoning", "LLM returned not_found"),
+            )
+
+        # 중간 탐색/입력 액션 실행 후 계속
+        if action_type == "click":
+            target = action.get("target", "")
+            if target:
+                await try_click_target(page, [target])
+        elif action_type == "fill":
+            target = action.get("target", "")
+            value = action.get("value", "")
+            submit = bool(action.get("submit", False))
+            if target and value:
+                await try_fill_target(page, target, value, submit=submit)
+        elif action_type == "goto":
+            url = action.get("url", "")
+            if url:
+                try:
+                    await page.goto(url)
+                except Exception:
+                    pass
+        elif action_type == "search":
+            query = action.get("target", "")
+            if query:
+                await try_search(page, query)
+
+        current_obs = await observe_page(page)
+
+    return ExecutionOutcome(
+        task_type=task_type,
+        status="NOT_FOUND_ERROR",
+        error_details=f"Task not completed after {max_steps} attempts",
+    )
 
 
 def _make_step(task_run_id: str, step_type: str) -> StepRecord:

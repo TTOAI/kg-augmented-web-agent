@@ -198,6 +198,23 @@ def make_approval_event(
     )
 
 
+# --- LLM stub ---
+
+class FakeLLMClient:
+    """테스트용 고정 응답 LLMClient stub."""
+
+    def __init__(self, responses: list[str] | str) -> None:
+        self._responses = [responses] if isinstance(responses, str) else responses
+        self._index = 0
+        self.calls: list[dict] = []
+
+    def complete(self, *, system: str, messages: list[dict[str, str]]) -> str:
+        self.calls.append({"system": system, "messages": list(messages)})  # 스냅샷 저장
+        response = self._responses[min(self._index, len(self._responses) - 1)]
+        self._index += 1
+        return response
+
+
 # --- Playwright stub (테스트용 가짜 페이지) ---
 
 class FakeElementLocator:
@@ -217,6 +234,10 @@ class FakeElementLocator:
 
     async def press(self, key: str) -> None:
         self.page.last_pressed = key
+
+    async def get_attribute(self, name: str) -> str | None:
+        attrs = self.page.element_attributes.get((self.selector, self.index), {})
+        return attrs.get(name)
 
 
 class FakeLocator:
@@ -242,11 +263,13 @@ class FakePage:
         title_text: str,
         selector_texts: dict[str, list[str]],
         click_updates: dict[tuple[str, int], dict[str, Any]] | None = None,
+        element_attributes: dict[tuple[str, int], dict[str, str]] | None = None,
     ) -> None:
         self.url = url
         self._title = title_text
         self.selector_texts = selector_texts
         self.click_updates = click_updates or {}
+        self.element_attributes = element_attributes or {}
         self.last_filled: str | None = None
         self.last_pressed: str | None = None
 
@@ -277,8 +300,19 @@ def make_fake_page(
     text_lines: list[str] | None = None,
     links: list[str] | None = None,
     buttons: list[str] | None = None,
+    inputs: list[str] | None = None,
 ) -> FakePage:
-    """기본값을 채운 FakePage를 생성한다."""
+    """기본값을 채운 FakePage를 생성한다.
+
+    inputs: placeholder 텍스트 목록. input[type='text'] selector에 매핑된다.
+    """
+    input_labels = inputs or []
+    # input 개수만큼 selector_texts에 빈 문자열 엔트리 생성 (count용)
+    input_selector = "input[type='text']"
+    element_attrs = {
+        (input_selector, i): {"placeholder": label}
+        for i, label in enumerate(input_labels)
+    }
     return FakePage(
         url=url,
         title_text=title_text,
@@ -292,5 +326,7 @@ def make_fake_page(
             "a": links or [],
             "button": buttons or [],
             "[role='button']": [],
+            input_selector: [""] * len(input_labels),
         },
+        element_attributes=element_attrs,
     )

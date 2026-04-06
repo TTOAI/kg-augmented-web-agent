@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from .types import IntentAction, IntentPlan, PageObservation, TaskType
 
@@ -43,8 +44,11 @@ LINK_SELECTORS = ("a",)
 BUTTON_SELECTORS = ("button", "[role='button']")
 
 
-def analyze_intent(intent: str) -> IntentPlan:
-    """자연어 intent를 얕고 결정적인 실행 계획으로 바꾼다."""
+def analyze_intent(intent: str, llm: Any = None) -> IntentPlan:
+    """자연어 intent를 얕고 결정적인 실행 계획으로 바꾼다.
+
+    llm이 제공되면 LLM으로 task_type을 분류한다. 없으면 키워드 기반 fallback을 사용한다.
+    """
     normalized_intent = normalize_text(intent)
     explicit_url = extract_explicit_url(intent)
     target_phrase = extract_target_phrase(intent)
@@ -59,7 +63,20 @@ def analyze_intent(intent: str) -> IntentPlan:
             explicit_url=explicit_url,
         )
 
-    if contains_keyword(normalized_intent, RETRIEVE_KEYWORDS):
+    # LLM 분류 우선, fallback은 키워드 기반
+    if llm is not None:
+        from .llm import classify_task_type  # 지연 임포트로 순환 방지
+        task_type: TaskType = classify_task_type(intent, llm)  # type: ignore[assignment]
+    elif contains_keyword(normalized_intent, RETRIEVE_KEYWORDS):
+        task_type = "RETRIEVE"
+    elif contains_keyword(normalized_intent, NAVIGATE_KEYWORDS):
+        task_type = "NAVIGATE"
+    elif contains_keyword(normalized_intent, MUTATE_KEYWORDS):
+        task_type = "MUTATE"
+    else:
+        task_type = "NAVIGATE"
+
+    if task_type == "RETRIEVE":
         return IntentPlan(
             task_type="RETRIEVE",
             action="inspect_page",
@@ -67,15 +84,7 @@ def analyze_intent(intent: str) -> IntentPlan:
             target_terms=target_terms,
         )
 
-    if contains_keyword(normalized_intent, NAVIGATE_KEYWORDS):
-        return IntentPlan(
-            task_type="NAVIGATE",
-            action="click_target",
-            target_phrase=target_phrase,
-            target_terms=target_terms,
-        )
-
-    if contains_keyword(normalized_intent, MUTATE_KEYWORDS):
+    if task_type == "MUTATE":
         action: IntentAction = "search_target" if "search" in normalized_intent else "click_target"
         return IntentPlan(
             task_type="MUTATE",
@@ -84,9 +93,11 @@ def analyze_intent(intent: str) -> IntentPlan:
             target_terms=target_terms,
         )
 
+    # NAVIGATE (기본값 포함)
+    action_nav: IntentAction = "click_target" if target_terms else "unsupported"
     return IntentPlan(
         task_type="NAVIGATE",
-        action="unsupported",
+        action=action_nav,
         target_phrase=target_phrase,
         target_terms=target_terms,
     )

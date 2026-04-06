@@ -4,8 +4,13 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from .types import AgentRunResult
 from site_adaptive_webagent.runtime.intent import analyze_intent
+from site_adaptive_webagent.runtime.llm import make_llm_client
+
+load_dotenv()  # .env 파일에서 LLM_PROVIDER / API 키를 로드한다
 from site_adaptive_webagent.runtime.orchestrator import RuntimeOrchestrator
 from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
 from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
@@ -29,13 +34,13 @@ async def run_agent(  # noqa: PLR0913
     del context, task_id, task_output_dir
 
     if not pages:
-        return AgentRunResult.unknown_error("이 task에서 열린 페이지가 없습니다")
-
-    plan = analyze_intent(intent)
+        return AgentRunResult.unknown_error("No pages opened for this task")
 
     conn = sqlite3.connect(":memory:")
     bootstrap_runtime_schema(conn)
-    orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn))
+    llm = make_llm_client()
+    plan = analyze_intent(intent, llm=llm)
+    orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
     primary_site = sites[0] if sites else "unknown"
     task_family = plan.task_type.lower()
@@ -65,4 +70,4 @@ async def run_agent(  # noqa: PLR0913
             error_details=o.error_details,
         )
 
-    return AgentRunResult.unknown_error(runtime_result.error_details or "실행 결과가 없습니다")
+    return AgentRunResult.unknown_error(runtime_result.error_details or "No execution result")

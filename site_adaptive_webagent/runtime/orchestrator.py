@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from .enums import PriorConfidence, RouteKind, SiteOnboardingStatus, TaskRunStatus
 from .executor import execute_approval_first, execute_fallback, execute_fast_path, execute_partial_prior
+from .llm import LLMClient
 from .router import RouteInput, StrategyRouter
 from .store import ExecutionStore, PriorStore
 from .types import BrowserSession, ExecutionOutcome, PriorBundle, RunContext, RunRequest, TaskRun
@@ -27,10 +28,16 @@ class RuntimeRunResult:
 class RuntimeOrchestrator:
     """prior 조회 → 라우팅 → 실행 → 기록의 core runtime 흐름을 조율한다."""
 
-    def __init__(self, prior_store: PriorStore, execution_store: ExecutionStore) -> None:
+    def __init__(
+        self,
+        prior_store: PriorStore,
+        execution_store: ExecutionStore,
+        llm: LLMClient | None = None,
+    ) -> None:
         self._prior_store = prior_store
         self._execution_store = execution_store
         self._router = StrategyRouter()
+        self._llm = llm
 
     async def run(
         self,
@@ -75,6 +82,8 @@ class RuntimeOrchestrator:
             prior_bundle=prior_bundle,
             execution_store=self._execution_store,
             browser_session=browser_session,
+            task=run_request.request_text,
+            llm=self._llm,
         )
 
         ended_at = datetime.now(timezone.utc).isoformat()
@@ -119,6 +128,8 @@ async def _dispatch(
     prior_bundle: PriorBundle | None,
     execution_store: ExecutionStore,
     browser_session: BrowserSession | None,
+    task: str = "",
+    llm: LLMClient | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """route 결과에 따라 적절한 executor로 위임한다."""
     if route == RouteKind.APPROVAL_FIRST:
@@ -132,6 +143,9 @@ async def _dispatch(
             task_run_id=task_run_id,
             execution_store=execution_store,
             browser_session=browser_session,
+            task=task,
+            llm=llm,
+            prior_bundle=prior_bundle,
         )
 
     if route == RouteKind.PARTIAL_PRIOR:
@@ -139,6 +153,9 @@ async def _dispatch(
             task_run_id=task_run_id,
             execution_store=execution_store,
             browser_session=browser_session,
+            task=task,
+            llm=llm,
+            prior_bundle=prior_bundle,
         )
 
     # FAST_PATH
@@ -150,4 +167,7 @@ async def _dispatch(
         failure_patterns=failure_patterns,
         execution_store=execution_store,
         browser_session=browser_session,
+        task=task,
+        llm=llm,
+        prior_bundle=prior_bundle,
     )

@@ -49,6 +49,7 @@ class PageObservation:
     text_lines: list[str]
     links: list[str]
     buttons: list[str]
+    inputs: list[str] = field(default_factory=list)  # placeholder / label 기반 입력 필드
 
 
 @dataclass(slots=True)

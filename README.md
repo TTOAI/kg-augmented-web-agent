@@ -16,16 +16,28 @@
 ### 설치
 
 ```bash
-python3 -m pip install webarena-verified
-python3 -m pip install playwright
-python3 -m playwright install chromium
+# 의존성 설치 (uv 권장)
+uv pip install -e .
+uv pip install playwright
+playwright install chromium
 ```
 
-혹은
+### LLM 설정
 
 ```bash
-uvx webarena-verified --help
+cp .env.example .env
+# .env 안에 사용할 provider와 API 키 입력
 ```
+
+`.env` 예시:
+
+```bash
+LLM_PROVIDER=openai          # 또는 anthropic
+OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-ant-...
+```
+
+API 키가 없으면 LLM 없이 규칙 기반으로 폴백된다.
 
 ### config 준비
 
@@ -91,7 +103,7 @@ webarena-verified agent-input-get \
 export된 task JSON을 읽어 agent 실행
 
 ```bash
-python3 run_webarena_verified.py \
+.venv/bin/python run_webarena_verified.py \
   --tasks-file output/tasks.demo.json \
   --task-id 44 \
   --config config/webarena_verified.json \
