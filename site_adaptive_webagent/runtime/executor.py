@@ -331,9 +331,8 @@ async def _execute_with_llm(
                 current_obs = await observe_page(page)
                 continue
             if value:
-                display = f"{label}: {value}" if label else value
-                logger.info("[LLM] extract → SUCCESS  value=%r", display[:100])
-                return ExecutionOutcome(task_type=task_type, status="SUCCESS", retrieved_data=[display])
+                logger.info("[LLM] extract → SUCCESS  label=%r value=%r", label, value[:100])
+                return ExecutionOutcome(task_type=task_type, status="SUCCESS", retrieved_data=[value])
             logger.info("[LLM] extract → NOT_FOUND_ERROR (missing value)")
             return ExecutionOutcome(
                 task_type=task_type,

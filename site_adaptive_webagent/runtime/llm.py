@@ -126,7 +126,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "Keep reasoning to 1-2 sentences. Be concise.",
         "",
         "Action descriptions:",
-        '  "extract"   — the requested data is already visible; set "value" (the data) and "label" (what it represents)',
+        '  "extract"   — the requested data is already visible; set "value" to the exact answer only (a number, name, or URL — no extra words), and "label" (what it represents)',
         '  "click"     — click a link or button; set "target" to the visible name only (NOT the URL).',
         '               Example: target="Issues", NOT target="Issues → /path".',
         '               If multiple links share the same name, set "url" to the pathname (e.g. "/project/-/issues").',
@@ -235,6 +235,7 @@ def build_action_request(
             "",
             "Focus on the [current] sub-goal. Set \"goal_complete\": true when it is achieved.",
             "Only use \"done\" action when ALL sub-goals are complete.",
+            "Only use \"extract\" to return the FINAL answer to the task — never for intermediate progress.",
             "",
         ]
 
