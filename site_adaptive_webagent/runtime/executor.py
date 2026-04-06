@@ -381,7 +381,7 @@ async def _execute_with_llm(
             if target:
                 # 드롭다운이 열려있으면 CSS locator로 dropdown-item 클릭
                 # (get_by_role은 <a href="#">의 기본 navigation을 발생시켜 JS 이벤트를 방해)
-                if prev_dropdown and not action_succeeded:
+                if prev_dropdown:
                     try:
                         items = page.locator(".dropdown-item, [role='option'], [role='menuitem'], [role='tab']")
                         count = await items.count()
@@ -466,7 +466,6 @@ async def _execute_with_llm(
                 await page.wait_for_timeout(1000)
             except Exception:
                 pass
-
 
         current_obs = await observe_page(page)
 
