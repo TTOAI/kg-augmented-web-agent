@@ -302,9 +302,14 @@ async def _execute_with_llm(
             try:
                 search_btn = page.locator("button[aria-label='Search']")
                 if await search_btn.count() > 0:
+                    pre_url = page.url
                     await search_btn.first.click()
                     logger.info("[LLM] auto-submit: clicked search button on done")
-                    await page.wait_for_timeout(2000)
+                    # URL이 변할 때까지 대기 (최대 5초)
+                    for _ in range(10):
+                        await page.wait_for_timeout(500)
+                        if page.url != pre_url:
+                            break
             except Exception:
                 pass
             # SPA 필터 적용 후 GET 요청이 HAR에 남도록 현재 URL reload
