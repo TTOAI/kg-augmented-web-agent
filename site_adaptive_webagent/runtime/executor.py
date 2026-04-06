@@ -472,7 +472,16 @@ async def _execute_with_llm(
         if action_type == "click":
             target = action.get("target", "")
             if not action_succeeded:
-                last_action_result = f"click '{target}': element not found"
+                # 확장 관측: 못 찾은 요소가 범위 밖에 있을 수 있음
+                extra_links = current_obs.links[20:40]
+                extra_buttons = current_obs.buttons[10:20]
+                extras = []
+                if extra_links:
+                    extras.append(f"More links: {extra_links}")
+                if extra_buttons:
+                    extras.append(f"More buttons: {extra_buttons}")
+                extra_msg = " " + " ".join(extras) if extras else ""
+                last_action_result = f"click '{target}': element not found.{extra_msg}"
             elif current_obs.url != prev_url:
                 last_action_result = f"click '{target}': navigated to {current_obs.url}"
             elif set(current_obs.links) != prev_links or set(current_obs.buttons) != prev_buttons or set(current_obs.dropdown_options) != prev_dropdown:

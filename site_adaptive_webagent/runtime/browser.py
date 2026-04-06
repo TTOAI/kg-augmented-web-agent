@@ -32,7 +32,7 @@ _SELECT_SELECTORS = ("select",)
 async def observe_page(page: Any) -> PageObservation:
     """현재 보이는 페이지 상태를 간결하게 수집한다."""
     url = normalize_text(getattr(page, "url", ""))
-    title, headings, text_lines, ax_links, dropdown_options, buttons, inputs = await asyncio.gather(
+    title, headings, text_lines, ax_links, dropdown_options, buttons, inputs, readonly_values = await asyncio.gather(
         safe_title(page),
         extract_texts(page, HEADING_SELECTORS),
         extract_texts(page, TEXT_BLOCK_SELECTORS),
@@ -40,14 +40,17 @@ async def observe_page(page: Any) -> PageObservation:
         extract_dropdown_options(page),
         extract_texts(page, BUTTON_SELECTORS),
         extract_input_labels(page),
+        extract_readonly_values(page),
     )
     # AX tree가 빈 결과면 CSS selector 폴백
     links = ax_links if ax_links else await extract_texts(page, LINK_SELECTORS)
+    # readonly input의 value를 text_lines에 병합
+    all_text = text_lines + readonly_values
     return PageObservation(
         url=url,
         title=normalize_text(title),
         headings=headings,
-        text_lines=text_lines,
+        text_lines=all_text,
         links=links,
         buttons=buttons,
         inputs=inputs,
@@ -119,6 +122,27 @@ async def extract_input_labels(page: Any) -> list[str]:
                 seen.add(cleaned)
                 labels.append(cleaned)
     return labels
+
+
+async def extract_readonly_values(page: Any) -> list[str]:
+    """보이는 readonly input의 value를 수집한다 (예: clone URL)."""
+    try:
+        results: list[str] = await page.evaluate(
+            """() => {
+                return Array.from(document.querySelectorAll('input[readonly]'))
+                    .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)
+                    .map(el => {
+                        const label = el.getAttribute('aria-label') || el.getAttribute('name') || '';
+                        const value = el.value || '';
+                        if (!value) return '';
+                        return label ? label + ': ' + value : value;
+                    })
+                    .filter(Boolean)
+            }"""
+        )
+        return results[:10]
+    except Exception:
+        return []
 
 
 async def execute_plan(

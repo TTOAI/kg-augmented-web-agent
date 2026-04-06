@@ -583,11 +583,18 @@ class WebArenaVerifiedAdapter:
                 if browser is not None:
                     await browser.close()
 
-        # 기본 agent_response: NAVIGATE/SUCCESS
+        # agent_response 입력
+        task_type_input = input(">>> Task type (NAVIGATE/RETRIEVE/MUTATE) [NAVIGATE]: ").strip().upper()
+        task_type = task_type_input if task_type_input in ("NAVIGATE", "RETRIEVE", "MUTATE") else "NAVIGATE"
+        retrieved_data = None
+        if task_type == "RETRIEVE":
+            data_input = input(">>> Retrieved data (추출한 값): ").strip()
+            if data_input:
+                retrieved_data = [data_input]
         result = AgentRunResult(
-            task_type="NAVIGATE",
+            task_type=task_type,
             status="SUCCESS",
-            retrieved_data=None,
+            retrieved_data=retrieved_data,
             error_details=None,
         )
         output_path = write_agent_response(task_output_dir, result)
