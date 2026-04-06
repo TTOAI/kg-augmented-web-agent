@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from site_adaptive_webagent.runtime.browser import extract_texts, observe_page
+from site_adaptive_webagent.runtime.browser import extract_texts, observe_page, try_click_target
 from site_adaptive_webagent.runtime.intent import LINK_SELECTORS, BUTTON_SELECTORS
 
 from .fixtures import FakePage, make_fake_page
@@ -68,6 +68,42 @@ class ExtractTextsTests(unittest.IsolatedAsyncioTestCase):
         texts = await extract_texts(page, ("a",))
         self.assertIn("Real Text", texts)
         self.assertNotIn("Aria Label", texts)
+
+
+class TryClickTargetTests(unittest.IsolatedAsyncioTestCase):
+    async def test_clicks_by_inner_text(self) -> None:
+        page = make_fake_page(links=["Dashboard", "Issues"])
+        result = await try_click_target(page, ["dashboard"])
+        self.assertTrue(result)
+
+    async def test_clicks_icon_link_by_aria_label(self) -> None:
+        """inner_text가 없는 icon-only 링크도 aria-label로 클릭할 수 있어야 한다."""
+        page = FakePage(
+            url="http://gitlab.example.com",
+            title_text="GitLab",
+            selector_texts={"a": [""]},  # icon-only 링크
+            element_attributes={("a", 0): {"aria-label": "Todos"}},
+            click_updates={("a", 0): {"url": "http://gitlab.example.com/dashboard/todos"}},
+        )
+        result = await try_click_target(page, ["todos"])
+        self.assertTrue(result)
+        self.assertEqual(page.url, "http://gitlab.example.com/dashboard/todos")
+
+    async def test_returns_false_when_no_match(self) -> None:
+        page = make_fake_page(links=["Home", "Issues"])
+        result = await try_click_target(page, ["nonexistent"])
+        self.assertFalse(result)
+
+    async def test_clicks_by_title_attribute(self) -> None:
+        page = FakePage(
+            url="http://example.com",
+            title_text="Page",
+            selector_texts={"button": [""]},
+            element_attributes={("button", 0): {"title": "Close dialog"}},
+            click_updates={("button", 0): {"url": "http://example.com/closed"}},
+        )
+        result = await try_click_target(page, ["close"])
+        self.assertTrue(result)
 
 
 class ObservePageTests(unittest.IsolatedAsyncioTestCase):

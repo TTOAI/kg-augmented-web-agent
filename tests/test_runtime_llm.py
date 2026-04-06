@@ -41,6 +41,12 @@ class BuildSystemPromptTests(unittest.TestCase):
         self.assertIn("extract", prompt)
         self.assertIn("click", prompt)
         self.assertIn("not_found", prompt)
+        self.assertIn("done", prompt)
+
+    def test_system_prompt_contains_strategy_hint(self) -> None:
+        prompt = build_system_prompt(None)
+        self.assertIn("prefer", prompt.lower())
+        self.assertIn("goto", prompt)
 
     def test_prior_bundle_includes_site_info(self) -> None:
         profile = make_site_profile(site_id="gitlab")
@@ -338,6 +344,103 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(llm.calls[1]["messages"]), 3)
         # 3번째 호출: [user, assistant, user, assistant, user]
         self.assertEqual(len(llm.calls[2]["messages"]), 5)
+
+    async def test_llm_permission_denied_returns_correct_status(self) -> None:
+        """LLM이 permission_denied를 반환하면 PERMISSION_DENIED_ERROR."""
+        conn = _make_connection()
+        _seed_site(conn)
+
+        llm = FakeLLMClient('{"action": "permission_denied", "reasoning": "No admin role"}')
+        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+
+        page = make_fake_page(url="http://localhost:8023/admin", title_text="Admin")
+        plan = analyze_intent("Open admin settings")
+        result = await orchestrator.run(
+            RunRequest(request_text="Open admin settings", task_family="navigate"),
+            RunContext(site_id="gitlab", page_type_id="unresolved",
+                       task_family="navigate", state_summary=""),
+            browser_session=BrowserSession(
+                pages=[page], sites=["gitlab"],
+                start_urls=["http://localhost:8023"], plan=plan,
+            ),
+        )
+
+        assert result.execution_outcome is not None
+        self.assertEqual(result.execution_outcome.status, "PERMISSION_DENIED_ERROR")
+
+    async def test_llm_action_not_allowed_returns_correct_status(self) -> None:
+        """LLM이 action_not_allowed를 반환하면 ACTION_NOT_ALLOWED_ERROR."""
+        conn = _make_connection()
+        _seed_site(conn)
+
+        llm = FakeLLMClient('{"action": "action_not_allowed", "reasoning": "Billing disabled"}')
+        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+
+        page = make_fake_page(url="http://localhost:8023/", title_text="GitLab")
+        plan = analyze_intent("Navigate to billing page")
+        result = await orchestrator.run(
+            RunRequest(request_text="Navigate to billing page", task_family="navigate"),
+            RunContext(site_id="gitlab", page_type_id="unresolved",
+                       task_family="navigate", state_summary=""),
+            browser_session=BrowserSession(
+                pages=[page], sites=["gitlab"],
+                start_urls=["http://localhost:8023"], plan=plan,
+            ),
+        )
+
+        assert result.execution_outcome is not None
+        self.assertEqual(result.execution_outcome.status, "ACTION_NOT_ALLOWED_ERROR")
+
+    async def test_llm_done_returns_navigate_success(self) -> None:
+        """LLM이 done을 반환하면 NAVIGATE SUCCESS."""
+        conn = _make_connection()
+        _seed_site(conn)
+
+        llm = FakeLLMClient('{"action": "done"}')
+        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+
+        page = make_fake_page(
+            url="http://localhost:8023/dashboard/todos",
+            title_text="Todos",
+        )
+        plan = analyze_intent("Open my todos page")
+        result = await orchestrator.run(
+            RunRequest(request_text="Open my todos page", task_family="navigate"),
+            RunContext(site_id="gitlab", page_type_id="unresolved",
+                       task_family="navigate", state_summary=""),
+            browser_session=BrowserSession(
+                pages=[page], sites=["gitlab"],
+                start_urls=["http://localhost:8023"], plan=plan,
+            ),
+        )
+
+        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
+        assert result.execution_outcome is not None
+        self.assertEqual(result.execution_outcome.status, "SUCCESS")
+
+    async def test_llm_done_returns_mutate_success(self) -> None:
+        """LLM이 done을 반환하면 MUTATE SUCCESS."""
+        conn = _make_connection()
+        _seed_site(conn)
+
+        llm = FakeLLMClient('{"action": "done"}')
+        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+
+        page = make_fake_page(url="http://localhost:8023/", title_text="GitLab")
+        plan = analyze_intent("Click submit button")
+        result = await orchestrator.run(
+            RunRequest(request_text="Click submit button", task_family="mutate"),
+            RunContext(site_id="gitlab", page_type_id="unresolved",
+                       task_family="mutate", state_summary=""),
+            browser_session=BrowserSession(
+                pages=[page], sites=["gitlab"],
+                start_urls=["http://localhost:8023"], plan=plan,
+            ),
+        )
+
+        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
+        assert result.execution_outcome is not None
+        self.assertEqual(result.execution_outcome.status, "SUCCESS")
 
     async def test_llm_none_falls_back_to_rule_based(self) -> None:
         """llm=None이면 기존 규칙 기반 경로를 사용한다."""

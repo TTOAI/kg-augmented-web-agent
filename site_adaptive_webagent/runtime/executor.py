@@ -12,6 +12,14 @@ from .store import ExecutionStore
 from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, PageObservation, PriorBundle, StepRecord, ValidatorRule
 from .validator import validate
 
+_FAILURE_ACTION_TO_STATUS: dict[str, str] = {
+    "not_found": "NOT_FOUND_ERROR",
+    "permission_denied": "PERMISSION_DENIED_ERROR",
+    "action_not_allowed": "ACTION_NOT_ALLOWED_ERROR",
+    "data_validation_error": "DATA_VALIDATION_ERROR",
+    "unknown_error": "UNKNOWN_ERROR",
+}
+
 _TASK_TO_RUN_STATUS: dict[str, TaskRunStatus] = {
     "SUCCESS": TaskRunStatus.VALIDATED,
     "ACTION_NOT_ALLOWED_ERROR": TaskRunStatus.HANDOFF,
@@ -244,6 +252,9 @@ async def _execute_with_llm(
         action = parse_llm_action(response)
         action_type = action.get("action", "not_found")
 
+        if action_type == "done":
+            return ExecutionOutcome(task_type=task_type, status="SUCCESS")
+
         if action_type == "extract":
             value = action.get("value", "")
             label = action.get("label", "")
@@ -256,11 +267,11 @@ async def _execute_with_llm(
                 error_details="LLM extract action missing value",
             )
 
-        if action_type == "not_found":
+        if action_type in _FAILURE_ACTION_TO_STATUS:
             return ExecutionOutcome(
                 task_type=task_type,
-                status="NOT_FOUND_ERROR",
-                error_details=action.get("reasoning", "LLM returned not_found"),
+                status=_FAILURE_ACTION_TO_STATUS[action_type],
+                error_details=action.get("reasoning", f"LLM returned {action_type}"),
             )
 
         # 중간 탐색/입력 액션 실행 후 계속

@@ -193,10 +193,21 @@ async def try_click_target(page: Any, target_terms: list[str]) -> bool:
         for index in range(count):
             item = locator.nth(index)
             try:
-                text = normalize_text(await item.inner_text())
+                raw = await item.inner_text()
             except Exception:
-                continue
-            if any(term in text for term in target_terms):
+                raw = ""
+            text = normalize_text(raw)
+            if not text:
+                # icon-only 요소 — aria-label / title 속성으로 대체
+                for attr in ("aria-label", "title"):
+                    try:
+                        value = await item.get_attribute(attr)
+                        if value:
+                            text = normalize_text(value)
+                            break
+                    except Exception:
+                        continue
+            if text and any(term in text for term in target_terms):
                 try:
                     await item.click()
                     return True
