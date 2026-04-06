@@ -536,3 +536,63 @@ class WebArenaVerifiedAdapter:
         logger.info("HAR 파일 저장 위치: %s", (task_output_dir / "network.har").resolve())
         logger.info("webarena_verified 러너를 종료합니다")
         return 0
+
+    async def run_task_human(
+        self,
+        *,
+        tasks_file: Path,
+        task_id: int,
+        run_root: Path,
+        config_path: Path | None,
+        storage_state_file: Path | None,
+    ) -> int:
+        """Human agent 모드: 브라우저를 열고 사람이 직접 조작한 후 산출물을 저장한다."""
+        from playwright.async_api import async_playwright
+
+        task_output_dir = run_root / str(task_id)
+        backup_output_dir(task_output_dir, task_id)
+        task_output_dir.mkdir(parents=True, exist_ok=True)
+        setup_task_logging(logger=logger, task_output_dir=task_output_dir)
+
+        logger.info("webarena_verified human agent를 시작합니다")
+        agent_input = load_agent_input(tasks_file, task_id)
+
+        auth_artifact_path = storage_state_file
+        if auth_artifact_path is None:
+            auth_artifact_path = await setup_storage_state(config_path, task_output_dir, agent_input)
+
+        logger.info("Intent: %s", agent_input["intent"])
+
+        async with async_playwright() as playwright:
+            browser: Browser | None = None
+            context: BrowserContext | None = None
+            try:
+                browser, context = await init_browser(
+                    playwright,
+                    task_output_dir=task_output_dir,
+                    storage_state_file=auth_artifact_path,
+                    headed=True,
+                )
+                await open_start_pages(context, agent_input["start_urls"])
+
+                logger.info("브라우저에서 태스크를 수동으로 수행하세요.")
+                input(">>> 태스크 완료 후 Enter를 누르세요: ")
+            finally:
+                if context is not None:
+                    await context.close()
+                if browser is not None:
+                    await browser.close()
+
+        # 기본 agent_response: NAVIGATE/SUCCESS
+        result = AgentRunResult(
+            task_type="NAVIGATE",
+            status="SUCCESS",
+            retrieved_data=None,
+            error_details=None,
+        )
+        output_path = write_agent_response(task_output_dir, result)
+        validate_run_output(task_output_dir)
+        logger.info("agent response 저장 위치: %s", output_path.resolve())
+        logger.info("HAR 파일 저장 위치: %s", (task_output_dir / "network.har").resolve())
+        logger.info("webarena_verified human agent를 종료합니다")
+        return 0

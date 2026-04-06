@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="벤치마크 실행 산출물을 저장할 루트 디렉터리",
     )
     parser.add_argument("--headed", action="store_true", help="브라우저를 headed 모드로 실행")
+    parser.add_argument("--human", action="store_true", help="사람이 직접 브라우저를 조작하는 human agent 모드")
     parser.add_argument("--storage-state-file", type=str, help="미리 생성된 Playwright storage state 파일 경로")
     parser.add_argument(
         "--config",
@@ -35,6 +36,16 @@ async def main() -> int:
     adapter = WebArenaVerifiedAdapter()
     config_path = Path(args.config) if args.config else None
     storage_state_file = Path(args.storage_state_file) if args.storage_state_file else None
+
+    if args.human:
+        return await adapter.run_task_human(
+            tasks_file=Path(args.tasks_file),
+            task_id=args.task_id,
+            run_root=Path(args.run_root),
+            config_path=config_path,
+            storage_state_file=storage_state_file,
+        )
+
     return await adapter.run_task(
         tasks_file=Path(args.tasks_file),
         task_id=args.task_id,
