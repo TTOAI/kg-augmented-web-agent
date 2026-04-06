@@ -300,7 +300,15 @@ async def _execute_with_llm(
             target = action.get("target", "")
             logger.info("[LLM] click  target=%r", target)
             if target:
-                action_succeeded = await try_click_target(page, [target])
+                for role in ("link", "button"):
+                    try:
+                        locator = page.get_by_role(role, name=target)
+                        if await locator.count() > 0:
+                            await locator.first.click()
+                            action_succeeded = True
+                            break
+                    except Exception:
+                        continue
         elif action_type == "fill":
             target = action.get("target", "")
             value = action.get("value", "")

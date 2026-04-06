@@ -278,12 +278,48 @@ class FakeLocator:
         return results
 
 
-class FakeAccessibility:
-    def __init__(self, snapshot_data: dict | None) -> None:
-        self._snapshot = snapshot_data
+class FakeRoleLocator:
+    """get_by_role() stub — role+name으로 matching되는 요소를 찾는다."""
 
-    async def snapshot(self) -> dict | None:
-        return self._snapshot
+    def __init__(self, page: "FakePage", role: str, name: str) -> None:
+        self.page = page
+        self.role = role
+        self.name = name.lower()
+        self._matched: list[tuple[str, int]] = self._find_matches()
+
+    def _find_matches(self) -> list[tuple[str, int]]:
+        matches = []
+        # role에 맞는 selector_texts 순회 (a→link, button→button)
+        role_map = {"link": "a", "button": "button"}
+        selector = role_map.get(self.role, self.role)
+        texts = self.page.selector_texts.get(selector, [])
+        for i, text in enumerate(texts):
+            attrs = self.page.element_attributes.get((selector, i), {})
+            candidates = [
+                text.lower(),
+                (attrs.get("aria-label") or "").lower(),
+                (attrs.get("title") or "").lower(),
+            ]
+            if any(self.name in c for c in candidates if c):
+                matches.append((selector, i))
+        return matches
+
+    async def count(self) -> int:
+        return len(self._matched)
+
+    @property
+    def first(self) -> "FakeRoleLocatorSingle":
+        return FakeRoleLocatorSingle(self.page, self._matched[0] if self._matched else None)
+
+
+class FakeRoleLocatorSingle:
+    def __init__(self, page: "FakePage", match: tuple[str, int] | None) -> None:
+        self.page = page
+        self._match = match
+
+    async def click(self) -> None:
+        if self._match:
+            self.page.apply_click(*self._match)
 
 
 class FakePage:
@@ -295,7 +331,7 @@ class FakePage:
         selector_texts: dict[str, list[str]],
         click_updates: dict[tuple[str, int], dict[str, Any]] | None = None,
         element_attributes: dict[tuple[str, int], dict[str, str]] | None = None,
-        ax_tree: dict | None = None,
+        evaluate_links: list[str] | None = None,
     ) -> None:
         self.url = url
         self._title = title_text
@@ -304,13 +340,24 @@ class FakePage:
         self.element_attributes = element_attributes or {}
         self.last_filled: str | None = None
         self.last_pressed: str | None = None
-        self.accessibility = FakeAccessibility(ax_tree)
+        self._evaluate_links = evaluate_links  # extract_ax_links()용 고정 반환값
+
+    async def evaluate(self, _js: str) -> Any:
+        """evaluate() stub: extract_ax_links()가 사용하는 JS 평가를 시뮬레이션한다."""
+        if self._evaluate_links is not None:
+            return self._evaluate_links
+        raise Exception("evaluate_links not configured")
 
     async def title(self) -> str:
         return self._title
 
     def locator(self, selector: str) -> FakeLocator:
         return FakeLocator(self, selector)
+
+    def get_by_role(self, role: str, *, name: str = "") -> "FakeLocator":
+        """get_by_role() stub: role=link/button + name으로 FakeLocator를 반환한다."""
+        selector = role  # FakeLocator는 selector_texts의 키로 role을 사용
+        return FakeRoleLocator(self, role, name)
 
     async def goto(self, url: str) -> None:
         self.url = url
