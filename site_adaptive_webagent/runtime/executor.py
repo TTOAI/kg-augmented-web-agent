@@ -298,8 +298,18 @@ async def _execute_with_llm(
                 current_obs = await observe_page(page)
                 continue
             logger.info("[LLM] done → SUCCESS (all goals complete)")
+            # 필터가 설정되었으나 제출 안 된 경우 검색 버튼 클릭으로 제출
+            try:
+                search_btn = page.locator("button[aria-label='Search']")
+                if await search_btn.count() > 0:
+                    await search_btn.first.click()
+                    logger.info("[LLM] auto-submit: clicked search button on done")
+                    await page.wait_for_timeout(2000)
+            except Exception:
+                pass
             # SPA 필터 적용 후 GET 요청이 HAR에 남도록 현재 URL reload
             try:
+                logger.info("[LLM] reload URL: %s", page.url)
                 await page.goto(page.url)
             except Exception:
                 pass
@@ -364,26 +374,45 @@ async def _execute_with_llm(
             url_hint = action.get("url", "")
             logger.info("[LLM] click  target=%r  url_hint=%r", target, url_hint)
             if target:
-                for role in ("link", "button", "textbox", "option", "menuitem", "tab"):
+                # 드롭다운이 열려있으면 CSS locator로 dropdown-item 클릭
+                # (get_by_role은 <a href="#">의 기본 navigation을 발생시켜 JS 이벤트를 방해)
+                if prev_dropdown and not action_succeeded:
                     try:
-                        locator = page.get_by_role(role, name=target)
-                        count = await locator.count()
-                        if count < 1:
-                            continue
-                        clicked = False
-                        if url_hint and count > 1:
-                            for i in range(count):
-                                href = await locator.nth(i).get_attribute("href") or ""
-                                if url_hint in href:
-                                    await locator.nth(i).click()
-                                    clicked = True
-                                    break
-                        if not clicked:
-                            await locator.first.click()
-                        action_succeeded = True
-                        break
+                        items = page.locator(".dropdown-item, [role='option'], [role='menuitem'], [role='tab']")
+                        count = await items.count()
+                        target_lower = target.lower()
+                        for i in range(count):
+                            text = (await items.nth(i).inner_text()).strip()
+                            if text == target or target_lower in text.lower():
+                                await items.nth(i).click()
+                                action_succeeded = True
+                                logger.info("[LLM] click via CSS locator (dropdown): %r", text)
+                                break
                     except Exception:
-                        continue
+                        pass
+
+                # 드롭다운 매칭 실패 또는 드롭다운 없으면 기존 get_by_role
+                if not action_succeeded:
+                    for role in ("link", "button", "textbox", "option", "menuitem", "tab"):
+                        try:
+                            locator = page.get_by_role(role, name=target)
+                            count = await locator.count()
+                            if count < 1:
+                                continue
+                            clicked = False
+                            if url_hint and count > 1:
+                                for i in range(count):
+                                    href = await locator.nth(i).get_attribute("href") or ""
+                                    if url_hint in href:
+                                        await locator.nth(i).click()
+                                        clicked = True
+                                        break
+                            if not clicked:
+                                await locator.first.click()
+                            action_succeeded = True
+                            break
+                        except Exception:
+                            continue
         elif action_type == "fill":
             target = action.get("target", "")
             value = action.get("value", "")
@@ -433,19 +462,6 @@ async def _execute_with_llm(
             except Exception:
                 pass
 
-            # 필터 드롭다운에서 최종 값 선택 후 자동 검색 제출
-            # 조건: 이전에 드롭다운이 열려있었고, 클릭 후 드롭다운이 닫혔으면 값 선택 완료
-            new_obs = await observe_page(page)
-            dropdown_closed = bool(prev_dropdown) and not new_obs.dropdown_options
-            if dropdown_closed:
-                try:
-                    search_btn = page.locator("button[aria-label='Search']")
-                    if await search_btn.count() > 0:
-                        await search_btn.first.click()
-                        logger.info("[LLM] auto-submit: clicked search button after filter value selected")
-                        await page.wait_for_timeout(1000)
-                except Exception:
-                    pass
 
         current_obs = await observe_page(page)
 
