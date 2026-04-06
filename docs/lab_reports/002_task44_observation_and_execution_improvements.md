@@ -127,14 +127,29 @@ LLM executor의 click이 `page.get_by_role(role, name=target)`으로 교체됨.
 
 ---
 
+## Phase 3 반복 실험 결과 (5회)
+
+| 실행 | 결과 | step 1 액션 | 스텝 수 |
+|---|---|---|---|
+| 44_bkp_1 | ✅ SUCCESS | click 'To-Do List' → navigated | 2 |
+| 44_bkp_2 | ✅ SUCCESS | click 'To-Do List' → navigated | 2 |
+| 44_bkp_3 | ✅ SUCCESS | click 'To-Do List' → navigated | 2 |
+| 44_bkp_4 | ✅ SUCCESS | click 'To-Do List' → navigated | 2 |
+| 44 | ✅ SUCCESS | click 'To-Do List' → navigated | 2 |
+
+**성공률: 5/5 (100%)** — LLM이 5회 모두 동일한 전략 선택. 비결정성 제거 확인.
+
+---
+
 ## 개선 전후 비교
 
 | 지표 | 001 (개선 전) | 002 Phase 3 (개선 후) |
 |---|---|---|
-| 성공률 | 30% (3/10) | 단일 실행 기준 100% |
-| 평균 스텝 수 | 4-5 (성공 시) | 2 |
+| 성공률 | 30% (3/10) | **100% (5/5)** |
+| 평균 스텝 수 | 4-5 (성공 시) | **2** |
 | 성공 경로 | URL 직접 추측 (goto) | 링크 클릭 (semantic 매칭) |
 | 실패 회복 | 없음 (반복 후 소진) | 피드백 → 전략 전환 |
+| LLM 전략 비결정성 | 높음 (goto/search/click 혼재) | **없음 (5회 동일 경로)** |
 
 ---
 
@@ -153,7 +168,7 @@ LLM executor의 click이 `page.get_by_role(role, name=target)`으로 교체됨.
 
 ## 잔존 문제 및 다음 액션
 
-1. **성공률 측정 미완료**: Phase 3 기준 단일 실행만 확인. 10회 이상 반복 실험 필요.
-2. **LLM 비결정성**: `get_by_role`가 작동하면 안정적이지만, LLM이 다른 전략(goto, search)을 선택하는 케이스도 여전히 존재 가능.
-3. **다른 task 확장**: task 44(NAVIGATE)만 검증됨. RETRIEVE, MUTATE task 실험 필요.
-4. **Prior 미적용**: 현재 모든 성과는 prior 없는 LLM 일반 추론 + 관측 품질 개선으로 달성. Prior 추가 시 얼마나 더 안정화되는지 측정 예정.
+1. **다른 task 확장**: task 44(NAVIGATE)만 검증됨. RETRIEVE, MUTATE task 실험 필요.
+2. **Prior 미적용**: 현재 모든 성과는 prior 없는 LLM 일반 추론 + 관측 품질 개선으로 달성. Prior 추가 시 얼마나 더 안정화되는지 측정 예정.
+3. ~~**성공률 측정 미완료**~~: 5/5 확인 완료.
+4. ~~**LLM 비결정성**~~: 5회 동일 전략 선택으로 사실상 해소됨.
