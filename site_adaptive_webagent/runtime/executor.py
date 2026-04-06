@@ -306,6 +306,13 @@ async def _execute_with_llm(
         if action_type == "extract":
             value = action.get("value", "")
             label = action.get("label", "")
+            # LLM이 extract를 goal_complete 신호로 잘못 사용한 경우 → goal advance로 처리
+            if "goal_complete" in value.lower() and current_goal_index < len(sub_goals) - 1:
+                current_goal_index += 1
+                logger.info("[LLM] extract misused as goal_complete — advancing to goal %d/%d", current_goal_index + 1, len(sub_goals))
+                last_action_result = f"Sub-goal completed. Now working on: {sub_goals[current_goal_index]}"
+                current_obs = await observe_page(page)
+                continue
             if value:
                 display = f"{label}: {value}" if label else value
                 logger.info("[LLM] extract → SUCCESS  value=%r", display[:100])
@@ -318,6 +325,23 @@ async def _execute_with_llm(
             )
 
         if action_type in _FAILURE_ACTION_TO_STATUS:
+            # NAVIGATE task에서 not_found는 "목표 페이지에 도달했으나 결과가 비어있음"일 수 있음
+            # → 남은 sub-goal이 있으면 다음으로 전환, 마지막이면 done 처리
+            if action_type == "not_found" and task_type == "NAVIGATE":
+                if current_goal_index < len(sub_goals) - 1:
+                    current_goal_index += 1
+                    logger.info("[LLM] not_found on NAVIGATE — advancing to goal %d/%d", current_goal_index + 1, len(sub_goals))
+                    last_action_result = f"Page shows no results, but continuing. Now working on: {sub_goals[current_goal_index]}"
+                    current_obs = await observe_page(page)
+                    continue
+                else:
+                    logger.info("[LLM] not_found on NAVIGATE (last goal) → treating as SUCCESS")
+                    try:
+                        await page.goto(page.url)
+                    except Exception:
+                        pass
+                    return ExecutionOutcome(task_type=task_type, status="SUCCESS")
+
             status = _FAILURE_ACTION_TO_STATUS[action_type]
             logger.info("[LLM] %s → %s", action_type, status)
             return ExecutionOutcome(
