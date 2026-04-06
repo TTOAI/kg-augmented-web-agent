@@ -311,6 +311,11 @@ class FakeRoleLocator:
     def first(self) -> "FakeRoleLocatorSingle":
         return FakeRoleLocatorSingle(self.page, self._matched[0] if self._matched else None)
 
+    def nth(self, index: int) -> "FakeRoleLocatorSingle":
+        if index < len(self._matched):
+            return FakeRoleLocatorSingle(self.page, self._matched[index])
+        return FakeRoleLocatorSingle(self.page, None)
+
 
 class FakeRoleLocatorSingle:
     def __init__(self, page: "FakePage", match: tuple[str, int] | None) -> None:
@@ -320,6 +325,12 @@ class FakeRoleLocatorSingle:
     async def click(self) -> None:
         if self._match:
             self.page.apply_click(*self._match)
+
+    async def get_attribute(self, name: str) -> str | None:
+        if self._match is None:
+            return None
+        attrs = self.page.element_attributes.get(self._match, {})
+        return attrs.get(name)
 
 
 class FakePage:

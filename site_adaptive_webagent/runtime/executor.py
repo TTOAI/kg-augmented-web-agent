@@ -263,6 +263,16 @@ async def _execute_with_llm(
         action = parse_llm_action(response)
         action_type = action.get("action", "not_found")
         reasoning = action.get("reasoning", "")
+
+        # 파싱 실패 시 1회 재시도
+        if "파싱 실패" in reasoning:
+            logger.info("[LLM] step=%d  parse failed, retrying", step + 1)
+            messages.append({"role": "user", "content": "Your response was truncated or malformed. Reply with valid JSON only."})
+            response = llm.complete(system=system, messages=messages)
+            messages.append({"role": "assistant", "content": response})
+            action = parse_llm_action(response)
+            action_type = action.get("action", "not_found")
+            reasoning = action.get("reasoning", "")
         logger.info("[LLM] step=%d  action=%s  reasoning=%r", step + 1, action_type, reasoning[:200])
 
         if action_type == "done":
@@ -300,15 +310,27 @@ async def _execute_with_llm(
 
         if action_type == "click":
             target = action.get("target", "")
-            logger.info("[LLM] click  target=%r", target)
+            url_hint = action.get("url", "")
+            logger.info("[LLM] click  target=%r  url_hint=%r", target, url_hint)
             if target:
                 for role in ("link", "button"):
                     try:
                         locator = page.get_by_role(role, name=target)
-                        if await locator.count() > 0:
+                        count = await locator.count()
+                        if count < 1:
+                            continue
+                        clicked = False
+                        if url_hint and count > 1:
+                            for i in range(count):
+                                href = await locator.nth(i).get_attribute("href") or ""
+                                if url_hint in href:
+                                    await locator.nth(i).click()
+                                    clicked = True
+                                    break
+                        if not clicked:
                             await locator.first.click()
-                            action_succeeded = True
-                            break
+                        action_succeeded = True
+                        break
                     except Exception:
                         continue
         elif action_type == "fill":
