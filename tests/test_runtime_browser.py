@@ -108,68 +108,38 @@ class TryClickTargetTests(unittest.IsolatedAsyncioTestCase):
 
 class ExtractAxLinksTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_name_and_pathname(self) -> None:
-        """AX tree에서 name과 pathname을 함께 반환한다."""
+        """aria-label과 pathname을 함께 반환한다."""
         page = FakePage(
             url="http://gitlab.example.com/",
             title_text="GitLab",
             selector_texts={},
-            ax_tree={
-                "role": "WebArea",
-                "name": "GitLab",
-                "children": [
-                    {"role": "link", "name": "To-Do List", "url": "http://gitlab.example.com/dashboard/todos"},
-                    {"role": "link", "name": "Dashboard", "url": "http://gitlab.example.com/dashboard"},
-                ],
-            },
+            evaluate_links=["To-Do List → /dashboard/todos", "Dashboard → /dashboard"],
         )
         links = await extract_ax_links(page)
         self.assertIn("To-Do List → /dashboard/todos", links)
         self.assertIn("Dashboard → /dashboard", links)
 
-    async def test_falls_back_to_empty_when_no_ax_tree(self) -> None:
-        """AX tree가 없으면 빈 리스트를 반환한다."""
-        page = FakePage(url="http://example.com", title_text="Page", selector_texts={}, ax_tree=None)
+    async def test_falls_back_to_empty_when_evaluate_fails(self) -> None:
+        """evaluate()가 실패하면 빈 리스트를 반환한다."""
+        page = FakePage(url="http://example.com", title_text="Page", selector_texts={})
         links = await extract_ax_links(page)
         self.assertEqual(links, [])
 
-    async def test_deduplicates_links(self) -> None:
-        page = FakePage(
-            url="http://example.com",
-            title_text="Page",
-            selector_texts={},
-            ax_tree={
-                "role": "WebArea",
-                "name": "Page",
-                "children": [
-                    {"role": "link", "name": "Home", "url": "http://example.com/"},
-                    {"role": "link", "name": "Home", "url": "http://example.com/"},
-                ],
-            },
-        )
-        links = await extract_ax_links(page)
-        self.assertEqual(links.count("Home → /"), 1)
-
 
 class ObservePageTests(unittest.IsolatedAsyncioTestCase):
-    async def test_observe_links_use_ax_tree(self) -> None:
-        """observe_page()가 AX tree에서 name+pathname 형식의 링크를 반환한다."""
+    async def test_observe_links_include_pathname(self) -> None:
+        """observe_page()가 aria-label+pathname 형식의 링크를 반환한다."""
         page = FakePage(
             url="http://gitlab.example.com/dashboard",
             title_text="GitLab",
             selector_texts={},
-            ax_tree={
-                "role": "WebArea",
-                "name": "GitLab",
-                "children": [
-                    {"role": "link", "name": "To-Do List", "url": "http://gitlab.example.com/dashboard/todos"},
-                ],
-            },
+            evaluate_links=["To-Do List → /dashboard/todos", "Dashboard → /dashboard"],
         )
         obs = await observe_page(page)
         self.assertIn("To-Do List → /dashboard/todos", obs.links)
 
-    async def test_observe_falls_back_to_css_when_ax_empty(self) -> None:
-        """AX tree가 없으면 CSS selector 폴백으로 링크를 수집한다."""
+    async def test_observe_falls_back_to_css_when_evaluate_fails(self) -> None:
+        """evaluate()가 실패하면 CSS selector 폴백으로 링크를 수집한다."""
         page = make_fake_page(links=["Dashboard", "Issues"])
         obs = await observe_page(page)
         self.assertIn("Dashboard", obs.links)
