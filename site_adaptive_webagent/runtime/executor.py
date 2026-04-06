@@ -310,11 +310,11 @@ async def _execute_with_llm(
                         await page.wait_for_timeout(500)
                         if page.url != pre_url:
                             break
+                    logger.info("[LLM] final URL: %s", page.url)
             except Exception:
                 pass
-            # SPA 필터 적용 후 GET 요청이 HAR에 남도록 현재 URL reload
+            # 검색 버튼 제출이 SPA 방식이면 GET 요청이 HAR에 안 남으므로 reload
             try:
-                logger.info("[LLM] reload URL: %s", page.url)
                 await page.goto(page.url)
             except Exception:
                 pass
