@@ -417,18 +417,37 @@ async def _execute_with_llm(
                             break
                         except Exception:
                             continue
+
+                # get_by_role 전체 실패 시 CSS locator로 innerText partial 매칭
+                if not action_succeeded:
+                    try:
+                        target_lower = target.lower()
+                        for selector in ("a", "button", "[role='tab']", "[role='option']"):
+                            items = page.locator(f"{selector}:visible")
+                            count = await items.count()
+                            for i in range(count):
+                                text = (await items.nth(i).inner_text()).strip()
+                                if target_lower in text.lower():
+                                    await items.nth(i).click()
+                                    action_succeeded = True
+                                    logger.info("[LLM] click via CSS fallback: %r in %r", target, text)
+                                    break
+                            if action_succeeded:
+                                break
+                    except Exception:
+                        pass
         elif action_type == "fill":
             target = action.get("target", "")
             value = action.get("value", "")
             submit = bool(action.get("submit", False))
             logger.info("[LLM] fill  target=%r  value=%r  submit=%s", target, value, submit)
 
-            # 필터 입력 감지 → click으로 리다이렉트해서 드롭다운 열기
-            _filter_keywords = ("filter", "search or filter")
-            if target and any(kw in target.lower() for kw in _filter_keywords):
-                logger.info("[LLM] fill redirected to click for filter input %r", target)
+            # structured filter 입력 감지 → click으로 리다이렉트해서 드롭다운 열기
+            # "search or filter results" 같은 구체적 placeholder만 대상 (일반 "filter by name" 제외)
+            if target and "search or filter" in target.lower():
+                logger.info("[LLM] fill redirected to click for structured filter input %r", target)
                 try:
-                    input_locator = page.locator(f"input[placeholder*='filter' i]")
+                    input_locator = page.locator("input[placeholder*='search or filter' i]")
                     if await input_locator.count() > 0:
                         await input_locator.first.click()
                         action_succeeded = True
