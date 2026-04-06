@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger("webarena_verified")
 
 from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
@@ -242,7 +245,11 @@ async def _execute_with_llm(
     current_obs = observation
     messages: list[dict[str, str]] = []
 
-    for _ in range(max_steps):
+    logger.info("[LLM] task=%r  task_type=%s", task, task_type)
+
+    for step in range(max_steps):
+        logger.info("[LLM] step=%d  url=%s", step + 1, current_obs.url)
+
         user_msg = build_action_request(task=task, observation=current_obs)
         messages.append({"role": "user", "content": user_msg})
 
@@ -251,8 +258,11 @@ async def _execute_with_llm(
 
         action = parse_llm_action(response)
         action_type = action.get("action", "not_found")
+        reasoning = action.get("reasoning", "")
+        logger.info("[LLM] step=%d  action=%s  reasoning=%r", step + 1, action_type, reasoning[:200])
 
         if action_type == "done":
+            logger.info("[LLM] done → SUCCESS")
             return ExecutionOutcome(task_type=task_type, status="SUCCESS")
 
         if action_type == "extract":
@@ -260,7 +270,9 @@ async def _execute_with_llm(
             label = action.get("label", "")
             if value:
                 display = f"{label}: {value}" if label else value
+                logger.info("[LLM] extract → SUCCESS  value=%r", display[:100])
                 return ExecutionOutcome(task_type=task_type, status="SUCCESS", retrieved_data=[display])
+            logger.info("[LLM] extract → NOT_FOUND_ERROR (missing value)")
             return ExecutionOutcome(
                 task_type=task_type,
                 status="NOT_FOUND_ERROR",
@@ -268,25 +280,30 @@ async def _execute_with_llm(
             )
 
         if action_type in _FAILURE_ACTION_TO_STATUS:
+            status = _FAILURE_ACTION_TO_STATUS[action_type]
+            logger.info("[LLM] %s → %s", action_type, status)
             return ExecutionOutcome(
                 task_type=task_type,
-                status=_FAILURE_ACTION_TO_STATUS[action_type],
+                status=status,
                 error_details=action.get("reasoning", f"LLM returned {action_type}"),
             )
 
         # 중간 탐색/입력 액션 실행 후 계속
         if action_type == "click":
             target = action.get("target", "")
+            logger.info("[LLM] click  target=%r", target)
             if target:
                 await try_click_target(page, [target])
         elif action_type == "fill":
             target = action.get("target", "")
             value = action.get("value", "")
             submit = bool(action.get("submit", False))
+            logger.info("[LLM] fill  target=%r  value=%r  submit=%s", target, value, submit)
             if target and value:
                 await try_fill_target(page, target, value, submit=submit)
         elif action_type == "goto":
             url = action.get("url", "")
+            logger.info("[LLM] goto  url=%r", url)
             if url:
                 try:
                     await page.goto(url)
@@ -294,6 +311,7 @@ async def _execute_with_llm(
                     pass
         elif action_type == "search":
             query = action.get("target", "")
+            logger.info("[LLM] search  query=%r", query)
             if query:
                 await try_search(page, query)
 
