@@ -9,7 +9,7 @@ logger = logging.getLogger("webarena_verified")
 
 from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
-from .llm import LLMClient, build_action_request, build_system_prompt, parse_llm_action
+from .llm import LLMClient, build_action_request, build_plan, build_system_prompt, parse_llm_action
 from .recovery import execute_recovery
 from .store import ExecutionStore
 from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, PageObservation, PriorBundle, StepRecord, ValidatorRule
@@ -235,7 +235,7 @@ async def _execute_with_llm(
     observation: PageObservation,
     llm: LLMClient,
     prior_bundle: PriorBundle | None,
-    max_steps: int = 5,
+    max_steps: int = 15,
 ) -> ExecutionOutcome:
     """LLM 기반 액션 루프. 최대 max_steps번 LLM에 물어보며 태스크를 완수한다.
 
@@ -246,14 +246,25 @@ async def _execute_with_llm(
     messages: list[dict[str, str]] = []
     last_action_result = ""
 
+    # --- Planning ---
+    sub_goals = build_plan(task=task, observation=current_obs, llm=llm)
+    current_goal_index = 0
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
+    logger.info("[LLM] plan=%s", sub_goals)
 
     for step in range(max_steps):
         logger.info("[LLM] step=%d  url=%s", step + 1, current_obs.url)
         logger.info("[LLM] step=%d  links=%s", step + 1, current_obs.links[:20])
         logger.info("[LLM] step=%d  buttons=%s", step + 1, current_obs.buttons[:10])
+        logger.info("[LLM] step=%d  goal=%d/%d %r", step + 1, current_goal_index + 1, len(sub_goals), sub_goals[current_goal_index] if current_goal_index < len(sub_goals) else "ALL DONE")
 
-        user_msg = build_action_request(task=task, observation=current_obs, last_action_result=last_action_result)
+        user_msg = build_action_request(
+            task=task,
+            observation=current_obs,
+            last_action_result=last_action_result,
+            sub_goals=sub_goals,
+            current_goal_index=current_goal_index,
+        )
         messages.append({"role": "user", "content": user_msg})
         last_action_result = ""
 
@@ -273,10 +284,18 @@ async def _execute_with_llm(
             action = parse_llm_action(response)
             action_type = action.get("action", "not_found")
             reasoning = action.get("reasoning", "")
+        goal_complete_requested = bool(action.get("goal_complete"))
         logger.info("[LLM] step=%d  action=%s  reasoning=%r", step + 1, action_type, reasoning[:200])
 
         if action_type == "done":
-            logger.info("[LLM] done → SUCCESS")
+            if current_goal_index < len(sub_goals) - 1:
+                # 아직 남은 sub-goal이 있으면 done을 무시하고 다음 goal로 전환
+                current_goal_index += 1
+                logger.info("[LLM] done ignored — advancing to goal %d/%d: %r", current_goal_index + 1, len(sub_goals), sub_goals[current_goal_index])
+                last_action_result = f"Sub-goal completed. Now working on: {sub_goals[current_goal_index]}"
+                current_obs = await observe_page(page)
+                continue
+            logger.info("[LLM] done → SUCCESS (all goals complete)")
             return ExecutionOutcome(task_type=task_type, status="SUCCESS")
 
         if action_type == "extract":
@@ -392,6 +411,11 @@ async def _execute_with_llm(
                 last_action_result = f"search '{query}': URL unchanged"
 
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
+
+        # goal_complete: 액션이 성공했을 때만 sub-goal 전환
+        if goal_complete_requested and action_succeeded and current_goal_index < len(sub_goals):
+            logger.info("[LLM] step=%d  goal %d complete: %r", step + 1, current_goal_index + 1, sub_goals[current_goal_index])
+            current_goal_index += 1
 
     return ExecutionOutcome(
         task_type=task_type,

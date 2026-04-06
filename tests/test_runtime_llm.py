@@ -167,12 +167,15 @@ def _seed_site(conn: sqlite3.Connection, *, site_id: str = "gitlab") -> None:
 class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
     """FakeLLMClient를 사용한 LLM 실행 경로 테스트."""
 
+    # plan 응답 — 모든 LLM executor 테스트에서 첫 호출은 build_plan()
+    PLAN_RESPONSE = '{"sub_goals": ["Complete the task"]}'
+
     async def test_llm_extract_returns_success(self) -> None:
         """LLM이 extract를 반환하면 SUCCESS + retrieved_data."""
         conn = _make_connection()
         _seed_site(conn)
 
-        llm = FakeLLMClient('{"action": "extract", "value": "42", "label": "Todo Count"}')
+        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "extract", "value": "42", "label": "Todo Count"}'])
         orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(
@@ -201,7 +204,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         conn = _make_connection()
         _seed_site(conn)
 
-        llm = FakeLLMClient('{"action": "not_found", "reasoning": "데이터가 없습니다"}')
+        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "not_found", "reasoning": "데이터가 없습니다"}'])
         orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="https://example.com", title_text="Home")
@@ -221,11 +224,12 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
 
     async def test_llm_click_then_extract(self) -> None:
-        """LLM이 click 후 extract를 반환하면 두 번 호출되고 SUCCESS."""
+        """LLM이 click 후 extract를 반환하면 plan + 2회 호출되고 SUCCESS."""
         conn = _make_connection()
         _seed_site(conn)
 
         llm = FakeLLMClient([
+            self.PLAN_RESPONSE,
             '{"action": "click", "target": "Dashboard"}',
             '{"action": "extract", "value": "7", "label": "Open Issues"}',
         ])
@@ -247,7 +251,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(len(llm.calls), 2)
+        self.assertEqual(len(llm.calls), 3)  # plan + 2 action calls
         self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
         assert result.execution_outcome is not None
         self.assertEqual(result.execution_outcome.status, "SUCCESS")
@@ -257,7 +261,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         conn = _make_connection()
         _seed_site(conn)
 
-        llm = FakeLLMClient('{"action": "extract", "value": "done", "label": "result"}')
+        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "extract", "value": "done", "label": "result"}'])
         orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="https://example.com", title_text="Home")
@@ -272,18 +276,20 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(len(llm.calls), 1)
-        system_prompt = llm.calls[0]["system"]
+        self.assertEqual(len(llm.calls), 2)  # plan + 1 action call
+        # calls[1] is the action call (calls[0] is plan)
+        system_prompt = llm.calls[1]["system"]
         self.assertIn("gitlab", system_prompt)
-        user_message = llm.calls[0]["messages"][0]["content"]
+        user_message = llm.calls[1]["messages"][0]["content"]
         self.assertIn("Find the todo count", user_message)
 
     async def test_llm_fill_then_extract(self) -> None:
-        """LLM이 fill 후 extract를 반환하면 두 번 호출되고 SUCCESS."""
+        """LLM이 fill 후 extract를 반환하면 plan + 2회 호출되고 SUCCESS."""
         conn = _make_connection()
         _seed_site(conn)
 
         llm = FakeLLMClient([
+            self.PLAN_RESPONSE,
             '{"action": "fill", "target": "Username", "value": "admin", "submit": false}',
             '{"action": "extract", "value": "Welcome, admin", "label": "greeting"}',
         ])
@@ -305,9 +311,9 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(len(llm.calls), 2)
-        # 두 번째 호출에 대화 히스토리(assistant 메시지)가 포함되어야 한다
-        self.assertEqual(len(llm.calls[1]["messages"]), 3)  # user, assistant, user
+        self.assertEqual(len(llm.calls), 3)  # plan + 2 action calls
+        # 세 번째 호출(두 번째 액션)에 대화 히스토리가 포함되어야 한다
+        self.assertEqual(len(llm.calls[2]["messages"]), 3)  # user, assistant, user
         self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
 
     async def test_conversation_history_accumulates(self) -> None:
@@ -316,6 +322,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         _seed_site(conn)
 
         llm = FakeLLMClient([
+            self.PLAN_RESPONSE,
             '{"action": "click", "target": "Issues"}',
             '{"action": "click", "target": "Open"}',
             '{"action": "extract", "value": "42", "label": "open count"}',
@@ -338,19 +345,20 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        # 1번째 호출: [user]
-        self.assertEqual(len(llm.calls[0]["messages"]), 1)
-        # 2번째 호출: [user, assistant, user]
-        self.assertEqual(len(llm.calls[1]["messages"]), 3)
-        # 3번째 호출: [user, assistant, user, assistant, user]
-        self.assertEqual(len(llm.calls[2]["messages"]), 5)
+        # calls[0] = plan, calls[1..3] = action steps
+        # 1번째 액션 호출: [user]
+        self.assertEqual(len(llm.calls[1]["messages"]), 1)
+        # 2번째 액션 호출: [user, assistant, user]
+        self.assertEqual(len(llm.calls[2]["messages"]), 3)
+        # 3번째 액션 호출: [user, assistant, user, assistant, user]
+        self.assertEqual(len(llm.calls[3]["messages"]), 5)
 
     async def test_llm_permission_denied_returns_correct_status(self) -> None:
         """LLM이 permission_denied를 반환하면 PERMISSION_DENIED_ERROR."""
         conn = _make_connection()
         _seed_site(conn)
 
-        llm = FakeLLMClient('{"action": "permission_denied", "reasoning": "No admin role"}')
+        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "permission_denied", "reasoning": "No admin role"}'])
         orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="http://localhost:8023/admin", title_text="Admin")
@@ -373,7 +381,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         conn = _make_connection()
         _seed_site(conn)
 
-        llm = FakeLLMClient('{"action": "action_not_allowed", "reasoning": "Billing disabled"}')
+        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "action_not_allowed", "reasoning": "Billing disabled"}'])
         orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="http://localhost:8023/", title_text="GitLab")
@@ -396,7 +404,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         conn = _make_connection()
         _seed_site(conn)
 
-        llm = FakeLLMClient('{"action": "done"}')
+        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "done"}'])
         orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(
@@ -423,7 +431,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         conn = _make_connection()
         _seed_site(conn)
 
-        llm = FakeLLMClient('{"action": "done"}')
+        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "done"}'])
         orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="http://localhost:8023/", title_text="GitLab")

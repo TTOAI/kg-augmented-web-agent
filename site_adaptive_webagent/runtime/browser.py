@@ -63,7 +63,7 @@ async def extract_ax_links(page: Any) -> list[str]:
         results: list[str] = await page.evaluate(
             """() => {
                 const seen = new Set();
-                return Array.from(document.querySelectorAll('a[href]'))
+                return Array.from(document.querySelectorAll('a[href], .dropdown-item, [role="option"], [role="menuitem"]'))
                   .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)
                   .slice(0, 60)
                   .map(el => {

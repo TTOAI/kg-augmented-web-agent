@@ -127,9 +127,9 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "",
         "Action descriptions:",
         '  "extract"   — the requested data is already visible; set "value" (the data) and "label" (what it represents)',
-        '  "click"     — click a link or button; set "target" (visible text or aria-label to match).',
-        '               If multiple links share the same name, set "url" to the pathname shown in',
-        '               the link list (e.g. "/project/-/issues") to pick the right one.',
+        '  "click"     — click a link or button; set "target" to the visible name only (NOT the URL).',
+        '               Example: target="Issues", NOT target="Issues → /path".',
+        '               If multiple links share the same name, set "url" to the pathname (e.g. "/project/-/issues").',
         '  "fill"      — type into an input field; set "target" (placeholder/label of the field), "value" (text to type)',
         '                optionally set "submit": true to press Enter after filling',
         '  "goto"      — navigate to a URL directly; set "url"',
@@ -147,6 +147,9 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "",
         "Strategy: prefer 'click' if a matching link or button is visible on the page.",
         "Use 'goto' only if no clickable target is found and you are confident of the URL.",
+        "IMPORTANT: never use 'fill' on filter/search inputs that have structured options.",
+        "Instead, click the input first — dropdown options (Label, Author, etc.) will appear",
+        "in the next observation. Then click the options one by one to build the filter.",
     ]
 
     if prior_bundle is not None:
@@ -178,9 +181,65 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
     return "\n".join(lines)
 
 
-def build_action_request(*, task: str, observation: Any, last_action_result: str = "") -> str:
+def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[str]:
+    """태스크를 2~5개 sub-goal로 분해한다. LLM 1회 호출."""
+    system = (
+        "You are a web task planner. Break down a web automation task into 2-5 sub-goals.\n"
+        "Each sub-goal should be a concrete, verifiable objective — not a specific UI action.\n"
+        "Good: 'Apply the bug label filter'  Bad: 'Click the Label dropdown'\n"
+        "Consider the current page state when planning.\n"
+        'Respond ONLY with JSON: {"sub_goals": ["...", "..."]}\n'
+        "Keep each sub-goal to one short sentence."
+    )
+    lines = [
+        f"Task: {task}",
+        f"Current URL: {observation.url}",
+        f"Page title: {observation.title}",
+    ]
+    if observation.links:
+        lines.append(f"Links (first 15): {observation.links[:15]}")
+    if observation.buttons:
+        lines.append(f"Buttons: {observation.buttons[:10]}")
+    if observation.inputs:
+        lines.append(f"Input fields: {observation.inputs[:10]}")
+
+    messages = [{"role": "user", "content": "\n".join(lines)}]
+    response = llm.complete(system=system, messages=messages)
+    parsed = parse_llm_action(response)
+    sub_goals = parsed.get("sub_goals", [])
+    if isinstance(sub_goals, list) and sub_goals:
+        return [str(g) for g in sub_goals]
+    return [task]  # 파싱 실패 시 task 전체를 단일 goal로 폴백
+
+
+def build_action_request(
+    *,
+    task: str,
+    observation: Any,
+    last_action_result: str = "",
+    sub_goals: list[str] | None = None,
+    current_goal_index: int = 0,
+) -> str:
     """태스크 지시와 현재 페이지 상태를 user 메시지로 직렬화한다."""
     lines = [f"Task: {task}", ""]
+
+    if sub_goals:
+        lines.append("Plan:")
+        for i, goal in enumerate(sub_goals):
+            if i < current_goal_index:
+                marker = "done"
+            elif i == current_goal_index:
+                marker = "current"
+            else:
+                marker = " "
+            lines.append(f"  [{marker}] {i + 1}. {goal}")
+        lines += [
+            "",
+            "Focus on the [current] sub-goal. Set \"goal_complete\": true when it is achieved.",
+            "Only use \"done\" action when ALL sub-goals are complete.",
+            "",
+        ]
+
     if last_action_result:
         lines += [f"Last action result: {last_action_result}", ""]
     lines += [
