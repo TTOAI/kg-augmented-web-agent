@@ -254,6 +254,29 @@ class FakeLocator:
     def nth(self, index: int) -> FakeElementLocator:
         return FakeElementLocator(self.page, self.selector, index)
 
+    async def evaluate_all(self, _js: str) -> list[Any]:
+        """evaluate_all() stub: JS를 실행하지 않고 selector 데이터로 결과를 시뮬레이션한다.
+
+        우선순위: innerText → placeholder → aria-label → title → name
+        """
+        texts = list(self.page.selector_texts.get(self.selector, []))
+        results = []
+        for i, text in enumerate(texts[:50]):
+            if text:
+                results.append(text)
+            else:
+                attrs = self.page.element_attributes.get((self.selector, i), {})
+                fallback = (
+                    attrs.get("placeholder")
+                    or attrs.get("aria-label")
+                    or attrs.get("title")
+                    or attrs.get("name")
+                    or ""
+                )
+                if fallback:
+                    results.append(fallback)
+        return results
+
 
 class FakePage:
     def __init__(

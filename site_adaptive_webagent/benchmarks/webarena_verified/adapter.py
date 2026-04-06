@@ -136,7 +136,7 @@ def setup_task_logging(*, logger: logging.Logger, task_output_dir: Path) -> None
     log_file = task_output_dir / f"{logger.name.lower().replace('-', '_')}.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    formatter = logging.Formatter("[%(name)s] [%(levelname)s] %(message)s")
+    formatter = logging.Formatter("[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)

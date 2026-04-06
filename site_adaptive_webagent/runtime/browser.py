@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from .intent import (
@@ -30,44 +31,46 @@ _SELECT_SELECTORS = ("select",)
 
 async def observe_page(page: Any) -> PageObservation:
     """현재 보이는 페이지 상태를 간결하게 수집한다."""
+    url = normalize_text(getattr(page, "url", ""))
+    title, headings, text_lines, links, buttons, inputs = await asyncio.gather(
+        safe_title(page),
+        extract_texts(page, HEADING_SELECTORS),
+        extract_texts(page, TEXT_BLOCK_SELECTORS),
+        extract_texts(page, LINK_SELECTORS),
+        extract_texts(page, BUTTON_SELECTORS),
+        extract_input_labels(page),
+    )
     return PageObservation(
-        url=normalize_text(getattr(page, "url", "")),
-        title=normalize_text(await safe_title(page)),
-        headings=await extract_texts(page, HEADING_SELECTORS),
-        text_lines=await extract_texts(page, TEXT_BLOCK_SELECTORS),
-        links=await extract_texts(page, LINK_SELECTORS),
-        buttons=await extract_texts(page, BUTTON_SELECTORS),
-        inputs=await extract_input_labels(page),
+        url=url,
+        title=normalize_text(title),
+        headings=headings,
+        text_lines=text_lines,
+        links=links,
+        buttons=buttons,
+        inputs=inputs,
     )
 
 
 async def extract_input_labels(page: Any) -> list[str]:
     """입력 필드의 placeholder / aria-label / name 속성을 수집한다."""
     labels: list[str] = []
+    seen: set[str] = set()
     for selector in (*_INPUT_SELECTORS, *_SELECT_SELECTORS):
         locator = page.locator(selector)
         try:
-            count = await locator.count()
+            results: list[str] = await locator.evaluate_all(
+                "els => els.slice(0, 20).map(el =>"
+                " el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.getAttribute('name') || ''"
+                ").filter(Boolean)"
+            )
         except Exception:
             continue
-        for i in range(min(count, 10)):
-            item = locator.nth(i)
-            label = await _get_input_label(item)
-            if label and label not in labels:
-                labels.append(label)
+        for t in results:
+            cleaned = normalize_text(t)
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                labels.append(cleaned)
     return labels
-
-
-async def _get_input_label(element: Any) -> str:
-    """placeholder → aria-label → name 순으로 입력 필드 식별자를 반환한다."""
-    for attr in ("placeholder", "aria-label", "name"):
-        try:
-            value = await element.get_attribute(attr)
-            if value:
-                return normalize_text(value)
-        except Exception:
-            continue
-    return ""
 
 
 async def execute_plan(
@@ -227,7 +230,15 @@ async def try_fill_target(page: Any, target: str, value: str, *, submit: bool = 
             continue
         for i in range(min(count, 20)):
             item = locator.nth(i)
-            label = await _get_input_label(item)
+            label = ""
+            for attr in ("placeholder", "aria-label", "name"):
+                try:
+                    val = await item.get_attribute(attr)
+                    if val:
+                        label = normalize_text(val)
+                        break
+                except Exception:
+                    continue
             if label and target_norm in label:
                 try:
                     await item.fill(value)
@@ -266,35 +277,29 @@ async def try_search(page: Any, phrase: str) -> bool:
 async def extract_texts(page: Any, selectors: tuple[str, ...]) -> list[str]:
     """실행 전체를 깨뜨리지 않고 selector 목록에서 텍스트를 읽는다.
 
-    inner_text가 비어있는 요소(예: 아이콘 전용 링크)는 aria-label → title 순으로 대체 텍스트를 읽는다.
+    evaluate_all()로 selector당 단일 JS 호출로 모든 요소를 처리한다.
+    inner_text가 비어있는 요소(예: 아이콘 전용 링크)는 aria-label → title 순으로 대체한다.
     """
     from .intent import collapse_whitespace
 
     texts: list[str] = []
+    seen: set[str] = set()
     for selector in selectors:
         locator = page.locator(selector)
         try:
-            count = await locator.count()
+            results: list[str] = await locator.evaluate_all(
+                "els => els.slice(0, 50).map(el => {"
+                "  const t = (el.innerText || '').trim();"
+                "  if (t) return t;"
+                "  return el.getAttribute('aria-label') || el.getAttribute('title') || '';"
+                "}).filter(Boolean)"
+            )
         except Exception:
             continue
-        for i in range(min(count, 100)):
-            item = locator.nth(i)
-            try:
-                raw = await item.inner_text()
-            except Exception:
-                raw = ""
+        for raw in results:
             cleaned = collapse_whitespace(raw)
-            if not cleaned:
-                # 아이콘 전용 요소 — aria-label / title 속성으로 대체
-                for attr in ("aria-label", "title"):
-                    try:
-                        value = await item.get_attribute(attr)
-                        if value:
-                            cleaned = collapse_whitespace(value)
-                            break
-                    except Exception:
-                        continue
-            if cleaned and cleaned not in texts:
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
                 texts.append(cleaned)
     return texts
 

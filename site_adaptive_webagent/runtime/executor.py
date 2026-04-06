@@ -249,6 +249,8 @@ async def _execute_with_llm(
 
     for step in range(max_steps):
         logger.info("[LLM] step=%d  url=%s", step + 1, current_obs.url)
+        logger.info("[LLM] step=%d  links=%s", step + 1, current_obs.links[:20])
+        logger.info("[LLM] step=%d  buttons=%s", step + 1, current_obs.buttons[:10])
 
         user_msg = build_action_request(task=task, observation=current_obs)
         messages.append({"role": "user", "content": user_msg})
