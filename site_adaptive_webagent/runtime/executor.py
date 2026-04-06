@@ -296,6 +296,11 @@ async def _execute_with_llm(
                 current_obs = await observe_page(page)
                 continue
             logger.info("[LLM] done → SUCCESS (all goals complete)")
+            # SPA 필터 적용 후 GET 요청이 HAR에 남도록 현재 URL reload
+            try:
+                await page.goto(page.url)
+            except Exception:
+                pass
             return ExecutionOutcome(task_type=task_type, status="SUCCESS")
 
         if action_type == "extract":
@@ -332,7 +337,7 @@ async def _execute_with_llm(
             url_hint = action.get("url", "")
             logger.info("[LLM] click  target=%r  url_hint=%r", target, url_hint)
             if target:
-                for role in ("link", "button"):
+                for role in ("link", "button", "textbox", "option", "menuitem"):
                     try:
                         locator = page.get_by_role(role, name=target)
                         count = await locator.count()
@@ -357,6 +362,26 @@ async def _execute_with_llm(
             value = action.get("value", "")
             submit = bool(action.get("submit", False))
             logger.info("[LLM] fill  target=%r  value=%r  submit=%s", target, value, submit)
+
+            # 필터 입력 감지 → click으로 리다이렉트해서 드롭다운 열기
+            _filter_keywords = ("filter", "search or filter")
+            if target and any(kw in target.lower() for kw in _filter_keywords):
+                logger.info("[LLM] fill redirected to click for filter input %r", target)
+                try:
+                    input_locator = page.locator(f"input[placeholder*='filter' i]")
+                    if await input_locator.count() > 0:
+                        await input_locator.first.click()
+                        action_succeeded = True
+                except Exception:
+                    pass
+                current_obs = await observe_page(page)
+                last_action_result = (
+                    f"Filter input '{target}' clicked. "
+                    "Dropdown options are now visible. Use click to select filter options step by step."
+                )
+                logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
+                continue
+
             if target and value:
                 action_succeeded = await try_fill_target(page, target, value, submit=submit)
         elif action_type == "goto":

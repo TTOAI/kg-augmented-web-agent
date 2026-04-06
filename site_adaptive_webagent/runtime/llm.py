@@ -150,6 +150,8 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "IMPORTANT: never use 'fill' on filter/search inputs that have structured options.",
         "Instead, click the input first — dropdown options (Label, Author, etc.) will appear",
         "in the next observation. Then click the options one by one to build the filter.",
+        "Always complete all sub-goals even if the page shows empty results.",
+        "For example, apply filters even if the current list appears empty.",
     ]
 
     if prior_bundle is not None:
