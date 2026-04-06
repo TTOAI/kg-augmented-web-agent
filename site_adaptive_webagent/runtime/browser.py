@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from urllib.parse import urlparse
 
 from .intent import (
     BUTTON_SELECTORS,
@@ -55,42 +54,34 @@ async def observe_page(page: Any) -> PageObservation:
 
 
 async def extract_ax_links(page: Any) -> list[str]:
-    """AX tree에서 링크를 추출한다.
+    """page.evaluate()로 링크의 aria-label + pathname을 함께 추출한다.
 
-    aria-label이 반영된 name과 pathname을 함께 반환해 LLM이 의미와 URL을 동시에 볼 수 있게 한다.
+    aria-label을 innerText보다 우선해 아이콘 링크의 의미를 올바르게 전달한다.
     예: "To-Do List → /dashboard/todos", "Dashboard → /dashboard"
     """
     try:
-        snapshot = await page.accessibility.snapshot()
+        results: list[str] = await page.evaluate(
+            """() => {
+                const seen = new Set();
+                return Array.from(document.querySelectorAll('a[href]'))
+                  .slice(0, 60)
+                  .map(el => {
+                    const aria = (el.getAttribute('aria-label') || '').trim();
+                    const text = (el.innerText || '').trim();
+                    const name = aria || text;
+                    const path = el.pathname || '';
+                    if (!name) return '';
+                    const entry = path ? name + ' \u2192 ' + path : name;
+                    if (seen.has(entry)) return '';
+                    seen.add(entry);
+                    return entry;
+                  })
+                  .filter(Boolean);
+            }"""
+        )
+        return results[:50]
     except Exception:
         return []
-    if not snapshot:
-        return []
-
-    links: list[str] = []
-    seen: set[str] = set()
-    _collect_ax_links(snapshot, links, seen)
-    return links[:50]
-
-
-def _collect_ax_links(node: dict, links: list[str], seen: set[str]) -> None:
-    """AX 트리를 재귀 탐색해 role=link 노드를 수집한다."""
-    if not isinstance(node, dict):
-        return
-    if node.get("role") == "link":
-        name = (node.get("name") or "").strip()
-        if name:
-            url = node.get("url", "")
-            try:
-                pathname = urlparse(url).path if url else ""
-            except Exception:
-                pathname = ""
-            entry = f"{name} → {pathname}" if pathname else name
-            if entry not in seen:
-                seen.add(entry)
-                links.append(entry)
-    for child in node.get("children", []):
-        _collect_ax_links(child, links, seen)
 
 
 async def extract_input_labels(page: Any) -> list[str]:
@@ -229,6 +220,8 @@ async def try_click_target(page: Any, target_terms: list[str]) -> bool:
     if not target_terms:
         return False
 
+    _target_terms_norm = [normalize_text(t) for t in target_terms]
+
     for selector in (*LINK_SELECTORS, *BUTTON_SELECTORS):
         locator = page.locator(selector)
         try:
@@ -252,7 +245,7 @@ async def try_click_target(page: Any, target_terms: list[str]) -> bool:
                             break
                     except Exception:
                         continue
-            if text and any(term in text for term in target_terms):
+            if text and any(term in text for term in _target_terms_norm):
                 try:
                     await item.click()
                     return True

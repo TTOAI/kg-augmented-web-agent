@@ -172,11 +172,12 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
     return "\n".join(lines)
 
 
-def build_action_request(*, task: str, observation: Any) -> str:
+def build_action_request(*, task: str, observation: Any, last_action_result: str = "") -> str:
     """태스크 지시와 현재 페이지 상태를 user 메시지로 직렬화한다."""
-    lines = [
-        f"Task: {task}",
-        "",
+    lines = [f"Task: {task}", ""]
+    if last_action_result:
+        lines += [f"Last action result: {last_action_result}", ""]
+    lines += [
         f"Current URL: {observation.url}",
         f"Page title: {observation.title}",
     ]

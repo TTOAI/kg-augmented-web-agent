@@ -244,6 +244,7 @@ async def _execute_with_llm(
     system = build_system_prompt(prior_bundle)
     current_obs = observation
     messages: list[dict[str, str]] = []
+    last_action_result = ""
 
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
 
@@ -252,8 +253,9 @@ async def _execute_with_llm(
         logger.info("[LLM] step=%d  links=%s", step + 1, current_obs.links[:20])
         logger.info("[LLM] step=%d  buttons=%s", step + 1, current_obs.buttons[:10])
 
-        user_msg = build_action_request(task=task, observation=current_obs)
+        user_msg = build_action_request(task=task, observation=current_obs, last_action_result=last_action_result)
         messages.append({"role": "user", "content": user_msg})
+        last_action_result = ""
 
         response = llm.complete(system=system, messages=messages)
         messages.append({"role": "assistant", "content": response})
@@ -290,34 +292,72 @@ async def _execute_with_llm(
                 error_details=action.get("reasoning", f"LLM returned {action_type}"),
             )
 
-        # 중간 탐색/입력 액션 실행 후 계속
+        # 중간 탐색/입력 액션 실행 — 결과를 다음 스텝에 피드백
+        prev_url = current_obs.url
+        action_succeeded = False
+
         if action_type == "click":
             target = action.get("target", "")
             logger.info("[LLM] click  target=%r", target)
             if target:
-                await try_click_target(page, [target])
+                action_succeeded = await try_click_target(page, [target])
         elif action_type == "fill":
             target = action.get("target", "")
             value = action.get("value", "")
             submit = bool(action.get("submit", False))
             logger.info("[LLM] fill  target=%r  value=%r  submit=%s", target, value, submit)
             if target and value:
-                await try_fill_target(page, target, value, submit=submit)
+                action_succeeded = await try_fill_target(page, target, value, submit=submit)
         elif action_type == "goto":
             url = action.get("url", "")
             logger.info("[LLM] goto  url=%r", url)
             if url:
                 try:
                     await page.goto(url)
+                    action_succeeded = True
                 except Exception:
                     pass
         elif action_type == "search":
             query = action.get("target", "")
             logger.info("[LLM] search  query=%r", query)
             if query:
-                await try_search(page, query)
+                action_succeeded = await try_search(page, query)
 
         current_obs = await observe_page(page)
+
+        # 액션 결과 요약 — 다음 스텝 LLM 메시지에 포함
+        if action_type == "click":
+            target = action.get("target", "")
+            if not action_succeeded:
+                last_action_result = f"click '{target}': element not found"
+            elif current_obs.url != prev_url:
+                last_action_result = f"click '{target}': navigated to {current_obs.url}"
+            else:
+                last_action_result = f"click '{target}': URL unchanged"
+        elif action_type == "fill":
+            target = action.get("target", "")
+            if not action_succeeded:
+                last_action_result = f"fill '{target}': field not found"
+            elif current_obs.url != prev_url:
+                last_action_result = f"fill '{target}': navigated to {current_obs.url}"
+            else:
+                last_action_result = f"fill '{target}': submitted"
+        elif action_type == "goto":
+            url = action.get("url", "")
+            if not action_succeeded:
+                last_action_result = f"goto '{url}': navigation failed"
+            else:
+                last_action_result = f"goto: navigated to {current_obs.url}"
+        elif action_type == "search":
+            query = action.get("target", "")
+            if not action_succeeded:
+                last_action_result = f"search '{query}': search field not found"
+            elif current_obs.url != prev_url:
+                last_action_result = f"search '{query}': navigated to {current_obs.url}"
+            else:
+                last_action_result = f"search '{query}': URL unchanged"
+
+        logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
     return ExecutionOutcome(
         task_type=task_type,
