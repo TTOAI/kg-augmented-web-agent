@@ -33,10 +33,10 @@ NAVIGATE_KEYWORDS = ("open", "go to", "navigate", "visit")
 MUTATE_KEYWORDS = ("search", "click", "submit", "create", "update", "edit", "fill")
 
 SEARCH_INPUT_SELECTORS = (
-    "input[type='search']",
     "input[placeholder*='search' i]",
     "input[name*='search' i]",
     "input[aria-label*='search' i]",
+    "input[type='search']",
 )
 HEADING_SELECTORS = ("h1", "h2", "[role='heading']")
 TEXT_BLOCK_SELECTORS = ("main", "article", "body")

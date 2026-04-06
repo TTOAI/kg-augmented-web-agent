@@ -331,7 +331,7 @@ async def try_search(page: Any, phrase: str) -> bool:
         return False
 
     for selector in SEARCH_INPUT_SELECTORS:
-        locator = page.locator(selector)
+        locator = page.locator(f"{selector}:visible")
         try:
             count = await locator.count()
         except Exception:
