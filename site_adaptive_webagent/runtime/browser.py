@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from urllib.parse import urlparse
 
 from .intent import (
     BUTTON_SELECTORS,
@@ -32,14 +33,16 @@ _SELECT_SELECTORS = ("select",)
 async def observe_page(page: Any) -> PageObservation:
     """현재 보이는 페이지 상태를 간결하게 수집한다."""
     url = normalize_text(getattr(page, "url", ""))
-    title, headings, text_lines, links, buttons, inputs = await asyncio.gather(
+    title, headings, text_lines, ax_links, buttons, inputs = await asyncio.gather(
         safe_title(page),
         extract_texts(page, HEADING_SELECTORS),
         extract_texts(page, TEXT_BLOCK_SELECTORS),
-        extract_texts(page, LINK_SELECTORS),
+        extract_ax_links(page),
         extract_texts(page, BUTTON_SELECTORS),
         extract_input_labels(page),
     )
+    # AX tree가 빈 결과면 CSS selector 폴백
+    links = ax_links if ax_links else await extract_texts(page, LINK_SELECTORS)
     return PageObservation(
         url=url,
         title=normalize_text(title),
@@ -49,6 +52,45 @@ async def observe_page(page: Any) -> PageObservation:
         buttons=buttons,
         inputs=inputs,
     )
+
+
+async def extract_ax_links(page: Any) -> list[str]:
+    """AX tree에서 링크를 추출한다.
+
+    aria-label이 반영된 name과 pathname을 함께 반환해 LLM이 의미와 URL을 동시에 볼 수 있게 한다.
+    예: "To-Do List → /dashboard/todos", "Dashboard → /dashboard"
+    """
+    try:
+        snapshot = await page.accessibility.snapshot()
+    except Exception:
+        return []
+    if not snapshot:
+        return []
+
+    links: list[str] = []
+    seen: set[str] = set()
+    _collect_ax_links(snapshot, links, seen)
+    return links[:50]
+
+
+def _collect_ax_links(node: dict, links: list[str], seen: set[str]) -> None:
+    """AX 트리를 재귀 탐색해 role=link 노드를 수집한다."""
+    if not isinstance(node, dict):
+        return
+    if node.get("role") == "link":
+        name = (node.get("name") or "").strip()
+        if name:
+            url = node.get("url", "")
+            try:
+                pathname = urlparse(url).path if url else ""
+            except Exception:
+                pathname = ""
+            entry = f"{name} → {pathname}" if pathname else name
+            if entry not in seen:
+                seen.add(entry)
+                links.append(entry)
+    for child in node.get("children", []):
+        _collect_ax_links(child, links, seen)
 
 
 async def extract_input_labels(page: Any) -> list[str]:

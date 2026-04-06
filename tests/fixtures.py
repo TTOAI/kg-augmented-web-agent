@@ -278,6 +278,14 @@ class FakeLocator:
         return results
 
 
+class FakeAccessibility:
+    def __init__(self, snapshot_data: dict | None) -> None:
+        self._snapshot = snapshot_data
+
+    async def snapshot(self) -> dict | None:
+        return self._snapshot
+
+
 class FakePage:
     def __init__(
         self,
@@ -287,6 +295,7 @@ class FakePage:
         selector_texts: dict[str, list[str]],
         click_updates: dict[tuple[str, int], dict[str, Any]] | None = None,
         element_attributes: dict[tuple[str, int], dict[str, str]] | None = None,
+        ax_tree: dict | None = None,
     ) -> None:
         self.url = url
         self._title = title_text
@@ -295,6 +304,7 @@ class FakePage:
         self.element_attributes = element_attributes or {}
         self.last_filled: str | None = None
         self.last_pressed: str | None = None
+        self.accessibility = FakeAccessibility(ax_tree)
 
     async def title(self) -> str:
         return self._title
