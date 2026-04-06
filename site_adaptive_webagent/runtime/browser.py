@@ -64,10 +64,11 @@ async def extract_ax_links(page: Any) -> list[str]:
             """() => {
                 const seen = new Set();
                 return Array.from(document.querySelectorAll('a[href]'))
+                  .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)
                   .slice(0, 60)
                   .map(el => {
                     const aria = (el.getAttribute('aria-label') || '').trim();
-                    const text = (el.innerText || '').trim();
+                    const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
                     const name = aria || text;
                     const path = el.pathname || '';
                     if (!name) return '';

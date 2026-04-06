@@ -294,6 +294,8 @@ async def _execute_with_llm(
 
         # 중간 탐색/입력 액션 실행 — 결과를 다음 스텝에 피드백
         prev_url = current_obs.url
+        prev_links = set(current_obs.links)
+        prev_buttons = set(current_obs.buttons)
         action_succeeded = False
 
         if action_type == "click":
@@ -340,8 +342,10 @@ async def _execute_with_llm(
                 last_action_result = f"click '{target}': element not found"
             elif current_obs.url != prev_url:
                 last_action_result = f"click '{target}': navigated to {current_obs.url}"
+            elif set(current_obs.links) != prev_links or set(current_obs.buttons) != prev_buttons:
+                last_action_result = f"click '{target}': page content changed"
             else:
-                last_action_result = f"click '{target}': URL unchanged"
+                last_action_result = f"click '{target}': no visible change"
         elif action_type == "fill":
             target = action.get("target", "")
             if not action_succeeded:
