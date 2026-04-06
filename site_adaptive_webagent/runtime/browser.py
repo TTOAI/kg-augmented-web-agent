@@ -32,11 +32,12 @@ _SELECT_SELECTORS = ("select",)
 async def observe_page(page: Any) -> PageObservation:
     """현재 보이는 페이지 상태를 간결하게 수집한다."""
     url = normalize_text(getattr(page, "url", ""))
-    title, headings, text_lines, ax_links, buttons, inputs = await asyncio.gather(
+    title, headings, text_lines, ax_links, dropdown_options, buttons, inputs = await asyncio.gather(
         safe_title(page),
         extract_texts(page, HEADING_SELECTORS),
         extract_texts(page, TEXT_BLOCK_SELECTORS),
         extract_ax_links(page),
+        extract_dropdown_options(page),
         extract_texts(page, BUTTON_SELECTORS),
         extract_input_labels(page),
     )
@@ -50,39 +51,50 @@ async def observe_page(page: Any) -> PageObservation:
         links=links,
         buttons=buttons,
         inputs=inputs,
+        dropdown_options=dropdown_options,
     )
 
 
-async def extract_ax_links(page: Any) -> list[str]:
-    """page.evaluate()로 링크의 aria-label + pathname을 함께 추출한다.
+_LINK_EXTRACT_JS = """(selector) => {
+    const seen = new Set();
+    return Array.from(document.querySelectorAll(selector))
+      .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)
+      .slice(0, 60)
+      .map(el => {
+        const aria = (el.getAttribute('aria-label') || '').trim();
+        const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+        const name = aria || text;
+        const path = el.pathname || '';
+        if (!name) return '';
+        const entry = path ? name + ' \\u2192 ' + path : name;
+        if (seen.has(entry)) return '';
+        seen.add(entry);
+        return entry;
+      })
+      .filter(Boolean);
+}"""
 
-    aria-label을 innerText보다 우선해 아이콘 링크의 의미를 올바르게 전달한다.
-    예: "To-Do List → /dashboard/todos", "Dashboard → /dashboard"
+
+async def extract_ax_links(page: Any) -> list[str]:
+    """page.evaluate()로 일반 링크의 aria-label + pathname을 추출한다.
+
+    드롭다운 항목은 extract_dropdown_options()에서 별도 수집한다.
     """
     try:
-        results: list[str] = await page.evaluate(
-            """() => {
-                const seen = new Set();
-                const dropdown = Array.from(document.querySelectorAll('.dropdown-item, [role="option"], [role="menuitem"]'));
-                const links = Array.from(document.querySelectorAll('a[href]'));
-                return [...dropdown, ...links]
-                  .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)
-                  .slice(0, 60)
-                  .map(el => {
-                    const aria = (el.getAttribute('aria-label') || '').trim();
-                    const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
-                    const name = aria || text;
-                    const path = el.pathname || '';
-                    if (!name) return '';
-                    const entry = path ? name + ' \u2192 ' + path : name;
-                    if (seen.has(entry)) return '';
-                    seen.add(entry);
-                    return entry;
-                  })
-                  .filter(Boolean);
-            }"""
-        )
+        results: list[str] = await page.evaluate(_LINK_EXTRACT_JS, "a[href]")
         return results[:50]
+    except Exception:
+        return []
+
+
+async def extract_dropdown_options(page: Any) -> list[str]:
+    """열린 드롭다운/메뉴의 보이는 항목을 수집한다."""
+    try:
+        results: list[str] = await page.evaluate(
+            _LINK_EXTRACT_JS,
+            '.dropdown-item, [role="option"], [role="menuitem"], [role="tab"]',
+        )
+        return results[:30]
     except Exception:
         return []
 

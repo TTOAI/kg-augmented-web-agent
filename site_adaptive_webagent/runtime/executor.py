@@ -256,6 +256,8 @@ async def _execute_with_llm(
         logger.info("[LLM] step=%d  url=%s", step + 1, current_obs.url)
         logger.info("[LLM] step=%d  links=%s", step + 1, current_obs.links[:20])
         logger.info("[LLM] step=%d  buttons=%s", step + 1, current_obs.buttons[:10])
+        if current_obs.dropdown_options:
+            logger.info("[LLM] step=%d  dropdown=%s", step + 1, current_obs.dropdown_options[:15])
         logger.info("[LLM] step=%d  goal=%d/%d %r", step + 1, current_goal_index + 1, len(sub_goals), sub_goals[current_goal_index] if current_goal_index < len(sub_goals) else "ALL DONE")
 
         user_msg = build_action_request(
@@ -354,6 +356,7 @@ async def _execute_with_llm(
         prev_url = current_obs.url
         prev_links = set(current_obs.links)
         prev_buttons = set(current_obs.buttons)
+        prev_dropdown = set(current_obs.dropdown_options)
         action_succeeded = False
 
         if action_type == "click":
@@ -361,7 +364,7 @@ async def _execute_with_llm(
             url_hint = action.get("url", "")
             logger.info("[LLM] click  target=%r  url_hint=%r", target, url_hint)
             if target:
-                for role in ("link", "button", "textbox", "option", "menuitem"):
+                for role in ("link", "button", "textbox", "option", "menuitem", "tab"):
                     try:
                         locator = page.get_by_role(role, name=target)
                         count = await locator.count()
@@ -423,6 +426,27 @@ async def _execute_with_llm(
             if query:
                 action_succeeded = await try_search(page, query)
 
+        # 드롭다운 렌더링 대기 (SPA 비동기 UI 반영)
+        if action_succeeded and action_type == "click":
+            try:
+                await page.wait_for_timeout(1000)
+            except Exception:
+                pass
+
+            # 필터 드롭다운에서 최종 값 선택 후 자동 검색 제출
+            # 조건: 이전에 드롭다운이 열려있었고, 클릭 후 드롭다운이 닫혔으면 값 선택 완료
+            new_obs = await observe_page(page)
+            dropdown_closed = bool(prev_dropdown) and not new_obs.dropdown_options
+            if dropdown_closed:
+                try:
+                    search_btn = page.locator("button[aria-label='Search']")
+                    if await search_btn.count() > 0:
+                        await search_btn.first.click()
+                        logger.info("[LLM] auto-submit: clicked search button after filter value selected")
+                        await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
+
         current_obs = await observe_page(page)
 
         # 액션 결과 요약 — 다음 스텝 LLM 메시지에 포함
@@ -432,7 +456,7 @@ async def _execute_with_llm(
                 last_action_result = f"click '{target}': element not found"
             elif current_obs.url != prev_url:
                 last_action_result = f"click '{target}': navigated to {current_obs.url}"
-            elif set(current_obs.links) != prev_links or set(current_obs.buttons) != prev_buttons:
+            elif set(current_obs.links) != prev_links or set(current_obs.buttons) != prev_buttons or set(current_obs.dropdown_options) != prev_dropdown:
                 last_action_result = f"click '{target}': page content changed"
             else:
                 last_action_result = f"click '{target}': no visible change"

@@ -150,6 +150,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "IMPORTANT: never use 'fill' on filter/search inputs that have structured options.",
         "Instead, click the input first — dropdown options (Label, Author, etc.) will appear",
         "in the next observation. Then click the options one by one to build the filter.",
+        "After selecting all filter values, click the search button or press Enter to submit the filter.",
         "Always complete all sub-goals even if the page shows empty results.",
         "For example, apply filters even if the current list appears empty.",
     ]
@@ -190,6 +191,7 @@ def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[str]:
         "Each sub-goal should be a concrete, verifiable objective — not a specific UI action.\n"
         "Good: 'Apply the bug label filter'  Bad: 'Click the Label dropdown'\n"
         "Consider the current page state when planning.\n"
+        "When filters are needed, include a sub-goal to submit/apply the filter after selecting values.\n"
         'Respond ONLY with JSON: {"sub_goals": ["...", "..."]}\n'
         "Keep each sub-goal to one short sentence."
     )
@@ -254,6 +256,8 @@ def build_action_request(
         lines.append(f"Visible text (first 10): {observation.text_lines[:10]}")
     if observation.links:
         lines.append(f"Links (first 20): {observation.links[:20]}")
+    if getattr(observation, "dropdown_options", None):
+        lines.append(f"Dropdown options (click to select): {observation.dropdown_options[:20]}")
     if observation.buttons:
         lines.append(f"Buttons: {observation.buttons[:10]}")
     if observation.inputs:

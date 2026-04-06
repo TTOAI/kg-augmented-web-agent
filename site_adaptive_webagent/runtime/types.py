@@ -50,6 +50,7 @@ class PageObservation:
     links: list[str]
     buttons: list[str]
     inputs: list[str] = field(default_factory=list)  # placeholder / label 기반 입력 필드
+    dropdown_options: list[str] = field(default_factory=list)  # 열린 드롭다운/메뉴 항목
 
 
 @dataclass(slots=True)

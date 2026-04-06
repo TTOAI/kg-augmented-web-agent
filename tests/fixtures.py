@@ -352,12 +352,15 @@ class FakePage:
         self.last_filled: str | None = None
         self.last_pressed: str | None = None
         self._evaluate_links = evaluate_links  # extract_ax_links()용 고정 반환값
+        self._evaluate_dropdown: list[str] = []  # extract_dropdown_options()용
 
-    async def evaluate(self, _js: str) -> Any:
-        """evaluate() stub: extract_ax_links()가 사용하는 JS 평가를 시뮬레이션한다."""
+    async def evaluate(self, _js: str, _arg: str | None = None) -> Any:
+        """evaluate() stub: extract_ax_links/extract_dropdown_options가 사용하는 JS 평가를 시뮬레이션한다."""
+        if _arg and "dropdown" in _arg:
+            return self._evaluate_dropdown or []
         if self._evaluate_links is not None:
             return self._evaluate_links
-        raise Exception("evaluate_links not configured")
+        return []
 
     async def title(self) -> str:
         return self._title
