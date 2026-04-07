@@ -518,6 +518,13 @@ class WebArenaVerifiedAdapter:
                     pages=pages,
                     task_output_dir=task_output_dir,
                 )
+                # NAVIGATE 성공 시 최종 URL을 다시 로드하여 HAR에 GET 요청 기록
+                # (SPA의 pushState는 HAR에 기록되지 않으므로)
+                if result.task_type == "NAVIGATE" and result.status == "SUCCESS" and pages:
+                    try:
+                        await pages[0].goto(pages[0].url, wait_until="load")
+                    except Exception:
+                        pass
             except NotImplementedError as e:
                 logger.warning("%s", e)
                 result = AgentRunResult.not_implemented(str(e))

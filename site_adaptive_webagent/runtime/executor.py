@@ -400,7 +400,7 @@ async def _try_sub_goal(
             return None, step + 1
 
         if action_type == "extract":
-            if is_last_goal:
+            if is_last_goal and task_type == "RETRIEVE":
                 return _handle_extract(action, task_type), step + 1
             logger.info("[LLM] extract in non-final goal → rejected")
             last_action_result = (
@@ -621,8 +621,29 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
         except Exception as exc:
             logger.debug("element_type=link click failed: %s", exc)
 
-    # 1. 드롭다운 옵션 매칭 (일반 링크와 href가 겹치므로 전용 selector 사용)
-    matching_dropdown = [d for d in obs.dropdown_options if target_lower in d.split(" → ")[0].lower()]
+    # 1. 타입 충돌 감지: element_type 없이 여러 타입에 매칭되면 되묻기
+    matching_dropdown = [d for d in obs.dropdown_options if d.split(" → ")[0].lower() == target_lower]
+    matching_links = [l for l in obs.links if target_lower in l.split(" → ")[0].lower()]
+    matching_buttons = [b for b in obs.buttons if target_lower in b.split(" [")[0].lower()]
+
+    if not element_type:
+        type_matches: list[str] = []
+        if matching_dropdown:
+            type_matches.append(f"dropdown={matching_dropdown[0]}")
+        if matching_links:
+            type_matches.append(f"link={matching_links[0]}")
+        if matching_buttons:
+            type_matches.append(f"button={matching_buttons[0]}")
+        if len(type_matches) > 1:
+            return _ActionResult(
+                should_continue=True,
+                feedback=(
+                    f"'{target}' matches multiple element types: {', '.join(type_matches)}. "
+                    "Set \"element_type\" to \"button\" or \"link\" to disambiguate."
+                ),
+            )
+
+    # 2. 드롭다운 옵션 매칭 (정확 매칭)
     if matching_dropdown:
         for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
             try:
@@ -634,9 +655,7 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
             except Exception as exc:
                 logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
 
-    # 2. 관측 links에서 매칭
-    matching_links = [l for l in obs.links if target_lower in l.split(" → ")[0].lower()]
-
+    # 3. 관측 links에서 매칭
     if len(matching_links) > 1 and not url_hint:
         return _ActionResult(
             should_continue=True,
@@ -662,7 +681,7 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
             except Exception as exc:
                 logger.debug("observation link click failed: %s", exc)
 
-    # 2. get_by_role fallback
+    # 4. get_by_role fallback
     for role in ("link", "button", "textbox", "option", "menuitem", "tab"):
         try:
             locator = page.get_by_role(role, name=target)
