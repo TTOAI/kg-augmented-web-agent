@@ -388,15 +388,17 @@ async def _execute_with_llm(
                 # (get_by_role은 <a href="#">의 기본 navigation을 발생시켜 JS 이벤트를 방해)
                 if prev_dropdown:
                     try:
+                        import re as _re
                         items = page.locator(".dropdown-item, [role='option'], [role='menuitem'], [role='tab']")
                         count = await items.count()
-                        target_lower = target.lower()
+                        target_norm = _re.sub(r"\s+", " ", target).strip().lower()
                         for i in range(count):
-                            text = (await items.nth(i).inner_text()).strip()
-                            if text == target or target_lower in text.lower():
+                            raw = await items.nth(i).inner_text()
+                            text_norm = _re.sub(r"\s+", " ", raw).strip().lower()
+                            if text_norm == target_norm or target_norm in text_norm:
                                 await items.nth(i).click()
                                 action_succeeded = True
-                                logger.info("[LLM] click via CSS locator (dropdown): %r", text)
+                                logger.info("[LLM] click via CSS locator (dropdown): %r", raw.strip())
                                 break
                     except Exception:
                         pass
@@ -409,17 +411,33 @@ async def _execute_with_llm(
                             count = await locator.count()
                             if count < 1:
                                 continue
-                            clicked = False
+                            # url_hint가 있으면 href 매칭
                             if url_hint and count > 1:
                                 for i in range(count):
                                     href = await locator.nth(i).get_attribute("href") or ""
                                     if url_hint in href:
                                         await locator.nth(i).click()
-                                        clicked = True
+                                        action_succeeded = True
                                         break
-                            if not clicked:
+                                if action_succeeded:
+                                    break
+                            # 동명 링크가 여러 개이고 url_hint가 없으면 → LLM에게 후보 목록 제시
+                            if count > 1 and not action_succeeded:
+                                candidates = []
+                                for i in range(min(count, 5)):
+                                    href = await locator.nth(i).get_attribute("href") or ""
+                                    candidates.append(f"{i + 1}. {target} → {href}" if href else f"{i + 1}. {target}")
+                                logger.info("[LLM] multiple matches for %r: %s", target, candidates)
+                                last_action_result = (
+                                    f"Multiple elements match '{target}'. "
+                                    f"Candidates: {candidates}. "
+                                    "Set 'url' to the pathname of the intended target and retry click."
+                                )
+                                break
+                            # 단일 매칭이면 바로 클릭
+                            if not action_succeeded:
                                 await locator.first.click()
-                            action_succeeded = True
+                                action_succeeded = True
                             break
                         except Exception:
                             continue
@@ -427,13 +445,15 @@ async def _execute_with_llm(
                 # get_by_role 전체 실패 시 CSS locator로 innerText partial 매칭
                 if not action_succeeded:
                     try:
-                        target_lower = target.lower()
+                        import re as _re
+                        target_norm = _re.sub(r"\s+", " ", target).strip().lower()
                         for selector in ("a", "button", "[role='tab']", "[role='option']"):
                             items = page.locator(f"{selector}:visible")
                             count = await items.count()
                             for i in range(count):
-                                text = (await items.nth(i).inner_text()).strip()
-                                if target_lower in text.lower():
+                                raw = await items.nth(i).inner_text()
+                                text_norm = _re.sub(r"\s+", " ", raw).strip().lower()
+                                if target_norm in text_norm:
                                     await items.nth(i).click()
                                     action_succeeded = True
                                     logger.info("[LLM] click via CSS fallback: %r in %r", target, text)
