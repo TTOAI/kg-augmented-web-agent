@@ -195,6 +195,66 @@ async def try_sub_goal(sub_goal, page, llm, step_budget, previous_failures):
 
 ---
 
+## Replanning (동적 계획 수정)
+
+### 문제
+
+Planning은 task 시작 시 한 번만 수행된다. 하지만 실행 중에 plan이 잘못되었음이 드러날 수 있다:
+- sub-goal이 해당 페이지에서 불가능한 경우 (예: 필터 UI가 없는 사이트)
+- 실행 중 새로운 정보가 발견되어 plan 변경이 필요한 경우
+- sub-goal이 불필요하거나 더 세분화가 필요한 경우
+
+Graduated retry는 같은 sub-goal 내에서의 재시도이지, plan 자체를 수정하지 않는다. sub-goal이 모든 retry를 소진해도 plan은 그대로이므로, 이후 sub-goal도 연쇄 실패할 수 있다.
+
+### 트리거
+
+sub-goal이 모든 retry를 소진하고 실패했을 때 replanning을 트리거한다.
+
+### 동작
+
+```python
+# sub-goal 실패 후 replanning
+if sub_goal_failed and all_retries_exhausted:
+    current_obs = observe_page(page)
+    new_plan = replan(
+        task=task,
+        observation=current_obs,
+        completed_goals=plan[:completed_index],
+        failed_goal=current_sub_goal,
+        failure_history=failures,
+        llm=llm,
+    )
+    # 새 plan으로 계속 실행
+    plan = new_plan
+```
+
+### Replan 입력
+
+LLM에게 다음 정보를 제공한다:
+- **원래 task**: 최종 목표
+- **현재 페이지 상태**: 관측 결과
+- **완료된 goal**: 지금까지 성공한 sub-goal 목록
+- **실패한 goal**: 어떤 goal이 왜 실패했는지
+- **실패 이력**: 시도한 접근과 결과
+
+### 제한
+
+- **최대 replan 횟수**: 2회. 무한 루프 방지.
+- **replan 후 checkpoint 갱신**: 현재 상태가 새 plan의 시작점이 된다.
+
+### 예시
+
+```
+원래 plan: [Issues 이동, bug 필터 적용, 검색 제출]
+실행: Issues 이동 성공 → bug 필터 적용 3회 retry 실패 (필터 UI 안 보임)
+replan 트리거:
+    입력: "Issues 페이지에 도달했으나, bug 필터 UI를 찾을 수 없었습니다."
+    출력: [URL에 ?label_name[]=bug 직접 추가하여 이동]
+새 plan으로 계속 실행 → 성공
+```
+
+---
+
 ## 기존 구조와의 비교
 
 | | 현재 (v1) | 새 설계 (v2) |
@@ -206,6 +266,7 @@ async def try_sub_goal(sub_goal, page, llm, step_budget, previous_failures):
 | **LLM 비결정성** | 단점 (같은 실수 반복) | 장점 (재시도 시 다른 판단) |
 | **Executor 역할** | 판단 대행 (fill→click 등) | 충실한 실행 + 결과 보고 |
 | **재시도 전략** | 없음 | 단계적 (미세 조정 → 경로 변경 → 접근 전환) |
+| **계획 수정** | 고정 (처음 plan 끝까지) | 동적 replan (sub-goal 실패 시 현재 상태 기반 재계획) |
 
 ---
 
@@ -215,4 +276,5 @@ async def try_sub_goal(sub_goal, page, llm, step_budget, previous_failures):
 2. **Sub-goal별 실행 루프**: checkpoint + retry + 스텝 예산 분배
 3. **Graduated retry 피드백**: 실패 분류 + 레벨별 피드백 생성
 4. **Verification 레이어**: sub-goal별 독립 검증
-5. **Observation 강화**: LLM이 더 정확한 판단을 내릴 수 있도록 풍부한 페이지 정보 제공
+5. **Replanning**: sub-goal 실패 시 현재 상태 기반 동적 재계획
+6. **Observation 강화**: LLM이 더 정확한 판단을 내릴 수 있도록 풍부한 페이지 정보 제공
