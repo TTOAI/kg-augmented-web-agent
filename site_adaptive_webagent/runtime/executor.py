@@ -245,6 +245,7 @@ async def _execute_with_llm(
     current_obs = observation
     messages: list[dict[str, str]] = []
     last_action_result = ""
+    _dropdown_checked_targets: set[str] = set()
 
     # --- Planning ---
     sub_goals = build_plan(task=task, observation=current_obs, llm=llm)
@@ -448,17 +449,21 @@ async def _execute_with_llm(
             logger.info("[LLM] fill  target=%r  value=%r  submit=%s", target, value, submit)
 
             # fill 전에 input click → 드롭다운이 열리면 fill 취소하고 click 유도
-            if target:
+            # 이미 드롭다운을 확인한 target은 건너뜀 (재시도 시 fill 실행)
+            if target and target not in _dropdown_checked_targets:
                 clicked_input = await try_click_input(page, target)
                 if clicked_input:
                     await page.wait_for_timeout(500)
                     check_obs = await observe_page(page)
                     if check_obs.dropdown_options:
+                        _dropdown_checked_targets.add(target)
                         logger.info("[LLM] fill → dropdown detected, redirecting to click")
                         current_obs = check_obs
                         last_action_result = (
                             f"Filter input '{target}' clicked. "
-                            "Dropdown options are now visible. Use click to select options."
+                            "Dropdown options are now visible. "
+                            "If your target is in the options, use click to select. "
+                            "Otherwise, use fill again to search directly."
                         )
                         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
                         continue
