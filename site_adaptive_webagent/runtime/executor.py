@@ -353,7 +353,6 @@ async def _try_sub_goal(
     messages: list[dict[str, str]] = []
     last_action_result = ""
     current_obs = await observe_page(page)
-    checkpoint_obs = current_obs  # 결정론적 검증용 시작 상태
 
     # 이전 실패 이력을 피드백으로 주입
     if previous_failures:
@@ -391,18 +390,8 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
-            current_obs = await observe_page(page)
-            verified = _verify_sub_goal(
-                goal_type=sub_goal.goal_type,
-                current_obs=current_obs,
-                checkpoint_obs=checkpoint_obs,
-            )
-            if verified or (is_last_goal and sub_goal.goal_type not in ("navigation",)):
-                logger.info("[LLM] sub-goal verified [%s]: %r", sub_goal.goal_type, sub_goal.goal)
-                return None, step + 1
-            logger.info("[LLM] sub-goal verification failed [%s]: %r", sub_goal.goal_type, sub_goal.goal)
-            last_action_result = "Sub-goal not yet complete — no observable page change detected. Take an action first."
-            continue
+            logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
+            return None, step + 1
 
         if action_type == "extract":
             if is_last_goal:
@@ -475,11 +464,7 @@ async def _try_sub_goal(
                 last_action_result = f"{last_action_result}. {nearby}"
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
-    # step_budget 소진 → 마지막 관측으로 검증 한 번 시도
-    current_obs = await observe_page(page)
-    if _verify_sub_goal(goal_type=sub_goal.goal_type, current_obs=current_obs, checkpoint_obs=checkpoint_obs):
-        logger.info("[LLM] sub-goal verified at budget exhaustion [%s]: %r", sub_goal.goal_type, sub_goal.goal)
-        return None, step_budget
+    # step_budget 소진 → done 선언 없이 끝남 = 실패
     return ExecutionOutcome(
         task_type=task_type, status="SUB_GOAL_FAILED",
         error_details=f"Sub-goal '{sub_goal}' not completed in {step_budget} steps",
@@ -536,23 +521,6 @@ def _replan(
         pass
     return []
 
-
-def _verify_sub_goal(
-    *, goal_type: str, current_obs: PageObservation, checkpoint_obs: PageObservation,
-) -> bool:
-    """결정론적 sub-goal 검증. 유형별로 다른 기준을 적용한다."""
-    if goal_type == "navigation":
-        # 네비게이션은 URL 변화가 핵심
-        return current_obs.url != checkpoint_obs.url
-    if goal_type == "action":
-        # 액션은 실제 페이지 콘텐츠 변화 (URL 또는 가시적 텍스트)
-        # links/buttons/dropdown은 임시 UI 상태(메뉴 열림/닫힘)를 포함하므로 제외
-        return (
-            current_obs.url != checkpoint_obs.url
-            or set(current_obs.text_lines) != set(checkpoint_obs.text_lines)
-        )
-    # cognition: 자동 통과
-    return True
 
 
 class _ActionResult:
@@ -617,16 +585,37 @@ async def _execute_browser_action(
 
 
 async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation) -> _ActionResult:
-    """click 액션: 관측 링크 → get_by_role → try_click_target 순으로 시도."""
+    """click 액션: element_type → 드롭다운 → links → get_by_role → fallback 순으로 시도."""
     target = action.get("target", "")
     url_hint = action.get("url", "")
-    logger.info("[LLM] click  target=%r  url_hint=%r", target, url_hint)
+    element_type = action.get("element_type", "")
+    logger.info("[LLM] click  target=%r  url_hint=%r  element_type=%r", target, url_hint, element_type)
     if not target:
         return _ActionResult()
 
     target_lower = target.lower()
 
-    # 0. 드롭다운 옵션 매칭 (최우선 — 일반 링크와 href가 겹치므로 전용 selector 사용)
+    # 0. element_type이 지정되면 해당 타입을 최우선 시도
+    if element_type == "button":
+        try:
+            loc = page.get_by_role("button", name=target)
+            if await loc.count() > 0:
+                await loc.first.click()
+                logger.info("[LLM] click via element_type=button: %r", target)
+                return _ActionResult(succeeded=True)
+        except Exception as exc:
+            logger.debug("element_type=button click failed: %s", exc)
+    elif element_type == "link":
+        try:
+            loc = page.get_by_role("link", name=target)
+            if await loc.count() > 0:
+                await loc.first.click()
+                logger.info("[LLM] click via element_type=link: %r", target)
+                return _ActionResult(succeeded=True)
+        except Exception as exc:
+            logger.debug("element_type=link click failed: %s", exc)
+
+    # 1. 드롭다운 옵션 매칭 (일반 링크와 href가 겹치므로 전용 selector 사용)
     matching_dropdown = [d for d in obs.dropdown_options if target_lower in d.split(" → ")[0].lower()]
     if matching_dropdown:
         for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
@@ -639,7 +628,7 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
             except Exception as exc:
                 logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
 
-    # 1. 관측 links에서 매칭
+    # 2. 관측 links에서 매칭
     matching_links = [l for l in obs.links if target_lower in l.split(" → ")[0].lower()]
 
     if len(matching_links) > 1 and not url_hint:

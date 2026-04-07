@@ -137,6 +137,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         '  "click"     — click a link or button; set "target" to the visible name only (NOT the URL).',
         '               Example: target="Issues", NOT target="Issues → /path".',
         '               If multiple links share the same name, set "url" to the pathname (e.g. "/project/-/issues").',
+        '               If the same name appears in both Links and Buttons, set "element_type": "button" or "link" to disambiguate.',
         '  "fill"      — type into an input field; set "target" (placeholder/label of the field), "value" (text to type)',
         '                optionally set "submit": true to press Enter after filling',
         '  "goto"      — navigate to a URL directly; set "url"',
