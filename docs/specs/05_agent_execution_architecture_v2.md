@@ -255,6 +255,58 @@ replan 트리거:
 
 ---
 
+## Verification 체계
+
+### 문제
+
+단일 LLM 검증은 모든 sub-goal 유형에 적용되지만, 인지 목표(determine, identify)에서 false negative를 발생시킨다. 페이지 상태가 바뀌지 않는 목표는 페이지 기반 검증으로 확인할 수 없다.
+
+### Sub-goal 유형 분류
+
+Planning 시점에 LLM이 sub-goal과 함께 유형을 태깅한다:
+
+```json
+{"sub_goals": [
+  {"goal": "Open the project's issues page.", "type": "navigation"},
+  {"goal": "Determine which project has the highest stars.", "type": "cognition"},
+  {"goal": "Collect the project ID(s).", "type": "extraction"}
+]}
+```
+
+| 유형 | 설명 | 키워드 예시 |
+|---|---|---|
+| **navigation** | 특정 페이지로 이동 | open, navigate, go to |
+| **action** | 페이지 상태를 변경 | filter, apply, sort, click, submit |
+| **cognition** | 정보 분석/판단 | determine, identify, find, check |
+
+### 유형별 결정론적 검증
+
+LLM 검증 호출을 제거하고, 유형별 결정론적 검증으로 대체한다:
+
+| 유형 | 검증 방법 | done 거부 조건 |
+|---|---|---|
+| **navigation** | URL이 checkpoint에서 변했는가 | URL이 checkpoint와 동일하면 거부 |
+| **action** | 페이지 내용이 변했는가 | links/buttons/dropdown이 checkpoint 관측과 동일하면 거부 |
+| **cognition** | 자동 통과 (변화 없어도 정상) | 거부하지 않음 |
+
+마지막 sub-goal은 유형과 무관하게 통과한다 — 최종 결과는 extract나 task 결과로 검증된다.
+
+### 장점
+
+- **비용 0**: LLM 검증 호출 제거 (스텝당 1~3초 절약)
+- **false negative 없음**: 인지 목표에서 부당한 거부 방지
+- **빠른 실행**: 결정론적 비교만으로 즉시 판단
+- **premature done 방어**: navigation/action에서 페이지 변화 없으면 거부
+
+### 잘못된 done 방어 메커니즘
+
+검증이 통과해도 잘못된 done이면 다음 sub-goal이 실패 → checkpoint 복원 → retry가 잡아준다. 이중 방어:
+
+1. **1차**: 유형별 결정론적 검증 (navigation/action에서 변화 없으면 거부)
+2. **2차**: 다음 sub-goal 실패 → checkpoint 복원 → retry (잘못된 checkpoint 복구)
+
+---
+
 ## 기존 구조와의 비교
 
 | | 현재 (v1) | 새 설계 (v2) |
@@ -262,7 +314,7 @@ replan 트리거:
 | **실행 단위** | 전체 task (15스텝) | sub-goal별 (예산 분배) |
 | **실패 시** | 다음 스텝에서 같은 상황 반복 | checkpoint 복원 + graduated retry |
 | **대화 컨텍스트** | 누적 (실패도 포함) | sub-goal마다 초기화 (실패 이력만 포함) |
-| **검증** | done 시점에서만 | sub-goal 완료마다 |
+| **검증** | done 시점에서만 (LLM 호출) | 유형별 결정론적 검증 (navigation: URL 변화, action: 내용 변화, cognition: 자동 통과) |
 | **LLM 비결정성** | 단점 (같은 실수 반복) | 장점 (재시도 시 다른 판단) |
 | **Executor 역할** | 판단 대행 (fill→click 등) | 충실한 실행 + 결과 보고 |
 | **재시도 전략** | 없음 | 단계적 (미세 조정 → 경로 변경 → 접근 전환) |
