@@ -120,6 +120,13 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "Analyze the current page state and decide the best single action to take.",
         "Always respond in English only.",
         "",
+        "CRITICAL: You have NO prior knowledge about this website.",
+        "Do not assume how any UI element works. Do not guess search syntax, filter commands, or URL patterns.",
+        "Every piece of information must come from what you SEE on the current page.",
+        "If you encounter an unfamiliar control (search box, filter, dropdown), CLICK it first to discover how it works.",
+        "Typing guessed commands like 'label:bug' is WRONG — instead, explore the UI to find the correct interaction method.",
+        "When stuck, click on visible controls to reveal hidden options before trying text input.",
+        "",
         "Respond ONLY with a JSON object using this schema:",
         '{"reasoning": "...", "action": "extract|click|goto|goback|search|fill|done|not_found|permission_denied|action_not_allowed|data_validation_error|unknown_error",',
         ' "value": "...", "label": "...", "target": "...", "url": "..."}',
@@ -191,7 +198,7 @@ class SubGoal:
         return f"{self.goal} [{self.goal_type}]"
 
 
-def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[SubGoal]:
+def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -> list[SubGoal]:
     """태스크를 2~5개 sub-goal로 분해한다. LLM 1회 호출."""
     system = (
         "You are a web task planner. Break down a web automation task into 2-5 sub-goals.\n"
@@ -202,11 +209,19 @@ def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[SubGoal]:
         '  "navigation" — move to a different page (open, navigate, go to)\n'
         '  "action" — change page state (filter, apply, sort, submit, post)\n'
         '  "cognition" — analyze or read information (determine, identify, find, check)\n'
+        "\n"
+        "IMPORTANT: For NAVIGATE tasks, the LAST sub-goal MUST be type 'navigation'.\n"
+        "The final goal should be to arrive at the target page with the correct URL.\n"
+        "Example: if the task is 'go to bug issues', the last goal should be\n"
+        "'Navigate to the filtered bug issues page' (navigation), not 'Apply bug filter' (action).\n"
+        "This ensures the page URL reflects the final state.\n"
+        "\n"
         'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
     )
     lines = [
         f"Task: {task}",
+        f"Task type: {task_type}",
         f"Current URL: {observation.url}",
         f"Page title: {observation.title}",
     ]

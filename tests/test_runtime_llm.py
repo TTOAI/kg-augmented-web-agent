@@ -219,10 +219,10 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        # v2: failure action → sub-goal 실패 → retry 소진 → 모든 goal 처리 → SUCCESS
-        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
+        # v2: failure action → sub-goal 실패 → retry+replan 소진 → FAIL
+        self.assertEqual(result.final_status, TaskRunStatus.FAILED)
         assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "SUCCESS")
+        self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
 
     async def test_llm_click_then_extract(self) -> None:
         """LLM이 click 후 extract를 반환하면 plan + 2회 호출되고 SUCCESS."""
@@ -374,9 +374,9 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        # v2: failure → sub-goal retry → 소진 → SUCCESS
+        # v2: failure → sub-goal retry+replan 소진 → FAIL
         assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "SUCCESS")
+        self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
 
     async def test_llm_action_not_allowed_triggers_retry(self) -> None:
         """LLM이 action_not_allowed를 반환하면 sub-goal 실패 → retry (v2)."""
@@ -398,9 +398,9 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        # v2: failure → sub-goal retry → 소진 → SUCCESS
+        # v2: failure → sub-goal retry+replan 소진 → FAIL
         assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "SUCCESS")
+        self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
 
     async def test_llm_done_returns_navigate_success(self) -> None:
         """LLM이 done을 반환하면 NAVIGATE SUCCESS."""

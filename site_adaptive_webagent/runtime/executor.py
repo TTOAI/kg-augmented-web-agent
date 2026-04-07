@@ -213,19 +213,19 @@ async def _execute_with_llm(
     t_start = time.time()
     system = build_system_prompt(prior_bundle)
 
-    sub_goals = build_plan(task=task, observation=observation, llm=llm)
+    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm)
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
     checkpoint_url = page.url
     steps_used = 0
-    replans_remaining = 2
+    replans_remaining = 5
 
     goal_idx = 0
     while goal_idx < len(sub_goals):
         sub_goal = sub_goals[goal_idx]
         remaining_goals = len(sub_goals) - goal_idx
-        step_budget = max(5, (max_steps - steps_used) // remaining_goals)
+        step_budget = max(10, (max_steps - steps_used) // remaining_goals)
         failures: list[str] = []
         goal_succeeded = False
 
@@ -282,7 +282,18 @@ async def _execute_with_llm(
                 sub_goals = sub_goals[:goal_idx] + new_goals
                 continue  # 같은 goal_idx에서 새 sub_goal로 재시도
             else:
-                logger.info("[LLM] replan returned empty — skipping goal")
+                logger.info("[LLM] replan returned empty — failing task")
+
+        if not goal_succeeded:
+            # 모든 retry + replan 소진 → 태스크 실패
+            elapsed = time.time() - t_start
+            logger.info("[LLM] goal %d/%d failed after all retries and replans in %.1fs",
+                        goal_idx + 1, len(sub_goals), elapsed)
+            return ExecutionOutcome(
+                task_type=task_type,
+                status="NOT_FOUND_ERROR",
+                error_details=f"Sub-goal '{sub_goal.goal}' failed after all retries and replans",
+            )
 
         goal_idx += 1
 
@@ -386,7 +397,7 @@ async def _try_sub_goal(
                 current_obs=current_obs,
                 checkpoint_obs=checkpoint_obs,
             )
-            if verified or is_last_goal:
+            if verified or (is_last_goal and sub_goal.goal_type not in ("navigation",)):
                 logger.info("[LLM] sub-goal verified [%s]: %r", sub_goal.goal_type, sub_goal.goal)
                 return None, step + 1
             logger.info("[LLM] sub-goal verification failed [%s]: %r", sub_goal.goal_type, sub_goal.goal)
@@ -434,12 +445,41 @@ async def _try_sub_goal(
             continue
 
         current_obs = await observe_page(page)
+        is_inpage = action_result.succeeded and current_obs.url == prev_state.url
+
+        # 포커스가 살아있는 동안 액션 컨테이너 참조 캡처
+        container_handle = await _capture_action_container(page) if is_inpage else None
+
+        # in-page 인터랙션에서 DOM 변화 감지 → 비동기 콘텐츠 안정화 대기
+        if (is_inpage
+                and (set(current_obs.dropdown_options) != prev_state.dropdown
+                     or set(current_obs.links) != prev_state.links
+                     or set(current_obs.buttons) != prev_state.buttons)):
+            for _ in range(4):  # max 2s
+                await page.wait_for_timeout(500)
+                updated_obs = await observe_page(page)
+                if (set(updated_obs.dropdown_options) == set(current_obs.dropdown_options)
+                        and set(updated_obs.links) == set(current_obs.links)
+                        and set(updated_obs.buttons) == set(current_obs.buttons)):
+                    break  # 안정됨
+                current_obs = updated_obs
+            else:
+                current_obs = updated_obs
         last_action_result = _summarize_action_result(
             action_type, action, action_result.succeeded, current_obs, prev_state,
         )
+        # 캡처된 컨테이너에서 주변 요소 추출 (안정화 후 — AJAX 콘텐츠 반영)
+        if container_handle:
+            nearby = await _extract_nearby_from_container(container_handle)
+            if nearby:
+                last_action_result = f"{last_action_result}. {nearby}"
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
-    # step_budget 소진
+    # step_budget 소진 → 마지막 관측으로 검증 한 번 시도
+    current_obs = await observe_page(page)
+    if _verify_sub_goal(goal_type=sub_goal.goal_type, current_obs=current_obs, checkpoint_obs=checkpoint_obs):
+        logger.info("[LLM] sub-goal verified at budget exhaustion [%s]: %r", sub_goal.goal_type, sub_goal.goal)
+        return None, step_budget
     return ExecutionOutcome(
         task_type=task_type, status="SUB_GOAL_FAILED",
         error_details=f"Sub-goal '{sub_goal}' not completed in {step_budget} steps",
@@ -501,13 +541,15 @@ def _verify_sub_goal(
     *, goal_type: str, current_obs: PageObservation, checkpoint_obs: PageObservation,
 ) -> bool:
     """결정론적 sub-goal 검증. 유형별로 다른 기준을 적용한다."""
-    if goal_type in ("navigation", "action"):
-        # URL이 변했거나 페이지 내용이 변했는가
+    if goal_type == "navigation":
+        # 네비게이션은 URL 변화가 핵심
+        return current_obs.url != checkpoint_obs.url
+    if goal_type == "action":
+        # 액션은 실제 페이지 콘텐츠 변화 (URL 또는 가시적 텍스트)
+        # links/buttons/dropdown은 임시 UI 상태(메뉴 열림/닫힘)를 포함하므로 제외
         return (
             current_obs.url != checkpoint_obs.url
-            or set(current_obs.links) != set(checkpoint_obs.links)
-            or set(current_obs.buttons) != set(checkpoint_obs.buttons)
-            or set(current_obs.dropdown_options) != set(checkpoint_obs.dropdown_options)
+            or set(current_obs.text_lines) != set(checkpoint_obs.text_lines)
         )
     # cognition: 자동 통과
     return True
@@ -582,8 +624,22 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
     if not target:
         return _ActionResult()
 
-    # 1. 관측 links에서 매칭
     target_lower = target.lower()
+
+    # 0. 드롭다운 옵션 매칭 (최우선 — 일반 링크와 href가 겹치므로 전용 selector 사용)
+    matching_dropdown = [d for d in obs.dropdown_options if target_lower in d.split(" → ")[0].lower()]
+    if matching_dropdown:
+        for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
+            try:
+                loc = page.locator(f'{dd_sel}:visible').filter(has_text=target)
+                if await loc.count() > 0:
+                    await loc.first.click()
+                    logger.info("[LLM] click via dropdown option (%s): %r", dd_sel, target)
+                    return _ActionResult(succeeded=True)
+            except Exception as exc:
+                logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
+
+    # 1. 관측 links에서 매칭
     matching_links = [l for l in obs.links if target_lower in l.split(" → ")[0].lower()]
 
     if len(matching_links) > 1 and not url_hint:
@@ -683,6 +739,72 @@ async def _execute_goback(page: Any) -> _ActionResult:
 
 
 # ---------------------------------------------------------------------------
+# Focused context (action vicinity)
+# ---------------------------------------------------------------------------
+
+_CAPTURE_CONTAINER_JS = """() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) return null;
+    let container = active;
+    for (let i = 0; i < 6; i++) {
+        if (!container.parentElement) break;
+        container = container.parentElement;
+        const tag = container.tagName.toLowerCase();
+        const role = container.getAttribute('role') || '';
+        const cls = container.className || '';
+        if (tag === 'form' || tag === 'nav' || tag === 'section'
+            || role === 'search' || role === 'dialog'
+            || cls.includes('search-box') || cls.includes('filtered-search')
+            || cls.includes('toolbar') || cls.includes('form-group'))
+            break;
+    }
+    return container === document.body ? null : container;
+}"""
+
+_EXTRACT_FROM_CONTAINER_JS = """(container) => {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('button, a[href], input'))
+        .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)
+        .slice(0, 15)
+        .map(el => {
+            const text = (el.innerText || '').replace(/\\s+/g, ' ').trim()
+                || el.getAttribute('aria-label')
+                || el.getAttribute('placeholder')
+                || el.getAttribute('title')
+                || '';
+            return text || null;
+        })
+        .filter(Boolean);
+}"""
+
+
+async def _capture_action_container(page: Any) -> Any:
+    """현재 포커스 영역의 컨테이너 DOM 참조를 캡처한다."""
+    try:
+        return await page.evaluate_handle(_CAPTURE_CONTAINER_JS)
+    except Exception:
+        return None
+
+
+async def _extract_nearby_from_container(container_handle: Any) -> str:
+    """캡처된 컨테이너에서 인터랙티브 요소를 추출한다."""
+    if container_handle is None:
+        return ""
+    try:
+        nearby: list[str] = await container_handle.evaluate(_EXTRACT_FROM_CONTAINER_JS)
+        if nearby:
+            return f"Nearby elements: {nearby}"
+    except Exception:
+        pass
+    finally:
+        try:
+            await container_handle.dispose()
+        except Exception:
+            pass
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Result summarization
 # ---------------------------------------------------------------------------
 
@@ -699,6 +821,23 @@ class _PageState:
 
 def _capture_page_state(obs: PageObservation) -> _PageState:
     return _PageState(obs)
+
+
+def _describe_content_delta(prev: _PageState, current_obs: PageObservation) -> str:
+    """액션 후 새로 나타난 요소를 요약한다 (주변부 변화)."""
+    new_dropdown = [d for d in current_obs.dropdown_options if d not in prev.dropdown]
+    new_buttons = [b for b in current_obs.buttons if b not in prev.buttons]
+    new_links = [l for l in current_obs.links if l not in prev.links]
+
+    parts: list[str] = []
+    if new_dropdown:
+        parts.append(f"New options appeared: {new_dropdown[:15]}")
+    if new_buttons:
+        parts.append(f"New buttons: {new_buttons[:10]}")
+    if new_links:
+        parts.append(f"New links: {new_links[:10]}")
+
+    return "; ".join(parts) if parts else ""
 
 
 def _summarize_action_result(
@@ -723,6 +862,9 @@ def _summarize_action_result(
             return f"click '{target}': element not found.{extra_msg}"
         if current_obs.url != prev.url:
             return f"click '{target}': navigated to {current_obs.url}"
+        delta = _describe_content_delta(prev, current_obs)
+        if delta:
+            return f"click '{target}': {delta}"
         if set(current_obs.links) != prev.links or set(current_obs.buttons) != prev.buttons or set(current_obs.dropdown_options) != prev.dropdown:
             return f"click '{target}': page content changed"
         return f"click '{target}': no visible change"
@@ -733,6 +875,9 @@ def _summarize_action_result(
             return f"fill '{target}': field not found"
         if current_obs.url != prev.url:
             return f"fill '{target}': navigated to {current_obs.url}"
+        delta = _describe_content_delta(prev, current_obs)
+        if delta:
+            return f"fill '{target}': submitted. {delta}"
         return f"fill '{target}': submitted"
 
     if action_type == "goto":
@@ -747,6 +892,9 @@ def _summarize_action_result(
             return f"search '{query}': search field not found"
         if current_obs.url != prev.url:
             return f"search '{query}': navigated to {current_obs.url}"
+        delta = _describe_content_delta(prev, current_obs)
+        if delta:
+            return f"search '{query}': {delta}"
         return f"search '{query}': URL unchanged"
 
     if action_type == "goback":

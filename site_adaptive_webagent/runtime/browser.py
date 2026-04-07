@@ -391,7 +391,9 @@ async def extract_texts(page: Any, selectors: tuple[str, ...]) -> list[str]:
         locator = page.locator(selector)
         try:
             results: list[str] = await locator.evaluate_all(
-                "els => els.slice(0, 50).map(el => {"
+                "els => els"
+                "  .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)"
+                "  .slice(0, 50).map(el => {"
                 "  const t = (el.innerText || '').trim();"
                 "  const name = t || el.getAttribute('aria-label') || el.getAttribute('title') || '';"
                 "  if (!name) return '';"
