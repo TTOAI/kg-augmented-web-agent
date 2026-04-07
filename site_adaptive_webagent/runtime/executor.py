@@ -299,9 +299,32 @@ async def _execute_with_llm(
                 last_action_result = f"Sub-goal completed. Now working on: {sub_goals[current_goal_index]}"
                 current_obs = await observe_page(page)
                 continue
-            logger.info("[LLM] done → SUCCESS (all goals complete)")
+            # done 검증: LLM에게 현재 페이지가 task 목표와 맞는지 확인
+            verify_obs = await observe_page(page)
+            verify_msg = (
+                f"The agent says the task is complete.\n"
+                f"Task: {task}\n"
+                f"Current URL: {verify_obs.url}\n"
+                f"Page title: {verify_obs.title}\n"
+                f"Links (first 10): {verify_obs.links[:10]}\n"
+                f"Buttons: {verify_obs.buttons[:5]}\n"
+                f"Is the task actually completed? Reply ONLY with JSON: "
+                '{"verified": true} or {"verified": false, "reason": "..."}'
+            )
+            try:
+                verify_response = llm.complete(system="You are a web task verifier.", messages=[{"role": "user", "content": verify_msg}])
+                verify_result = parse_llm_action(verify_response)
+                if not verify_result.get("verified", True):
+                    reason = verify_result.get("reason", "verification failed")
+                    logger.info("[LLM] done rejected by verifier: %s", reason)
+                    last_action_result = f"Task not yet complete: {reason}. Continue working."
+                    current_obs = verify_obs
+                    continue
+            except Exception:
+                pass  # 검증 실패 시 done 허용
+
+            logger.info("[LLM] done → SUCCESS (verified, all goals complete)")
             # SPA에서 URL 변경이 GET 요청으로 안 남을 수 있으므로 reload
-            # 진행 중인 네트워크 요청이 완료될 때까지 대기
             try:
                 await page.wait_for_timeout(2000)
                 await page.goto(page.url)
