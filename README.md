@@ -73,6 +73,15 @@ webarena-verified env setup init --site map --data-dir ./downloads
 webarena-verified env start --site map
 ```
 
+### 환경 리셋
+
+MUTATE task(코멘트 작성, 상태 변경 등)는 사이트 상태를 변경하므로, 재실험 전에 사이트를 초기 상태로 리셋해야 정확한 측정이 가능하다.
+
+```bash
+webarena-verified env stop --site gitlab
+webarena-verified env start --site gitlab
+```
+
 ### task export
 
 task 입력 준비
