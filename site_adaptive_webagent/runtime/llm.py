@@ -220,21 +220,11 @@ def build_action_request(
     """태스크 지시와 현재 페이지 상태를 user 메시지로 직렬화한다."""
     lines = [f"Task: {task}", ""]
 
-    if sub_goals:
-        lines.append("Plan:")
-        for i, goal in enumerate(sub_goals):
-            if i < current_goal_index:
-                marker = "done"
-            elif i == current_goal_index:
-                marker = "current"
-            else:
-                marker = " "
-            lines.append(f"  [{marker}] {i + 1}. {goal}")
+    if sub_goals and current_goal_index < len(sub_goals):
+        current_goal = sub_goals[current_goal_index]
         lines += [
-            "",
-            "Focus on the [current] sub-goal. Set \"goal_complete\": true when it is achieved.",
-            "Only use \"done\" action when ALL sub-goals are complete.",
-            "Only use \"extract\" to return the FINAL answer to the task — never for intermediate progress.",
+            f"Current objective: {current_goal}",
+            "When this objective is achieved, declare done. Do not work beyond this objective.",
             "",
         ]
 

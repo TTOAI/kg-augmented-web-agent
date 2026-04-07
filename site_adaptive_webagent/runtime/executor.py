@@ -225,7 +225,7 @@ async def _execute_with_llm(
     while goal_idx < len(sub_goals):
         sub_goal = sub_goals[goal_idx]
         remaining_goals = len(sub_goals) - goal_idx
-        step_budget = max(3, (max_steps - steps_used) // remaining_goals)
+        step_budget = max(5, (max_steps - steps_used) // remaining_goals)
         failures: list[str] = []
         goal_succeeded = False
 
@@ -351,9 +351,9 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
-            # Verification: sub-goal 달성 여부 검증
+            reasoning = action.get("reasoning", "")
             verified = await _verify_sub_goal(
-                sub_goal=sub_goal, page=page, llm=llm,
+                sub_goal=sub_goal, page=page, llm=llm, agent_reasoning=reasoning,
             )
             if verified:
                 logger.info("[LLM] sub-goal verified: %r", sub_goal)
@@ -441,26 +441,39 @@ def _replan(
     return []
 
 
-async def _verify_sub_goal(*, sub_goal: str, page: Any, llm: LLMClient) -> bool:
+async def _verify_sub_goal(
+    *, sub_goal: str, page: Any, llm: LLMClient, agent_reasoning: str = "",
+) -> bool:
     """LLM에게 sub-goal 달성 여부를 검증한다."""
     obs = await observe_page(page)
+    content_lines = [
+        f"Sub-goal: {sub_goal}",
+        f"Agent's reasoning for declaring done: {agent_reasoning}",
+        "",
+        f"Current URL: {obs.url}",
+        f"Page title: {obs.title}",
+    ]
+    if obs.dropdown_options:
+        content_lines.append(f"Active UI elements: {obs.dropdown_options[:10]}")
+    if obs.text_lines:
+        content_lines.append(f"Visible text: {obs.text_lines[0][:200]}")
+    content_lines.append(f"Links (first 10): {obs.links[:10]}")
+    content_lines.append(f"Buttons: {obs.buttons[:5]}")
+    content_lines += [
+        "",
+        "Evaluate: does the current page state support the agent's claim that this sub-goal is achieved?",
+        "Consider the agent's reasoning, the URL, and the visible page elements.",
+        'Reply ONLY with JSON: {"verified": true} or {"verified": false, "reason": "..."}',
+    ]
     try:
         response = llm.complete(
-            system="You are a web task verifier. Be strict.",
-            messages=[{"role": "user", "content": (
-                f"Sub-goal: {sub_goal}\n"
-                f"Current URL: {obs.url}\n"
-                f"Page title: {obs.title}\n"
-                f"Links (first 10): {obs.links[:10]}\n"
-                f"Buttons: {obs.buttons[:5]}\n"
-                f"Is this sub-goal actually achieved? Reply ONLY with JSON: "
-                '{"verified": true} or {"verified": false, "reason": "..."}'
-            )}],
+            system="You are a web task verifier. Evaluate whether the sub-goal is achieved based on the evidence.",
+            messages=[{"role": "user", "content": "\n".join(content_lines)}],
         )
         result = parse_llm_action(response)
         return bool(result.get("verified", True))
     except Exception:
-        return True  # 검증 실패 시 통과 허용
+        return True
 
 
 class _ActionResult:
