@@ -301,7 +301,9 @@ async def _execute_with_llm(
                 continue
             logger.info("[LLM] done → SUCCESS (all goals complete)")
             # SPA에서 URL 변경이 GET 요청으로 안 남을 수 있으므로 reload
+            # 진행 중인 네트워크 요청이 완료될 때까지 대기
             try:
+                await page.wait_for_timeout(2000)
                 await page.goto(page.url)
             except Exception:
                 pass
@@ -418,7 +420,41 @@ async def _execute_with_llm(
                         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
                         continue
 
-                # 드롭다운 매칭 실패 또는 드롭다운 없으면 기존 get_by_role
+                # 관측 links에서 target 포함 링크 매칭 → CSS locator로 클릭
+                if not action_succeeded:
+                    target_lower = target.lower()
+                    matching_links = [
+                        l for l in current_obs.links
+                        if target_lower in l.split(" → ")[0].lower()
+                    ]
+                    if len(matching_links) > 1 and not url_hint:
+                        # 동명 링크 → 후보 제시, 클릭 안 함
+                        logger.info("[LLM] multiple links match %r: %s", target, matching_links)
+                        last_action_result = (
+                            f"Multiple links match '{target}': {matching_links}. "
+                            "Set 'url' to the pathname of the intended target and retry click."
+                        )
+                    elif matching_links:
+                        # url_hint가 있으면 href 매칭, 없으면 유일한 매칭 사용
+                        click_href = None
+                        if url_hint:
+                            click_href = next(
+                                (l.split(" → ")[1] for l in matching_links if " → " in l and url_hint in l),
+                                None,
+                            )
+                        elif len(matching_links) == 1 and " → " in matching_links[0]:
+                            click_href = matching_links[0].split(" → ")[1]
+                        if click_href:
+                            try:
+                                loc = page.locator(f"a[href='{click_href}']:visible")
+                                if await loc.count() > 0:
+                                    await loc.first.click()
+                                    action_succeeded = True
+                                    logger.info("[LLM] click via observation link: %r", click_href)
+                            except Exception:
+                                pass
+
+                # 관측에서 못 찾으면 get_by_role fallback (버튼, textbox 등)
                 if not action_succeeded:
                     for role in ("link", "button", "textbox", "option", "menuitem", "tab"):
                         try:
@@ -426,7 +462,6 @@ async def _execute_with_llm(
                             count = await locator.count()
                             if count < 1:
                                 continue
-                            # url_hint가 있으면 href 매칭
                             if url_hint and count > 1:
                                 for i in range(count):
                                     href = await locator.nth(i).get_attribute("href") or ""
@@ -436,20 +471,6 @@ async def _execute_with_llm(
                                         break
                                 if action_succeeded:
                                     break
-                            # 동명 링크가 여러 개이고 url_hint가 없으면 → LLM에게 후보 목록 제시
-                            if count > 1 and not action_succeeded:
-                                candidates = []
-                                for i in range(min(count, 5)):
-                                    href = await locator.nth(i).get_attribute("href") or ""
-                                    candidates.append(f"{i + 1}. {target} → {href}" if href else f"{i + 1}. {target}")
-                                logger.info("[LLM] multiple matches for %r: %s", target, candidates)
-                                last_action_result = (
-                                    f"Multiple elements match '{target}'. "
-                                    f"Candidates: {candidates}. "
-                                    "Set 'url' to the pathname of the intended target and retry click."
-                                )
-                                break
-                            # 단일 매칭이면 바로 클릭
                             if not action_succeeded:
                                 await locator.first.click()
                                 action_succeeded = True
