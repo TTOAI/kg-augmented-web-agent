@@ -126,7 +126,8 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "Keep reasoning to 1-2 sentences. Be concise.",
         "",
         "Action descriptions:",
-        '  "extract"   — the requested data is already visible; set "value" to the exact answer only (a number, name, or URL — no extra words), and "label" (what it represents)',
+        '  "extract"   — the requested data is already visible; set "value" to the exact answer only (a number, name, or URL — no extra words), and "label" (what it represents).',
+        '               Before extracting, verify your value matches what the task asks for (e.g. ID → numeric ID, not a name).',
         '  "click"     — click a link or button; set "target" to the visible name only (NOT the URL).',
         '               Example: target="Issues", NOT target="Issues → /path".',
         '               If multiple links share the same name, set "url" to the pathname (e.g. "/project/-/issues").',
@@ -186,6 +187,7 @@ def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[str]:
         "Good: 'Apply the bug label filter'  Bad: 'Click the Label dropdown'\n"
         "Consider the current page state when planning.\n"
         "When filters are needed, include a sub-goal to submit/apply the filter after selecting values.\n"
+        "If the task asks for a specific field (ID, URL, email, etc.), include a sub-goal to navigate to the page where that field is actually visible.\n"
         'Respond ONLY with JSON: {"sub_goals": ["...", "..."]}\n'
         "Keep each sub-goal to one short sentence."
     )

@@ -588,9 +588,9 @@ class WebArenaVerifiedAdapter:
         task_type = task_type_input if task_type_input in ("NAVIGATE", "RETRIEVE", "MUTATE") else "NAVIGATE"
         retrieved_data = None
         if task_type == "RETRIEVE":
-            data_input = input(">>> Retrieved data (추출한 값): ").strip()
+            data_input = input(">>> Retrieved data (추출한 값, 여러 개면 쉼표로 구분): ").strip()
             if data_input:
-                retrieved_data = [data_input]
+                retrieved_data = [v.strip() for v in data_input.split(",") if v.strip()]
         result = AgentRunResult(
             task_type=task_type,
             status="SUCCESS",

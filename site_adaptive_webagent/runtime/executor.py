@@ -331,8 +331,13 @@ async def _execute_with_llm(
                 current_obs = await observe_page(page)
                 continue
             if value:
+                # 쉼표 구분 값을 개별 항목으로 분리
+                if "," in value:
+                    retrieved = [v.strip() for v in value.split(",") if v.strip()]
+                else:
+                    retrieved = [value]
                 logger.info("[LLM] extract → SUCCESS  label=%r value=%r", label, value[:100])
-                return ExecutionOutcome(task_type=task_type, status="SUCCESS", retrieved_data=[value])
+                return ExecutionOutcome(task_type=task_type, status="SUCCESS", retrieved_data=retrieved)
             logger.info("[LLM] extract → NOT_FOUND_ERROR (missing value)")
             return ExecutionOutcome(
                 task_type=task_type,
