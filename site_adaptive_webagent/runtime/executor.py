@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -195,6 +196,9 @@ async def _run_with_browser(
 # LLM execution loop
 # ---------------------------------------------------------------------------
 
+_MAX_RETRIES_PER_GOAL = 3
+
+
 async def _execute_with_llm(
     *,
     task: str,
@@ -205,55 +209,131 @@ async def _execute_with_llm(
     prior_bundle: PriorBundle | None,
     max_steps: int = 15,
 ) -> ExecutionOutcome:
-    """LLM 기반 액션 루프. 대화 히스토리를 누적하며 태스크를 완수한다."""
+    """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
+    t_start = time.time()
     system = build_system_prompt(prior_bundle)
-    current_obs = observation
-    messages: list[dict[str, str]] = []
-    last_action_result = ""
 
-    sub_goals = build_plan(task=task, observation=current_obs, llm=llm)
-    current_goal_index = 0
+    sub_goals = build_plan(task=task, observation=observation, llm=llm)
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
-    for step in range(max_steps):
-        _log_step_observation(step, current_obs, sub_goals, current_goal_index)
+    checkpoint_url = page.url
+    steps_used = 0
+
+    for goal_idx, sub_goal in enumerate(sub_goals):
+        remaining_goals = len(sub_goals) - goal_idx
+        step_budget = max(3, (max_steps - steps_used) // remaining_goals)
+        failures: list[str] = []
+
+        for attempt in range(_MAX_RETRIES_PER_GOAL):
+            logger.info("[LLM] goal=%d/%d %r  attempt=%d  budget=%d",
+                        goal_idx + 1, len(sub_goals), sub_goal, attempt + 1, step_budget)
+
+            result, used = await _try_sub_goal(
+                task=task, task_type=task_type, sub_goal=sub_goal,
+                sub_goals=sub_goals, goal_index=goal_idx,
+                page=page, llm=llm, system=system,
+                step_budget=step_budget, previous_failures=failures,
+            )
+            steps_used += used
+
+            # extract/failure → 즉시 반환
+            if result is not None and result.status != "SUB_GOAL_FAILED":
+                elapsed = time.time() - t_start
+                logger.info("[LLM] task completed in %.1fs (%d steps)", elapsed, steps_used)
+                return result
+
+            # sub-goal 성공 (done)
+            if result is None:
+                checkpoint_url = page.url
+                logger.info("[LLM] goal %d/%d complete — checkpoint: %s",
+                            goal_idx + 1, len(sub_goals), checkpoint_url)
+                break
+
+            # sub-goal 실패 → checkpoint 복원 + retry
+            failure_desc = result.error_details or f"attempt {attempt + 1} failed"
+            failures.append(failure_desc)
+            logger.info("[LLM] goal %d/%d failed (attempt %d): %s — restoring checkpoint",
+                        goal_idx + 1, len(sub_goals), attempt + 1, failure_desc)
+            try:
+                await page.goto(checkpoint_url)
+            except Exception:
+                pass
+
+    # 모든 goal 완료
+    elapsed = time.time() - t_start
+    logger.info("[LLM] all goals complete in %.1fs (%d steps)", elapsed, steps_used)
+    return ExecutionOutcome(task_type=task_type, status="SUCCESS")
+
+
+async def _try_sub_goal(
+    *,
+    task: str,
+    task_type: str,
+    sub_goal: str,
+    sub_goals: list[str],
+    goal_index: int,
+    page: Any,
+    llm: LLMClient,
+    system: str,
+    step_budget: int,
+    previous_failures: list[str],
+) -> tuple[ExecutionOutcome | None, int]:
+    """단일 sub-goal을 step_budget 안에서 시도한다.
+
+    Returns:
+        (None, steps_used) — sub-goal 완료 (done)
+        (ExecutionOutcome, steps_used) — extract/failure/timeout 결과
+        status="SUB_GOAL_FAILED"이면 retry 가능한 실패
+    """
+    messages: list[dict[str, str]] = []
+    last_action_result = ""
+    current_obs = await observe_page(page)
+
+    # 이전 실패 이력을 피드백으로 주입
+    if previous_failures:
+        retry_count = len(previous_failures)
+        if retry_count == 1:
+            last_action_result = (
+                f"Previous attempt for this goal failed: {previous_failures[-1]}. "
+                "Your approach was likely correct. Try a small adjustment."
+            )
+        elif retry_count == 2:
+            last_action_result = (
+                f"This goal has failed {retry_count} times: {previous_failures}. "
+                "Try a different way to achieve this goal."
+            )
+        else:
+            last_action_result = (
+                f"This goal has failed {retry_count} times. "
+                "Consider a completely different approach."
+            )
+
+    for step in range(step_budget):
+        _log_step_observation(step, current_obs, sub_goals, goal_index)
 
         user_msg = build_action_request(
             task=task, observation=current_obs, last_action_result=last_action_result,
-            sub_goals=sub_goals, current_goal_index=current_goal_index,
+            sub_goals=sub_goals, current_goal_index=goal_index,
         )
         messages.append({"role": "user", "content": user_msg})
         last_action_result = ""
 
         action, messages = _get_llm_action(llm, system, messages)
         action_type = action.get("action", "not_found")
-        goal_complete_requested = bool(action.get("goal_complete"))
-        logger.info("[LLM] step=%d  action=%s  reasoning=%r", step + 1, action_type, action.get("reasoning", "")[:200])
+        logger.info("[LLM] step=%d  action=%s  reasoning=%r",
+                    step + 1, action_type, action.get("reasoning", "")[:200])
 
         # --- Terminal actions ---
         if action_type == "done":
-            result = await _handle_done(
-                sub_goals=sub_goals,
-                current_goal_index=current_goal_index, task_type=task_type,
-            )
-            if result is not None:
-                return result
-            # done rejected → advance goal or continue
-            current_goal_index += 1
-            last_action_result = (
-                f"Sub-goal completed. Now working on: {sub_goals[current_goal_index]}"
-                if current_goal_index < len(sub_goals)
-                else "Task not yet complete. Continue working."
-            )
-            current_obs = await observe_page(page)
-            continue
+            logger.info("[LLM] sub-goal done: %r", sub_goal)
+            return None, step + 1
 
         if action_type == "extract":
-            return _handle_extract(action, task_type)
+            return _handle_extract(action, task_type), step + 1
 
         if action_type in _FAILURE_ACTION_TO_STATUS:
-            return _handle_failure(action, action_type, task_type)
+            return _handle_failure(action, action_type, task_type), step + 1
 
         # --- Browser actions ---
         prev_state = _capture_page_state(current_obs)
@@ -274,14 +354,11 @@ async def _execute_with_llm(
         )
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
-        if goal_complete_requested and action_result.succeeded and current_goal_index < len(sub_goals):
-            logger.info("[LLM] step=%d  goal %d complete: %r", step + 1, current_goal_index + 1, sub_goals[current_goal_index])
-            current_goal_index += 1
-
+    # step_budget 소진
     return ExecutionOutcome(
-        task_type=task_type, status="NOT_FOUND_ERROR",
-        error_details=f"Task not completed after {max_steps} attempts",
-    )
+        task_type=task_type, status="SUB_GOAL_FAILED",
+        error_details=f"Sub-goal '{sub_goal}' not completed in {step_budget} steps",
+    ), step_budget
 
 
 # ---------------------------------------------------------------------------
@@ -304,21 +381,6 @@ class _ActionResult:
         self.feedback = feedback
         self.observation = observation
 
-
-async def _handle_done(
-    *,
-    sub_goals: list[str],
-    current_goal_index: int,
-    task_type: str,
-) -> ExecutionOutcome | None:
-    """done 처리. SUCCESS를 반환하거나, 아직 미완이면 None을 반환한다."""
-    if current_goal_index < len(sub_goals) - 1:
-        logger.info("[LLM] done ignored — advancing to goal %d/%d: %r",
-                     current_goal_index + 2, len(sub_goals), sub_goals[current_goal_index + 1])
-        return None
-
-    logger.info("[LLM] done → SUCCESS (all goals complete)")
-    return ExecutionOutcome(task_type=task_type, status="SUCCESS")
 
 
 def _handle_extract(action: dict[str, Any], task_type: str) -> ExecutionOutcome:
