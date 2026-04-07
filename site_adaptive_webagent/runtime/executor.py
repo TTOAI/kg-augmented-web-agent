@@ -246,6 +246,7 @@ async def _execute_with_llm(
     messages: list[dict[str, str]] = []
     last_action_result = ""
     _dropdown_checked_targets: set[str] = set()
+    _initial_filter_dropdown: set[str] | None = None
 
     # --- Planning ---
     sub_goals = build_plan(task=task, observation=current_obs, llm=llm)
@@ -299,22 +300,7 @@ async def _execute_with_llm(
                 current_obs = await observe_page(page)
                 continue
             logger.info("[LLM] done → SUCCESS (all goals complete)")
-            # 필터가 설정되었으나 제출 안 된 경우 검색 버튼 클릭으로 제출
-            try:
-                search_btn = page.locator("button[aria-label='Search']")
-                if await search_btn.count() > 0:
-                    pre_url = page.url
-                    await search_btn.first.click()
-                    logger.info("[LLM] auto-submit: clicked search button on done")
-                    # URL이 변할 때까지 대기 (최대 5초)
-                    for _ in range(10):
-                        await page.wait_for_timeout(500)
-                        if page.url != pre_url:
-                            break
-                    logger.info("[LLM] final URL: %s", page.url)
-            except Exception:
-                pass
-            # 검색 버튼 제출이 SPA 방식이면 GET 요청이 HAR에 안 남으므로 reload
+            # SPA에서 URL 변경이 GET 요청으로 안 남을 수 있으므로 reload
             try:
                 await page.goto(page.url)
             except Exception:
@@ -387,6 +373,10 @@ async def _execute_with_llm(
                 # 드롭다운이 열려있으면 CSS locator로 dropdown-item 클릭
                 # (get_by_role은 <a href="#">의 기본 navigation을 발생시켜 JS 이벤트를 방해)
                 if prev_dropdown:
+                    # 최초 드롭다운 상태 기억 (값 선택 완료 감지용)
+                    if _initial_filter_dropdown is None:
+                        _initial_filter_dropdown = set(current_obs.dropdown_options)
+
                     try:
                         import re as _re
                         items = page.locator(".dropdown-item, [role='option'], [role='menuitem'], [role='tab']")
@@ -402,6 +392,31 @@ async def _execute_with_llm(
                                 break
                     except Exception:
                         pass
+
+                    # 클릭 성공 시 드롭다운 상태 비교 → 피드백 분기
+                    if action_succeeded:
+                        await page.wait_for_timeout(1000)
+                        current_obs = await observe_page(page)
+                        dropdown_closed = not current_obs.dropdown_options
+                        dropdown_returned = (
+                            _initial_filter_dropdown is not None
+                            and set(current_obs.dropdown_options) == _initial_filter_dropdown
+                        )
+                        if dropdown_closed or dropdown_returned:
+                            # 값 선택 완료 → Enter로 필터 제출
+                            try:
+                                await page.keyboard.press("Enter")
+                                logger.info("[LLM] filter submitted via Enter")
+                                await page.wait_for_timeout(1000)
+                                current_obs = await observe_page(page)
+                            except Exception:
+                                pass
+                            last_action_result = f"click '{target}': filter value selected and submitted."
+                            _initial_filter_dropdown = None
+                        else:
+                            last_action_result = f"click '{target}': filter option selected. Continue selecting from the dropdown options."
+                        logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
+                        continue
 
                 # 드롭다운 매칭 실패 또는 드롭다운 없으면 기존 get_by_role
                 if not action_succeeded:
