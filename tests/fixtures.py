@@ -376,6 +376,9 @@ class FakePage:
     async def goto(self, url: str) -> None:
         self.url = url
 
+    async def wait_for_timeout(self, ms: int) -> None:
+        pass
+
     def apply_click(self, selector: str, index: int) -> None:
         update = self.click_updates.get((selector, index), {})
         if "url" in update:

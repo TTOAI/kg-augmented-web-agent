@@ -293,6 +293,35 @@ async def try_click_target(page: Any, target_terms: list[str]) -> bool:
     return False
 
 
+async def try_click_input(page: Any, target: str) -> bool:
+    """target(placeholder/aria-label/name)과 일치하는 입력 필드를 찾아 click한다."""
+    target_norm = normalize_text(target)
+    for selector in (*_INPUT_SELECTORS, *_SELECT_SELECTORS):
+        locator = page.locator(selector)
+        try:
+            count = await locator.count()
+        except Exception:
+            continue
+        for i in range(min(count, 20)):
+            item = locator.nth(i)
+            label = ""
+            for attr in ("placeholder", "aria-label", "name"):
+                try:
+                    val = await item.get_attribute(attr)
+                    if val:
+                        label = normalize_text(val)
+                        break
+                except Exception:
+                    continue
+            if label and target_norm in label:
+                try:
+                    await item.click()
+                    return True
+                except Exception:
+                    continue
+    return False
+
+
 async def try_fill_target(page: Any, target: str, value: str, *, submit: bool = False) -> bool:
     """target(placeholder/aria-label/name)과 일치하는 입력 필드를 찾아 value를 채운다."""
     target_norm = normalize_text(target)

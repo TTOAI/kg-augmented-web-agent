@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger("webarena_verified")
 
-from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
+from .browser import execute_plan, observe_page, try_click_input, try_click_target, try_fill_target, try_search
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
 from .llm import LLMClient, build_action_request, build_plan, build_system_prompt, parse_llm_action
 from .recovery import execute_recovery
@@ -447,24 +447,21 @@ async def _execute_with_llm(
             submit = bool(action.get("submit", False))
             logger.info("[LLM] fill  target=%r  value=%r  submit=%s", target, value, submit)
 
-            # structured filter 입력 감지 → click으로 리다이렉트해서 드롭다운 열기
-            # "search or filter results" 같은 구체적 placeholder만 대상 (일반 "filter by name" 제외)
-            if target and "search or filter" in target.lower():
-                logger.info("[LLM] fill redirected to click for structured filter input %r", target)
-                try:
-                    input_locator = page.locator("input[placeholder*='search or filter' i]")
-                    if await input_locator.count() > 0:
-                        await input_locator.first.click()
-                        action_succeeded = True
-                except Exception:
-                    pass
-                current_obs = await observe_page(page)
-                last_action_result = (
-                    f"Filter input '{target}' clicked. "
-                    "Dropdown options are now visible. Use click to select filter options step by step."
-                )
-                logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
-                continue
+            # fill 전에 input click → 드롭다운이 열리면 fill 취소하고 click 유도
+            if target:
+                clicked_input = await try_click_input(page, target)
+                if clicked_input:
+                    await page.wait_for_timeout(500)
+                    check_obs = await observe_page(page)
+                    if check_obs.dropdown_options:
+                        logger.info("[LLM] fill → dropdown detected, redirecting to click")
+                        current_obs = check_obs
+                        last_action_result = (
+                            f"Filter input '{target}' clicked. "
+                            "Dropdown options are now visible. Use click to select options."
+                        )
+                        logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
+                        continue
 
             if target and value:
                 action_succeeded = await try_fill_target(page, target, value, submit=submit)
