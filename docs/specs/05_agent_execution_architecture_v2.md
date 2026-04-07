@@ -72,6 +72,26 @@ Executor는 **"할 수 있는 것"을 최대한 넓히되, "해야 하는 것"�
 
 Executor가 판단을 대신하던 로직(fill→click 리다이렉트, 동명 링크 후보 제시 등)은 제거하거나, LLM에게 풍부한 피드백으로 대체한다.
 
+### 액션 체계
+
+| 구분 | 액션 | 설명 |
+|---|---|---|
+| **실행 액션** | click, fill, goto, goback, search | 브라우저를 조작하는 액션 |
+| **종료 액션** | done, extract | 목표 완료 또는 데이터 반환 |
+| **실패 액션** | not_found, permission_denied 등 | 실행 불가 보고 |
+
+- **goback**: 이전 페이지로 돌아간다 (`page.go_back()`). 더 이상 실행 액션이 없을 때 사용.
+
+### Sub-goal별 액션 제한
+
+| sub-goal 위치 | 허용 액션 | 금지 액션 |
+|---|---|---|
+| **중간 goal** (1~N-1) | 실행 액션 + done | extract, 실패 액션 |
+| **마지막 goal** (N) | 모든 액션 | 없음 |
+
+- 중간 goal에서 extract/실패 액션이 반환되면 executor가 거부하고 "실행 액션을 사용하라"는 피드백을 LLM에게 반환한다.
+- LLM이 더 이상 할 실행 액션이 없다고 판단하면 goback으로 이전 페이지로 돌아가거나, done으로 현재 sub-goal을 완료 선언한다.
+
 ---
 
 ## Sub-goal별 실행 + Checkpoint + Retry
