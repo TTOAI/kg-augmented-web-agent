@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -323,12 +324,6 @@ async def _execute_with_llm(
                 pass  # 검증 실패 시 done 허용
 
             logger.info("[LLM] done → SUCCESS (verified, all goals complete)")
-            # SPA에서 URL 변경이 GET 요청으로 안 남을 수 있으므로 reload
-            try:
-                await page.wait_for_timeout(2000)
-                await page.goto(page.url)
-            except Exception:
-                pass
             return ExecutionOutcome(task_type=task_type, status="SUCCESS")
 
         if action_type == "extract":
@@ -370,25 +365,6 @@ async def _execute_with_llm(
             url_hint = action.get("url", "")
             logger.info("[LLM] click  target=%r  url_hint=%r", target, url_hint)
             if target:
-                # 드롭다운이 열려있으면 CSS locator로 dropdown-item 클릭
-                # (get_by_role은 <a href="#">의 기본 navigation을 발생시켜 JS 이벤트를 방해)
-                if prev_dropdown:
-                    try:
-                        import re as _re
-                        items = page.locator(".dropdown-item, [role='option'], [role='menuitem'], [role='tab']")
-                        count = await items.count()
-                        target_norm = _re.sub(r"\s+", " ", target).strip().lower()
-                        for i in range(count):
-                            raw = await items.nth(i).inner_text()
-                            text_norm = _re.sub(r"\s+", " ", raw).strip().lower()
-                            if text_norm == target_norm or target_norm in text_norm:
-                                await items.nth(i).click()
-                                action_succeeded = True
-                                logger.info("[LLM] click via CSS locator (dropdown): %r", raw.strip())
-                                break
-                    except Exception:
-                        pass
-
                 # 관측 links에서 target 포함 링크 매칭 → CSS locator로 클릭
                 if not action_succeeded:
                     target_lower = target.lower()
@@ -422,8 +398,8 @@ async def _execute_with_llm(
                                     await loc.first.click()
                                     action_succeeded = True
                                     logger.info("[LLM] click via observation link: %r", click_href)
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                logger.debug("observation link click failed: %s", exc)
 
                 # 관측에서 못 찾으면 get_by_role fallback (버튼, textbox 등)
                 if not action_succeeded:
@@ -446,29 +422,13 @@ async def _execute_with_llm(
                                 await locator.first.click()
                                 action_succeeded = True
                             break
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug("get_by_role(%s) failed: %s", role, exc)
                             continue
 
-                # get_by_role 전체 실패 시 CSS locator로 innerText partial 매칭
+                # get_by_role 전체 실패 시 try_click_target fallback
                 if not action_succeeded:
-                    try:
-                        import re as _re
-                        target_norm = _re.sub(r"\s+", " ", target).strip().lower()
-                        for selector in ("a", "button", "[role='tab']", "[role='option']"):
-                            items = page.locator(f"{selector}:visible")
-                            count = await items.count()
-                            for i in range(count):
-                                raw = await items.nth(i).inner_text()
-                                text_norm = _re.sub(r"\s+", " ", raw).strip().lower()
-                                if target_norm in text_norm:
-                                    await items.nth(i).click()
-                                    action_succeeded = True
-                                    logger.info("[LLM] click via CSS fallback: %r in %r", target, text)
-                                    break
-                            if action_succeeded:
-                                break
-                    except Exception:
-                        pass
+                    action_succeeded = await try_click_target(page, [target])
         elif action_type == "fill":
             target = action.get("target", "")
             value = action.get("value", "")
