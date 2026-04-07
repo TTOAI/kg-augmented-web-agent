@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger("webarena_verified")
 
-from .browser import execute_plan, observe_page, try_click_input, try_click_target, try_fill_target, try_search
+from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
 from .llm import LLMClient, build_action_request, build_plan, build_system_prompt, parse_llm_action
 from .recovery import execute_recovery
@@ -210,7 +210,6 @@ async def _execute_with_llm(
     current_obs = observation
     messages: list[dict[str, str]] = []
     last_action_result = ""
-    dropdown_checked_targets: set[str] = set()
 
     sub_goals = build_plan(task=task, observation=current_obs, llm=llm)
     current_goal_index = 0
@@ -235,7 +234,7 @@ async def _execute_with_llm(
         # --- Terminal actions ---
         if action_type == "done":
             result = await _handle_done(
-                task=task, page=page, llm=llm, sub_goals=sub_goals,
+                sub_goals=sub_goals,
                 current_goal_index=current_goal_index, task_type=task_type,
             )
             if result is not None:
@@ -260,7 +259,7 @@ async def _execute_with_llm(
         prev_state = _capture_page_state(current_obs)
         action_result = await _execute_browser_action(
             action_type=action_type, action=action, page=page,
-            current_obs=current_obs, dropdown_checked_targets=dropdown_checked_targets,
+            current_obs=current_obs,
         )
 
         if action_result.should_continue:
@@ -308,9 +307,6 @@ class _ActionResult:
 
 async def _handle_done(
     *,
-    task: str,
-    page: Any,
-    llm: LLMClient,
     sub_goals: list[str],
     current_goal_index: int,
     task_type: str,
@@ -321,31 +317,7 @@ async def _handle_done(
                      current_goal_index + 2, len(sub_goals), sub_goals[current_goal_index + 1])
         return None
 
-    # 검증: LLM에게 task 완료 여부 재확인
-    verify_obs = await observe_page(page)
-    try:
-        verify_response = llm.complete(
-            system="You are a web task verifier.",
-            messages=[{"role": "user", "content": (
-                f"The agent says the task is complete.\n"
-                f"Task: {task}\n"
-                f"Current URL: {verify_obs.url}\n"
-                f"Page title: {verify_obs.title}\n"
-                f"Links (first 10): {verify_obs.links[:10]}\n"
-                f"Buttons: {verify_obs.buttons[:5]}\n"
-                f"Is the task actually completed? Reply ONLY with JSON: "
-                '{"verified": true} or {"verified": false, "reason": "..."}'
-            )}],
-        )
-        verify_result = parse_llm_action(verify_response)
-        if not verify_result.get("verified", True):
-            reason = verify_result.get("reason", "verification failed")
-            logger.info("[LLM] done rejected by verifier: %s", reason)
-            return None
-    except Exception:
-        pass
-
-    logger.info("[LLM] done → SUCCESS (verified, all goals complete)")
+    logger.info("[LLM] done → SUCCESS (all goals complete)")
     return ExecutionOutcome(task_type=task_type, status="SUCCESS")
 
 
@@ -377,13 +349,12 @@ async def _execute_browser_action(
     action: dict[str, Any],
     page: Any,
     current_obs: PageObservation,
-    dropdown_checked_targets: set[str],
 ) -> _ActionResult:
     """click/fill/goto/search 액션 실행. _ActionResult를 반환한다."""
     if action_type == "click":
         return await _execute_click(action, page, current_obs)
     if action_type == "fill":
-        return await _execute_fill(action, page, dropdown_checked_targets)
+        return await _execute_fill(action, page)
     if action_type == "goto":
         return await _execute_goto(action, page)
     if action_type == "search":
@@ -453,36 +424,12 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
     return _ActionResult(succeeded=False)
 
 
-async def _execute_fill(
-    action: dict[str, Any],
-    page: Any,
-    dropdown_checked_targets: set[str],
-) -> _ActionResult:
-    """fill 액션: 드롭다운 감지 + 입력 필드 채우기."""
+async def _execute_fill(action: dict[str, Any], page: Any) -> _ActionResult:
+    """fill 액션: 입력 필드를 찾아 값을 채운다."""
     target = action.get("target", "")
     value = action.get("value", "")
     submit = bool(action.get("submit", False))
     logger.info("[LLM] fill  target=%r  value=%r  submit=%s", target, value, submit)
-
-    # 드롭다운 감지: 처음 fill하는 target만 확인
-    if target and target not in dropdown_checked_targets:
-        clicked_input = await try_click_input(page, target)
-        if clicked_input:
-            await page.wait_for_timeout(500)
-            check_obs = await observe_page(page)
-            if check_obs.dropdown_options:
-                dropdown_checked_targets.add(target)
-                logger.info("[LLM] fill → dropdown detected, redirecting to click")
-                return _ActionResult(
-                    should_continue=True,
-                    observation=check_obs,
-                    feedback=(
-                        f"Filter input '{target}' clicked. "
-                        "Dropdown options are now visible. "
-                        "If your target is in the options, use click to select. "
-                        "Otherwise, use fill again to search directly."
-                    ),
-                )
 
     succeeded = False
     if target and value:
