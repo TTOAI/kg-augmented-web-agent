@@ -12,7 +12,7 @@
 | Site | GitLab (`http://localhost:8023`) |
 | Task 수 | 13개 (NAVIGATE 6, RETRIEVE 5, MUTATE 1, 벤치마크 오류 1) |
 | 반복 횟수 | 3회/task |
-| LLM | Claude Sonnet 4.6 |
+| LLM | GPT-5.4-mini (OpenAI API) |
 | max_steps | 15 |
 
 ---
