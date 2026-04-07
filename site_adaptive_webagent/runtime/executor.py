@@ -434,6 +434,8 @@ async def _execute_with_llm(
                             f"Multiple links match '{target}': {matching_links}. "
                             "Set 'url' to the pathname of the intended target and retry click."
                         )
+                        logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
+                        continue
                     elif matching_links:
                         # url_hint가 있으면 href 매칭, 없으면 유일한 매칭 사용
                         click_href = None
