@@ -367,7 +367,12 @@ async def _try_sub_goal(
             return _handle_extract(action, task_type), step + 1
 
         if action_type in _FAILURE_ACTION_TO_STATUS:
-            return _handle_failure(action, action_type, task_type), step + 1
+            reason = action.get("reasoning", action_type)
+            logger.info("[LLM] %s in sub-goal → retry", action_type)
+            return ExecutionOutcome(
+                task_type=task_type, status="SUB_GOAL_FAILED",
+                error_details=f"{action_type}: {reason[:200]}",
+            ), step + 1
 
         # --- Browser actions ---
         prev_state = _capture_page_state(current_obs)

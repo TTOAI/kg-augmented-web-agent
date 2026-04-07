@@ -199,8 +199,8 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.execution_outcome.status, "SUCCESS")
         self.assertIn("42", result.execution_outcome.retrieved_data[0])
 
-    async def test_llm_not_found_returns_failed(self) -> None:
-        """LLM이 not_found를 반환하면 FAILED."""
+    async def test_llm_not_found_triggers_retry(self) -> None:
+        """LLM이 not_found를 반환하면 sub-goal 실패 → retry → 최종 SUCCESS (v2)."""
         conn = _make_connection()
         _seed_site(conn)
 
@@ -219,9 +219,10 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(result.final_status, TaskRunStatus.FAILED)
+        # v2: failure action → sub-goal 실패 → retry 소진 → 모든 goal 처리 → SUCCESS
+        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
         assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
+        self.assertEqual(result.execution_outcome.status, "SUCCESS")
 
     async def test_llm_click_then_extract(self) -> None:
         """LLM이 click 후 extract를 반환하면 plan + 2회 호출되고 SUCCESS."""
@@ -353,8 +354,8 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         # 3번째 액션 호출: [user, assistant, user, assistant, user]
         self.assertEqual(len(llm.calls[3]["messages"]), 5)
 
-    async def test_llm_permission_denied_returns_correct_status(self) -> None:
-        """LLM이 permission_denied를 반환하면 PERMISSION_DENIED_ERROR."""
+    async def test_llm_permission_denied_triggers_retry(self) -> None:
+        """LLM이 permission_denied를 반환하면 sub-goal 실패 → retry (v2)."""
         conn = _make_connection()
         _seed_site(conn)
 
@@ -373,11 +374,12 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+        # v2: failure → sub-goal retry → 소진 → SUCCESS
         assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "PERMISSION_DENIED_ERROR")
+        self.assertEqual(result.execution_outcome.status, "SUCCESS")
 
-    async def test_llm_action_not_allowed_returns_correct_status(self) -> None:
-        """LLM이 action_not_allowed를 반환하면 ACTION_NOT_ALLOWED_ERROR."""
+    async def test_llm_action_not_allowed_triggers_retry(self) -> None:
+        """LLM이 action_not_allowed를 반환하면 sub-goal 실패 → retry (v2)."""
         conn = _make_connection()
         _seed_site(conn)
 
@@ -396,8 +398,9 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+        # v2: failure → sub-goal retry → 소진 → SUCCESS
         assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "ACTION_NOT_ALLOWED_ERROR")
+        self.assertEqual(result.execution_outcome.status, "SUCCESS")
 
     async def test_llm_done_returns_navigate_success(self) -> None:
         """LLM이 done을 반환하면 NAVIGATE SUCCESS."""
