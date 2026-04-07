@@ -219,11 +219,15 @@ async def _execute_with_llm(
 
     checkpoint_url = page.url
     steps_used = 0
+    replans_remaining = 2
 
-    for goal_idx, sub_goal in enumerate(sub_goals):
+    goal_idx = 0
+    while goal_idx < len(sub_goals):
+        sub_goal = sub_goals[goal_idx]
         remaining_goals = len(sub_goals) - goal_idx
         step_budget = max(3, (max_steps - steps_used) // remaining_goals)
         failures: list[str] = []
+        goal_succeeded = False
 
         for attempt in range(_MAX_RETRIES_PER_GOAL):
             logger.info("[LLM] goal=%d/%d %r  attempt=%d  budget=%d",
@@ -248,6 +252,7 @@ async def _execute_with_llm(
                 checkpoint_url = page.url
                 logger.info("[LLM] goal %d/%d complete — checkpoint: %s",
                             goal_idx + 1, len(sub_goals), checkpoint_url)
+                goal_succeeded = True
                 break
 
             # sub-goal 실패 → checkpoint 복원 + retry
@@ -260,7 +265,27 @@ async def _execute_with_llm(
             except Exception:
                 pass
 
-    # 모든 goal 완료
+        if not goal_succeeded and replans_remaining > 0:
+            # Replanning: 현재 상태에서 남은 목표를 재계획
+            replans_remaining -= 1
+            current_obs = await observe_page(page)
+            logger.info("[LLM] replanning (remaining=%d) after goal %d/%d failed",
+                        replans_remaining, goal_idx + 1, len(sub_goals))
+            new_goals = _replan(
+                task=task, observation=current_obs, llm=llm,
+                completed_goals=sub_goals[:goal_idx],
+                failed_goal=sub_goal, failure_history=failures,
+            )
+            if new_goals:
+                logger.info("[LLM] new plan: %s", new_goals)
+                sub_goals = sub_goals[:goal_idx] + new_goals
+                continue  # 같은 goal_idx에서 새 sub_goal로 재시도
+            else:
+                logger.info("[LLM] replan returned empty — skipping goal")
+
+        goal_idx += 1
+
+    # 모든 goal 완료 (또는 소진)
     elapsed = time.time() - t_start
     logger.info("[LLM] all goals complete in %.1fs (%d steps)", elapsed, steps_used)
     return ExecutionOutcome(task_type=task_type, status="SUCCESS")
@@ -326,8 +351,17 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
-            logger.info("[LLM] sub-goal done: %r", sub_goal)
-            return None, step + 1
+            # Verification: sub-goal 달성 여부 검증
+            verified = await _verify_sub_goal(
+                sub_goal=sub_goal, page=page, llm=llm,
+            )
+            if verified:
+                logger.info("[LLM] sub-goal verified: %r", sub_goal)
+                return None, step + 1
+            logger.info("[LLM] sub-goal verification failed: %r", sub_goal)
+            last_action_result = "Sub-goal not yet complete. The page state doesn't match the goal. Continue working."
+            current_obs = await observe_page(page)
+            continue
 
         if action_type == "extract":
             return _handle_extract(action, task_type), step + 1
@@ -364,6 +398,65 @@ async def _try_sub_goal(
 # ---------------------------------------------------------------------------
 # Action handlers
 # ---------------------------------------------------------------------------
+
+def _replan(
+    *,
+    task: str,
+    observation: PageObservation,
+    llm: LLMClient,
+    completed_goals: list[str],
+    failed_goal: str,
+    failure_history: list[str],
+) -> list[str]:
+    """실패한 sub-goal 이후의 plan을 재생성한다."""
+    system = (
+        "You are a web task planner. A sub-goal has failed after multiple retries.\n"
+        "Create a new list of sub-goals to complete the remaining task from the current page state.\n"
+        'Respond ONLY with JSON: {"sub_goals": ["...", "..."]}\n'
+        "Keep each sub-goal to one short sentence."
+    )
+    user_msg = (
+        f"Task: {task}\n"
+        f"Completed goals: {completed_goals}\n"
+        f"Failed goal: {failed_goal}\n"
+        f"Failure history: {failure_history}\n"
+        f"Current URL: {observation.url}\n"
+        f"Page title: {observation.title}\n"
+        f"Links (first 15): {observation.links[:15]}\n"
+        f"Buttons: {observation.buttons[:10]}\n"
+    )
+    try:
+        response = llm.complete(system=system, messages=[{"role": "user", "content": user_msg}])
+        parsed = parse_llm_action(response)
+        new_goals = parsed.get("sub_goals", [])
+        if isinstance(new_goals, list) and new_goals:
+            return [str(g) for g in new_goals]
+    except Exception:
+        pass
+    return []
+
+
+async def _verify_sub_goal(*, sub_goal: str, page: Any, llm: LLMClient) -> bool:
+    """LLM에게 sub-goal 달성 여부를 검증한다."""
+    obs = await observe_page(page)
+    try:
+        response = llm.complete(
+            system="You are a web task verifier. Be strict.",
+            messages=[{"role": "user", "content": (
+                f"Sub-goal: {sub_goal}\n"
+                f"Current URL: {obs.url}\n"
+                f"Page title: {obs.title}\n"
+                f"Links (first 10): {obs.links[:10]}\n"
+                f"Buttons: {obs.buttons[:5]}\n"
+                f"Is this sub-goal actually achieved? Reply ONLY with JSON: "
+                '{"verified": true} or {"verified": false, "reason": "..."}'
+            )}],
+        )
+        result = parse_llm_action(response)
+        return bool(result.get("verified", True))
+    except Exception:
+        return True  # 검증 실패 시 통과 허용
+
 
 class _ActionResult:
     """Browser 액션 실행 결과."""
