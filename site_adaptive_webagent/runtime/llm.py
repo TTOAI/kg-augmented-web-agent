@@ -179,14 +179,30 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
     return "\n".join(lines)
 
 
-def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[str]:
+class SubGoal:
+    """sub-goal과 유형 정보."""
+    __slots__ = ("goal", "goal_type")
+
+    def __init__(self, goal: str, goal_type: str = "cognition"):
+        self.goal = goal
+        self.goal_type = goal_type  # "navigation", "action", "cognition"
+
+    def __repr__(self) -> str:
+        return f"{self.goal} [{self.goal_type}]"
+
+
+def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[SubGoal]:
     """태스크를 2~5개 sub-goal로 분해한다. LLM 1회 호출."""
     system = (
         "You are a web task planner. Break down a web automation task into 2-5 sub-goals.\n"
         "Each sub-goal should be a concrete, verifiable objective — not a specific UI action.\n"
         "Good: 'Apply the bug label filter'  Bad: 'Click the Label dropdown'\n"
         "Consider the current page state when planning.\n"
-        'Respond ONLY with JSON: {"sub_goals": ["...", "..."]}\n'
+        "For each sub-goal, classify its type:\n"
+        '  "navigation" — move to a different page (open, navigate, go to)\n'
+        '  "action" — change page state (filter, apply, sort, submit, post)\n'
+        '  "cognition" — analyze or read information (determine, identify, find, check)\n'
+        'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
     )
     lines = [
@@ -206,8 +222,14 @@ def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[str]:
     parsed = parse_llm_action(response)
     sub_goals = parsed.get("sub_goals", [])
     if isinstance(sub_goals, list) and sub_goals:
-        return [str(g) for g in sub_goals]
-    return [task]  # 파싱 실패 시 task 전체를 단일 goal로 폴백
+        result = []
+        for g in sub_goals:
+            if isinstance(g, dict):
+                result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "cognition"))))
+            else:
+                result.append(SubGoal(str(g)))
+        return result if result else [SubGoal(task)]
+    return [SubGoal(task)]
 
 
 def build_action_request(
@@ -215,14 +237,14 @@ def build_action_request(
     task: str,
     observation: Any,
     last_action_result: str = "",
-    sub_goals: list[str] | None = None,
+    sub_goals: list[SubGoal] | None = None,
     current_goal_index: int = 0,
 ) -> str:
     """태스크 지시와 현재 페이지 상태를 user 메시지로 직렬화한다."""
     lines = [f"Task: {task}", ""]
 
     if sub_goals and current_goal_index < len(sub_goals):
-        current_goal = sub_goals[current_goal_index]
+        current_goal = sub_goals[current_goal_index].goal
         is_last = current_goal_index == len(sub_goals) - 1
         lines += [
             f"Current objective ({current_goal_index + 1}/{len(sub_goals)}): {current_goal}",

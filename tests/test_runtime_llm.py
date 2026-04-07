@@ -168,7 +168,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
     """FakeLLMClient를 사용한 LLM 실행 경로 테스트."""
 
     # plan 응답 — 모든 LLM executor 테스트에서 첫 호출은 build_plan()
-    PLAN_RESPONSE = '{"sub_goals": ["Complete the task"]}'
+    PLAN_RESPONSE = '{"sub_goals": [{"goal": "Complete the task", "type": "cognition"}]}'
 
     async def test_llm_extract_returns_success(self) -> None:
         """LLM이 extract를 반환하면 SUCCESS + retrieved_data."""

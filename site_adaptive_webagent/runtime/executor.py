@@ -11,7 +11,7 @@ logger = logging.getLogger("webarena_verified")
 
 from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
-from .llm import LLMClient, build_action_request, build_plan, build_system_prompt, parse_llm_action
+from .llm import LLMClient, SubGoal, build_action_request, build_plan, build_system_prompt, parse_llm_action
 from .recovery import execute_recovery
 from .store import ExecutionStore
 from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, PageObservation, PriorBundle, StepRecord, ValidatorRule
@@ -322,8 +322,8 @@ async def _try_sub_goal(
     *,
     task: str,
     task_type: str,
-    sub_goal: str,
-    sub_goals: list[str],
+    sub_goal: SubGoal,
+    sub_goals: list[SubGoal],
     goal_index: int,
     page: Any,
     llm: LLMClient,
@@ -342,6 +342,7 @@ async def _try_sub_goal(
     messages: list[dict[str, str]] = []
     last_action_result = ""
     current_obs = await observe_page(page)
+    checkpoint_obs = current_obs  # 결정론적 검증용 시작 상태
 
     # 이전 실패 이력을 피드백으로 주입
     if previous_failures:
@@ -379,16 +380,17 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
-            reasoning = action.get("reasoning", "")
-            verified = await _verify_sub_goal(
-                sub_goal=sub_goal, page=page, llm=llm, agent_reasoning=reasoning,
-            )
-            if verified:
-                logger.info("[LLM] sub-goal verified: %r", sub_goal)
-                return None, step + 1
-            logger.info("[LLM] sub-goal verification failed: %r", sub_goal)
-            last_action_result = "Sub-goal not yet complete. The page state doesn't match the goal. Continue working."
             current_obs = await observe_page(page)
+            verified = _verify_sub_goal(
+                goal_type=sub_goal.goal_type,
+                current_obs=current_obs,
+                checkpoint_obs=checkpoint_obs,
+            )
+            if verified or is_last_goal:
+                logger.info("[LLM] sub-goal verified [%s]: %r", sub_goal.goal_type, sub_goal.goal)
+                return None, step + 1
+            logger.info("[LLM] sub-goal verification failed [%s]: %r", sub_goal.goal_type, sub_goal.goal)
+            last_action_result = "Sub-goal not yet complete — no observable page change detected. Take an action first."
             continue
 
         if action_type == "extract":
@@ -453,21 +455,25 @@ def _replan(
     task: str,
     observation: PageObservation,
     llm: LLMClient,
-    completed_goals: list[str],
-    failed_goal: str,
+    completed_goals: list[SubGoal],
+    failed_goal: SubGoal,
     failure_history: list[str],
-) -> list[str]:
+) -> list[SubGoal]:
     """실패한 sub-goal 이후의 plan을 재생성한다."""
     system = (
         "You are a web task planner. A sub-goal has failed after multiple retries.\n"
         "Create a new list of sub-goals to complete the remaining task from the current page state.\n"
-        'Respond ONLY with JSON: {"sub_goals": ["...", "..."]}\n'
+        "For each sub-goal, classify its type:\n"
+        '  "navigation" — move to a different page\n'
+        '  "action" — change page state\n'
+        '  "cognition" — analyze or read information\n'
+        'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
     )
     user_msg = (
         f"Task: {task}\n"
-        f"Completed goals: {completed_goals}\n"
-        f"Failed goal: {failed_goal}\n"
+        f"Completed goals: {[g.goal for g in completed_goals]}\n"
+        f"Failed goal: {failed_goal.goal}\n"
         f"Failure history: {failure_history}\n"
         f"Current URL: {observation.url}\n"
         f"Page title: {observation.title}\n"
@@ -479,45 +485,32 @@ def _replan(
         parsed = parse_llm_action(response)
         new_goals = parsed.get("sub_goals", [])
         if isinstance(new_goals, list) and new_goals:
-            return [str(g) for g in new_goals]
+            result = []
+            for g in new_goals:
+                if isinstance(g, dict):
+                    result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "cognition"))))
+                else:
+                    result.append(SubGoal(str(g)))
+            return result
     except Exception:
         pass
     return []
 
 
-async def _verify_sub_goal(
-    *, sub_goal: str, page: Any, llm: LLMClient, agent_reasoning: str = "",
+def _verify_sub_goal(
+    *, goal_type: str, current_obs: PageObservation, checkpoint_obs: PageObservation,
 ) -> bool:
-    """LLM에게 sub-goal 달성 여부를 검증한다."""
-    obs = await observe_page(page)
-    content_lines = [
-        f"Sub-goal: {sub_goal}",
-        f"Agent's reasoning for declaring done: {agent_reasoning}",
-        "",
-        f"Current URL: {obs.url}",
-        f"Page title: {obs.title}",
-    ]
-    if obs.dropdown_options:
-        content_lines.append(f"Active UI elements: {obs.dropdown_options[:10]}")
-    if obs.text_lines:
-        content_lines.append(f"Visible text: {obs.text_lines[0][:200]}")
-    content_lines.append(f"Links (first 10): {obs.links[:10]}")
-    content_lines.append(f"Buttons: {obs.buttons[:5]}")
-    content_lines += [
-        "",
-        "Evaluate: does the current page state support the agent's claim that this sub-goal is achieved?",
-        "Consider the agent's reasoning, the URL, and the visible page elements.",
-        'Reply ONLY with JSON: {"verified": true} or {"verified": false, "reason": "..."}',
-    ]
-    try:
-        response = llm.complete(
-            system="You are a web task verifier. Evaluate whether the sub-goal is achieved based on the evidence.",
-            messages=[{"role": "user", "content": "\n".join(content_lines)}],
+    """결정론적 sub-goal 검증. 유형별로 다른 기준을 적용한다."""
+    if goal_type in ("navigation", "action"):
+        # URL이 변했거나 페이지 내용이 변했는가
+        return (
+            current_obs.url != checkpoint_obs.url
+            or set(current_obs.links) != set(checkpoint_obs.links)
+            or set(current_obs.buttons) != set(checkpoint_obs.buttons)
+            or set(current_obs.dropdown_options) != set(checkpoint_obs.dropdown_options)
         )
-        result = parse_llm_action(response)
-        return bool(result.get("verified", True))
-    except Exception:
-        return True
+    # cognition: 자동 통과
+    return True
 
 
 class _ActionResult:
