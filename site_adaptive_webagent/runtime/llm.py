@@ -188,6 +188,7 @@ def build_plan(*, task: str, observation: Any, llm: LLMClient) -> list[str]:
         "Consider the current page state when planning.\n"
         "When filters are needed, include a sub-goal to submit/apply the filter after selecting values.\n"
         "If the task asks for a specific field (ID, URL, email, etc.), include a sub-goal to navigate to the page where that field is actually visible.\n"
+        "When comparing or ranking items, include a sub-goal to sort or filter the list so the relevant data is visible before making a selection.\n"
         'Respond ONLY with JSON: {"sub_goals": ["...", "..."]}\n'
         "Keep each sub-goal to one short sentence."
     )

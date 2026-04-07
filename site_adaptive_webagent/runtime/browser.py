@@ -393,8 +393,12 @@ async def extract_texts(page: Any, selectors: tuple[str, ...]) -> list[str]:
             results: list[str] = await locator.evaluate_all(
                 "els => els.slice(0, 50).map(el => {"
                 "  const t = (el.innerText || '').trim();"
-                "  if (t) return t;"
-                "  return el.getAttribute('aria-label') || el.getAttribute('title') || '';"
+                "  const name = t || el.getAttribute('aria-label') || el.getAttribute('title') || '';"
+                "  if (!name) return '';"
+                "  const cls = (el.className || '').trim();"
+                "  const hints = ['dropdown', 'toggle', 'menu', 'sort', 'filter', 'select', 'tab', 'modal', 'search']"
+                "    .filter(k => cls.includes(k));"
+                "  return hints.length ? name + ' [' + hints.join(', ') + ']' : name;"
                 "}).filter(Boolean)"
             )
         except Exception:
