@@ -315,7 +315,7 @@ async def try_click_input(page: Any, target: str) -> bool:
                     continue
             if label and target_norm in label:
                 try:
-                    await item.click()
+                    await item.click(timeout=5000)
                     return True
                 except Exception:
                     continue
@@ -344,9 +344,9 @@ async def try_fill_target(page: Any, target: str, value: str, *, submit: bool = 
                     continue
             if label and target_norm in label:
                 try:
-                    await item.fill(value)
+                    await item.fill(value, timeout=5000)
                     if submit:
-                        await item.press("Enter")
+                        await item.press("Enter", timeout=5000)
                     return True
                 except Exception:
                     continue
@@ -369,8 +369,8 @@ async def try_search(page: Any, phrase: str) -> bool:
             continue
         item = locator.nth(0)
         try:
-            await item.fill(cleaned_phrase)
-            await item.press("Enter")
+            await item.fill(cleaned_phrase, timeout=5000)
+            await item.press("Enter", timeout=5000)
             return True
         except Exception:
             continue
