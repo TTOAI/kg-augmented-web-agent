@@ -246,7 +246,6 @@ async def _execute_with_llm(
     messages: list[dict[str, str]] = []
     last_action_result = ""
     _dropdown_checked_targets: set[str] = set()
-    _initial_filter_dropdown: set[str] | None = None
 
     # --- Planning ---
     sub_goals = build_plan(task=task, observation=current_obs, llm=llm)
@@ -335,13 +334,6 @@ async def _execute_with_llm(
         if action_type == "extract":
             value = action.get("value", "")
             label = action.get("label", "")
-            # LLM이 extract를 goal_complete 신호로 잘못 사용한 경우 → goal advance로 처리
-            if "goal_complete" in value.lower() and current_goal_index < len(sub_goals) - 1:
-                current_goal_index += 1
-                logger.info("[LLM] extract misused as goal_complete — advancing to goal %d/%d", current_goal_index + 1, len(sub_goals))
-                last_action_result = f"Sub-goal completed. Now working on: {sub_goals[current_goal_index]}"
-                current_obs = await observe_page(page)
-                continue
             if value:
                 # 쉼표 구분 값을 개별 항목으로 분리
                 if "," in value:
@@ -358,23 +350,6 @@ async def _execute_with_llm(
             )
 
         if action_type in _FAILURE_ACTION_TO_STATUS:
-            # NAVIGATE task에서 not_found는 "목표 페이지에 도달했으나 결과가 비어있음"일 수 있음
-            # → 남은 sub-goal이 있으면 다음으로 전환, 마지막이면 done 처리
-            if action_type == "not_found" and task_type == "NAVIGATE":
-                if current_goal_index < len(sub_goals) - 1:
-                    current_goal_index += 1
-                    logger.info("[LLM] not_found on NAVIGATE — advancing to goal %d/%d", current_goal_index + 1, len(sub_goals))
-                    last_action_result = f"Page shows no results, but continuing. Now working on: {sub_goals[current_goal_index]}"
-                    current_obs = await observe_page(page)
-                    continue
-                else:
-                    logger.info("[LLM] not_found on NAVIGATE (last goal) → treating as SUCCESS")
-                    try:
-                        await page.goto(page.url)
-                    except Exception:
-                        pass
-                    return ExecutionOutcome(task_type=task_type, status="SUCCESS")
-
             status = _FAILURE_ACTION_TO_STATUS[action_type]
             logger.info("[LLM] %s → %s", action_type, status)
             return ExecutionOutcome(
@@ -398,10 +373,6 @@ async def _execute_with_llm(
                 # 드롭다운이 열려있으면 CSS locator로 dropdown-item 클릭
                 # (get_by_role은 <a href="#">의 기본 navigation을 발생시켜 JS 이벤트를 방해)
                 if prev_dropdown:
-                    # 최초 드롭다운 상태 기억 (값 선택 완료 감지용)
-                    if _initial_filter_dropdown is None:
-                        _initial_filter_dropdown = set(current_obs.dropdown_options)
-
                     try:
                         import re as _re
                         items = page.locator(".dropdown-item, [role='option'], [role='menuitem'], [role='tab']")
@@ -417,31 +388,6 @@ async def _execute_with_llm(
                                 break
                     except Exception:
                         pass
-
-                    # 클릭 성공 시 드롭다운 상태 비교 → 피드백 분기
-                    if action_succeeded:
-                        await page.wait_for_timeout(1000)
-                        current_obs = await observe_page(page)
-                        dropdown_closed = not current_obs.dropdown_options
-                        dropdown_returned = (
-                            _initial_filter_dropdown is not None
-                            and set(current_obs.dropdown_options) == _initial_filter_dropdown
-                        )
-                        if dropdown_closed or dropdown_returned:
-                            # 값 선택 완료 → Enter로 필터 제출
-                            try:
-                                await page.keyboard.press("Enter")
-                                logger.info("[LLM] filter submitted via Enter")
-                                await page.wait_for_timeout(1000)
-                                current_obs = await observe_page(page)
-                            except Exception:
-                                pass
-                            last_action_result = f"click '{target}': filter value selected and submitted."
-                            _initial_filter_dropdown = None
-                        else:
-                            last_action_result = f"click '{target}': filter option selected. Continue selecting from the dropdown options."
-                        logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
-                        continue
 
                 # 관측 links에서 target 포함 링크 매칭 → CSS locator로 클릭
                 if not action_succeeded:
@@ -565,13 +511,6 @@ async def _execute_with_llm(
             logger.info("[LLM] search  query=%r", query)
             if query:
                 action_succeeded = await try_search(page, query)
-
-        # 드롭다운 렌더링 대기 (SPA 비동기 UI 반영)
-        if action_succeeded and action_type == "click":
-            try:
-                await page.wait_for_timeout(1000)
-            except Exception:
-                pass
 
         current_obs = await observe_page(page)
 
