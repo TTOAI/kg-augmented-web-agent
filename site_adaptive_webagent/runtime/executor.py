@@ -238,6 +238,7 @@ async def _execute_with_llm(
                 sub_goals=sub_goals, goal_index=goal_idx,
                 page=page, llm=llm, system=system,
                 step_budget=step_budget, previous_failures=failures,
+                is_last_goal=(goal_idx == len(sub_goals) - 1),
             )
             steps_used += used
 
@@ -286,6 +287,32 @@ async def _execute_with_llm(
         goal_idx += 1
 
     # 모든 goal 완료 (또는 소진)
+    # RETRIEVE task이면 최종 답 추출
+    if task_type == "RETRIEVE":
+        obs = await observe_page(page)
+        try:
+            extract_response = llm.complete(
+                system=system,
+                messages=[{"role": "user", "content": (
+                    f"Task: {task}\n"
+                    f"All preparation steps are complete. Now extract the final answer.\n"
+                    f"Current URL: {obs.url}\n"
+                    f"Page title: {obs.title}\n"
+                    f"Visible text (first 10): {obs.text_lines[:10]}\n"
+                    f"Links (first 10): {obs.links[:10]}\n"
+                    f"Buttons: {obs.buttons[:5]}\n"
+                    f"Respond with extract action containing the exact answer."
+                )}],
+            )
+            action = parse_llm_action(extract_response)
+            if action.get("action") == "extract" and action.get("value"):
+                result = _handle_extract(action, task_type)
+                elapsed = time.time() - t_start
+                logger.info("[LLM] final extract in %.1fs (%d steps)", elapsed, steps_used)
+                return result
+        except Exception:
+            pass
+
     elapsed = time.time() - t_start
     logger.info("[LLM] all goals complete in %.1fs (%d steps)", elapsed, steps_used)
     return ExecutionOutcome(task_type=task_type, status="SUCCESS")
@@ -303,6 +330,7 @@ async def _try_sub_goal(
     system: str,
     step_budget: int,
     previous_failures: list[str],
+    is_last_goal: bool = False,
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다.
 
@@ -364,15 +392,31 @@ async def _try_sub_goal(
             continue
 
         if action_type == "extract":
-            return _handle_extract(action, task_type), step + 1
+            if is_last_goal:
+                return _handle_extract(action, task_type), step + 1
+            logger.info("[LLM] extract in non-final goal → rejected")
+            last_action_result = (
+                f"Cannot use extract in intermediate objective ({goal_index + 1}/{len(sub_goals)}). "
+                "Use action commands (click, fill, goto, search, done, goback) instead."
+            )
+            current_obs = await observe_page(page)
+            continue
 
         if action_type in _FAILURE_ACTION_TO_STATUS:
-            reason = action.get("reasoning", action_type)
-            logger.info("[LLM] %s in sub-goal → retry", action_type)
-            return ExecutionOutcome(
-                task_type=task_type, status="SUB_GOAL_FAILED",
-                error_details=f"{action_type}: {reason[:200]}",
-            ), step + 1
+            if is_last_goal:
+                reason = action.get("reasoning", action_type)
+                logger.info("[LLM] %s in final goal → sub-goal failed", action_type)
+                return ExecutionOutcome(
+                    task_type=task_type, status="SUB_GOAL_FAILED",
+                    error_details=f"{action_type}: {reason[:200]}",
+                ), step + 1
+            logger.info("[LLM] %s in non-final goal → rejected", action_type)
+            last_action_result = (
+                f"Cannot use failure actions in intermediate objective ({goal_index + 1}/{len(sub_goals)}). "
+                "Use action commands (click, fill, goto, search, done, goback) instead."
+            )
+            current_obs = await observe_page(page)
+            continue
 
         # --- Browser actions ---
         prev_state = _capture_page_state(current_obs)
@@ -523,7 +567,7 @@ async def _execute_browser_action(
     page: Any,
     current_obs: PageObservation,
 ) -> _ActionResult:
-    """click/fill/goto/search 액션 실행. _ActionResult를 반환한다."""
+    """click/fill/goto/search/goback 액션 실행. _ActionResult를 반환한다."""
     if action_type == "click":
         return await _execute_click(action, page, current_obs)
     if action_type == "fill":
@@ -532,6 +576,8 @@ async def _execute_browser_action(
         return await _execute_goto(action, page)
     if action_type == "search":
         return await _execute_search(action, page)
+    if action_type == "goback":
+        return await _execute_goback(page)
     return _ActionResult()
 
 
@@ -633,6 +679,16 @@ async def _execute_search(action: dict[str, Any], page: Any) -> _ActionResult:
     return _ActionResult(succeeded=False)
 
 
+async def _execute_goback(page: Any) -> _ActionResult:
+    """goback 액션: 이전 페이지로 돌아간다."""
+    logger.info("[LLM] goback")
+    try:
+        await page.go_back()
+        return _ActionResult(succeeded=True)
+    except Exception:
+        return _ActionResult(succeeded=False)
+
+
 # ---------------------------------------------------------------------------
 # Result summarization
 # ---------------------------------------------------------------------------
@@ -699,6 +755,11 @@ def _summarize_action_result(
         if current_obs.url != prev.url:
             return f"search '{query}': navigated to {current_obs.url}"
         return f"search '{query}': URL unchanged"
+
+    if action_type == "goback":
+        if not succeeded:
+            return "goback: failed"
+        return f"goback: navigated to {current_obs.url}"
 
     return ""
 

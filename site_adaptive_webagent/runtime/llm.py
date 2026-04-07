@@ -121,7 +121,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "Always respond in English only.",
         "",
         "Respond ONLY with a JSON object using this schema:",
-        '{"reasoning": "...", "action": "extract|click|goto|search|fill|done|not_found|permission_denied|action_not_allowed|data_validation_error|unknown_error",',
+        '{"reasoning": "...", "action": "extract|click|goto|goback|search|fill|done|not_found|permission_denied|action_not_allowed|data_validation_error|unknown_error",',
         ' "value": "...", "label": "...", "target": "...", "url": "..."}',
         "Keep reasoning to 1-2 sentences. Be concise.",
         "",
@@ -133,6 +133,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         '  "fill"      — type into an input field; set "target" (placeholder/label of the field), "value" (text to type)',
         '                optionally set "submit": true to press Enter after filling',
         '  "goto"      — navigate to a URL directly; set "url"',
+        '  "goback"    — go back to the previous page (browser back)',
         '  "search"    — type in a search box and submit; set "target" (the query)',
         '  "done"      — NAVIGATE or MUTATE task is complete; the target page or action is confirmed.',
         '               Before declaring done, review the current page state (URL, title, links, buttons,',
@@ -222,11 +223,14 @@ def build_action_request(
 
     if sub_goals and current_goal_index < len(sub_goals):
         current_goal = sub_goals[current_goal_index]
+        is_last = current_goal_index == len(sub_goals) - 1
         lines += [
-            f"Current objective: {current_goal}",
+            f"Current objective ({current_goal_index + 1}/{len(sub_goals)}): {current_goal}",
             "When this objective is achieved, declare done. Do not work beyond this objective.",
-            "",
         ]
+        if not is_last:
+            lines.append("Use only action commands (click, fill, goto, search, done). Do not use extract or failure actions.")
+        lines.append("")
 
     if last_action_result:
         lines += [f"Last action result: {last_action_result}", ""]
