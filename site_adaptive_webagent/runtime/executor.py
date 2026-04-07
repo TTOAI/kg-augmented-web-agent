@@ -196,7 +196,7 @@ async def _run_with_browser(
 # LLM execution loop
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES_PER_GOAL = 3
+_MAX_RETRIES_PER_GOAL = 5
 
 
 async def _execute_with_llm(
@@ -219,7 +219,7 @@ async def _execute_with_llm(
 
     checkpoint_url = page.url
     steps_used = 0
-    replans_remaining = 5
+    replans_remaining = 3
 
     goal_idx = 0
     while goal_idx < len(sub_goals):
@@ -353,24 +353,25 @@ async def _try_sub_goal(
     messages: list[dict[str, str]] = []
     last_action_result = ""
     current_obs = await observe_page(page)
+    checkpoint_url = page.url  # navigation goal의 URL 변화 체크용
 
-    # 이전 실패 이력을 피드백으로 주입
+    # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
         retry_count = len(previous_failures)
-        if retry_count == 1:
+        if retry_count <= 3:
             last_action_result = (
-                f"Previous attempt for this goal failed: {previous_failures[-1]}. "
-                "Your approach was likely correct. Try a small adjustment."
+                f"Previous attempt failed: {previous_failures[-1]}. "
+                "Try a small adjustment."
             )
-        elif retry_count == 2:
+        elif retry_count == 4:
             last_action_result = (
-                f"This goal has failed {retry_count} times: {previous_failures}. "
-                "Try a different way to achieve this goal."
+                f"This goal has failed {retry_count} times. "
+                "Try a different approach."
             )
         else:
             last_action_result = (
                 f"This goal has failed {retry_count} times. "
-                "Consider a completely different approach."
+                "Try a completely different method."
             )
 
     for step in range(step_budget):
@@ -390,6 +391,11 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
+            # navigation goal은 URL 변화 필수
+            if sub_goal.goal_type == "navigation" and page.url == checkpoint_url:
+                last_action_result = "The URL has not changed from the starting point. Your previous actions did not result in navigation — try a different action to reach the target page."
+                logger.info("[LLM] navigation done rejected — URL unchanged: %s", checkpoint_url)
+                continue
             logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
             return None, step + 1
 
