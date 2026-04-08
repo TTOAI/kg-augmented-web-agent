@@ -370,7 +370,6 @@ async def _try_sub_goal(
     checkpoint_url = page.url  # navigation goal의 URL 변화 체크용
     browser_actions_taken = 0  # 브라우저 액션 이력 (navigation done 판단용)
     _disambiguate_counts: dict[str, int] = {}  # target별 disambiguate 횟수
-    _fill_no_effect_counts: dict[str, int] = {}  # target별 fill 실패 횟수
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -408,31 +407,15 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
-            if sub_goal.goal_type == "navigation" and page.url == checkpoint_url:
-                if browser_actions_taken > 0:
-                    # 액션을 했는데 URL 안 바뀜 → 제출 안 됨
-                    last_action_result = (
-                        "The URL has not changed from the starting point. "
-                        "Your previous actions did not result in navigation. "
-                        "If you configured filters or forms, look for a submit/search/apply button to commit your changes."
-                    )
-                    logger.info("[LLM] navigation done rejected — URL unchanged (actions taken): %s", checkpoint_url)
-                    continue
-                else:
-                    # 액션 0개 + URL 같음: 파라미터 유무로 판단
-                    from urllib.parse import urlparse, parse_qs
-                    has_params = bool(parse_qs(urlparse(page.url).query))
-                    if has_params:
-                        pass  # 파라미터 있음 → 이미 도착 (357 케이스) → 통과
-                    else:
-                        # 파라미터 없음 → 필터 미제출 가능성 → 블로킹
-                        last_action_result = (
-                            f"The URL has not changed and has no query parameters. "
-                            f"Goal: {sub_goal.goal}. "
-                            "If you configured filters or forms, look for a submit/search/apply button to commit your changes."
-                        )
-                        logger.info("[LLM] navigation done blocked — no URL params: %s", checkpoint_url)
-                        continue
+            if sub_goal.goal_type == "navigation" and page.url == checkpoint_url and browser_actions_taken > 0:
+                # 액션을 했는데 URL 안 바뀜 → 제출 안 됨
+                last_action_result = (
+                    "The URL has not changed from the starting point. "
+                    "Your previous actions did not result in navigation. "
+                    "If you configured filters or forms, look for a submit/search/apply button to commit your changes."
+                )
+                logger.info("[LLM] navigation done rejected — URL unchanged: %s", checkpoint_url)
+                continue
             logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
             return None, step + 1
 
@@ -524,16 +507,6 @@ async def _try_sub_goal(
             nearby = await _extract_nearby_from_container(container_handle)
             if nearby:
                 last_action_result = f"{last_action_result}. {nearby}"
-        # 같은 필드에 반복 fill 실패 감지 → UI 탐색 유도
-        if action_type == "fill" and action_result.succeeded and current_obs.url == prev_state.url:
-            fill_target = action.get("target", "")
-            _fill_no_effect_counts[fill_target] = _fill_no_effect_counts.get(fill_target, 0) + 1
-            if _fill_no_effect_counts[fill_target] >= 2:
-                last_action_result = (
-                    f"{last_action_result}. "
-                    f"Text input on '{fill_target}' has not produced results ({_fill_no_effect_counts[fill_target]} times). "
-                    "Stop typing and try clicking on the filter field to explore available UI controls instead."
-                )
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
