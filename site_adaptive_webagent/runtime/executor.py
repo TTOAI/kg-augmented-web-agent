@@ -632,7 +632,7 @@ async def _execute_browser_action(
 
 
 async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation) -> _ActionResult:
-    """click 액션: element_type → 드롭다운 → links → get_by_role → fallback 순으로 시도."""
+    """click 액션: 드롭다운 → element_type → 충돌감지 → links → get_by_role → fallback 순으로 시도."""
     target = action.get("target", "")
     url_hint = action.get("url", "")
     element_type = action.get("element_type", "")
@@ -642,7 +642,20 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
 
     target_lower = target.lower()
 
-    # 0. element_type이 지정되면 해당 타입을 최우선 시도
+    # 0. 드롭다운 정확 매칭 (최우선 — element_type보다 우선)
+    matching_dropdown = [d for d in obs.dropdown_options if d.split(" → ")[0].lower() == target_lower]
+    if matching_dropdown:
+        for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
+            try:
+                loc = page.locator(f'{dd_sel}:visible').filter(has_text=target)
+                if await loc.count() > 0:
+                    await loc.first.click()
+                    logger.info("[LLM] click via dropdown option (%s): %r", dd_sel, target)
+                    return _ActionResult(succeeded=True)
+            except Exception as exc:
+                logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
+
+    # 1. element_type이 지정되면 해당 타입으로 시도
     if element_type == "button":
         try:
             loc = page.get_by_role("button", name=target)
@@ -662,8 +675,7 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
         except Exception as exc:
             logger.debug("element_type=link click failed: %s", exc)
 
-    # 1. 타입 충돌 감지: element_type 없이 여러 타입에 매칭되면 되묻기
-    matching_dropdown = [d for d in obs.dropdown_options if d.split(" → ")[0].lower() == target_lower]
+    # 2. 타입 충돌 감지: element_type 없이 여러 타입에 매칭되면 되묻기
     matching_links = [l for l in obs.links if target_lower in l.split(" → ")[0].lower()]
     matching_buttons = [b for b in obs.buttons if target_lower in b.split(" [")[0].lower()]
 
@@ -683,18 +695,6 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
                     "Set \"element_type\" to \"button\" or \"link\" to disambiguate."
                 ),
             )
-
-    # 2. 드롭다운 옵션 매칭 (정확 매칭)
-    if matching_dropdown:
-        for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
-            try:
-                loc = page.locator(f'{dd_sel}:visible').filter(has_text=target)
-                if await loc.count() > 0:
-                    await loc.first.click()
-                    logger.info("[LLM] click via dropdown option (%s): %r", dd_sel, target)
-                    return _ActionResult(succeeded=True)
-            except Exception as exc:
-                logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
 
     # 3. 관측 links에서 매칭
     if len(matching_links) > 1 and not url_hint:
