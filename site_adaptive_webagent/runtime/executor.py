@@ -468,7 +468,8 @@ async def _try_sub_goal(
             logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
             continue
 
-        browser_actions_taken += 1
+        if action_result.succeeded:
+            browser_actions_taken += 1
         current_obs = await observe_page(page)
         is_inpage = action_result.succeeded and current_obs.url == prev_state.url
 
