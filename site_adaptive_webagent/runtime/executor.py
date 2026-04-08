@@ -207,7 +207,7 @@ async def _execute_with_llm(
     observation: PageObservation,
     llm: LLMClient,
     prior_bundle: PriorBundle | None,
-    max_steps: int = 15,
+    max_steps: int = 50,
 ) -> ExecutionOutcome:
     """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
     t_start = time.time()
