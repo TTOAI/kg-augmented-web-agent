@@ -371,7 +371,7 @@ async def _try_sub_goal(
     browser_actions_taken = 0  # 브라우저 액션 이력 (navigation done 판단용)
     nav_url_confirmed = False  # navigation 0-action URL 확인 (1회 요청용)
     _disambiguate_counts: dict[str, int] = {}  # target별 disambiguate 횟수
-    _fill_fail_counts: dict[str, int] = {}  # target별 fill 실패 횟수
+    _fill_no_effect_counts: dict[str, int] = {}  # target별 fill 실패 횟수
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -491,18 +491,23 @@ async def _try_sub_goal(
                      or set(current_obs.links) != prev_state.links
                      or set(current_obs.buttons) != prev_state.buttons)):
             consecutive_stable = 0
+            cur_dropdown = set(current_obs.dropdown_options)
+            cur_links = set(current_obs.links)
+            cur_buttons = set(current_obs.buttons)
             for _ in range(6):  # max 3s
                 await page.wait_for_timeout(500)
                 updated_obs = await observe_page(page)
-                if (set(updated_obs.dropdown_options) == set(current_obs.dropdown_options)
-                        and set(updated_obs.links) == set(current_obs.links)
-                        and set(updated_obs.buttons) == set(current_obs.buttons)):
+                upd_dropdown = set(updated_obs.dropdown_options)
+                upd_links = set(updated_obs.links)
+                upd_buttons = set(updated_obs.buttons)
+                if upd_dropdown == cur_dropdown and upd_links == cur_links and upd_buttons == cur_buttons:
                     consecutive_stable += 1
                     if consecutive_stable >= 2:
-                        break  # 연속 2회 안정 → 확정
+                        break
                 else:
                     consecutive_stable = 0
                     current_obs = updated_obs
+                    cur_dropdown, cur_links, cur_buttons = upd_dropdown, upd_links, upd_buttons
         last_action_result = _summarize_action_result(
             action_type, action, action_result.succeeded, current_obs, prev_state,
         )
@@ -514,11 +519,11 @@ async def _try_sub_goal(
         # 같은 필드에 반복 fill 실패 감지 → UI 탐색 유도
         if action_type == "fill" and action_result.succeeded and current_obs.url == prev_state.url:
             fill_target = action.get("target", "")
-            _fill_fail_counts[fill_target] = _fill_fail_counts.get(fill_target, 0) + 1
-            if _fill_fail_counts[fill_target] >= 2:
+            _fill_no_effect_counts[fill_target] = _fill_no_effect_counts.get(fill_target, 0) + 1
+            if _fill_no_effect_counts[fill_target] >= 2:
                 last_action_result = (
                     f"{last_action_result}. "
-                    f"Text input on '{fill_target}' has not produced results ({_fill_fail_counts[fill_target]} times). "
+                    f"Text input on '{fill_target}' has not produced results ({_fill_no_effect_counts[fill_target]} times). "
                     "Stop typing and try clicking on the filter field to explore available UI controls instead."
                 )
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
@@ -668,24 +673,15 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
                 logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
 
     # 1. element_type이 지정되면 해당 타입으로 시도
-    if element_type == "button":
+    if element_type in ("button", "link"):
         try:
-            loc = page.get_by_role("button", name=target)
+            loc = page.get_by_role(element_type, name=target)
             if await loc.count() > 0:
                 await loc.first.click()
-                logger.info("[LLM] click via element_type=button: %r", target)
+                logger.info("[LLM] click via element_type=%s: %r", element_type, target)
                 return _ActionResult(succeeded=True)
         except Exception as exc:
-            logger.debug("element_type=button click failed: %s", exc)
-    elif element_type == "link":
-        try:
-            loc = page.get_by_role("link", name=target)
-            if await loc.count() > 0:
-                await loc.first.click()
-                logger.info("[LLM] click via element_type=link: %r", target)
-                return _ActionResult(succeeded=True)
-        except Exception as exc:
-            logger.debug("element_type=link click failed: %s", exc)
+            logger.debug("element_type=%s click failed: %s", element_type, exc)
 
     # 2. 타입 충돌 감지: element_type 없이 여러 타입에 매칭되면 되묻기
     matching_links = [l for l in obs.links if target_lower in l.split(" → ")[0].lower()]
@@ -830,7 +826,7 @@ _CAPTURE_CONTAINER_JS = """() => {
 
 _EXTRACT_FROM_CONTAINER_JS = """(container) => {
     if (!container) return [];
-    return Array.from(container.querySelectorAll('button, a[href], input'))
+    return Array.from(container.querySelectorAll('button, a[href], input, select'))
         .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)
         .slice(0, 15)
         .map(el => {

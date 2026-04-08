@@ -38,7 +38,7 @@ async def observe_page(page: Any) -> PageObservation:
         extract_texts(page, TEXT_BLOCK_SELECTORS),
         extract_ax_links(page),
         extract_dropdown_options(page),
-        extract_texts(page, BUTTON_SELECTORS),
+        extract_texts(page, BUTTON_SELECTORS, visible_only=True),
         extract_input_labels(page),
         extract_readonly_values(page),
     )
@@ -349,14 +349,16 @@ async def try_search(page: Any, phrase: str) -> bool:
     return False
 
 
-async def extract_texts(page: Any, selectors: tuple[str, ...]) -> list[str]:
+async def extract_texts(page: Any, selectors: tuple[str, ...], *, visible_only: bool = False) -> list[str]:
     """실행 전체를 깨뜨리지 않고 selector 목록에서 텍스트를 읽는다.
 
     evaluate_all()로 selector당 단일 JS 호출로 모든 요소를 처리한다.
     inner_text가 비어있는 요소(예: 아이콘 전용 링크)는 aria-label → title 순으로 대체한다.
+    visible_only=True이면 보이는 요소만 수집 (숨겨진 버튼 제외용).
     """
     from .intent import collapse_whitespace
 
+    vis_filter = ".filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)" if visible_only else ""
     texts: list[str] = []
     seen: set[str] = set()
     for selector in selectors:
@@ -364,7 +366,7 @@ async def extract_texts(page: Any, selectors: tuple[str, ...]) -> list[str]:
         try:
             results: list[str] = await locator.evaluate_all(
                 "els => els"
-                "  .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)"
+                f"  {vis_filter}"
                 "  .slice(0, 50).map(el => {"
                 "  const t = (el.innerText || '').trim();"
                 "  const name = t || el.getAttribute('aria-label') || el.getAttribute('title') || '';"
