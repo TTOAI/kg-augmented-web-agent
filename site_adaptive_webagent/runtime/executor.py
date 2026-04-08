@@ -369,6 +369,8 @@ async def _try_sub_goal(
     current_obs = await observe_page(page)
     checkpoint_url = page.url  # navigation goal의 URL 변화 체크용
     browser_actions_taken = 0  # 브라우저 액션 이력 (navigation done 판단용)
+    _disambiguate_counts: dict[str, int] = {}  # target별 disambiguate 횟수
+    _fill_fail_counts: dict[str, int] = {}  # target별 fill 실패 횟수
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -451,6 +453,15 @@ async def _try_sub_goal(
         if action_result.should_continue:
             current_obs = action_result.observation or current_obs
             last_action_result = action_result.feedback
+            # 반복 disambiguate 감지 → 강화 피드백
+            if "element_type" in last_action_result and action_type == "click":
+                click_target = action.get("target", "")
+                _disambiguate_counts[click_target] = _disambiguate_counts.get(click_target, 0) + 1
+                if _disambiguate_counts[click_target] >= 2:
+                    last_action_result = (
+                        f"You MUST set \"element_type\" to \"button\" or \"link\" for '{click_target}'. "
+                        f"This is attempt #{_disambiguate_counts[click_target] + 1} — your previous attempts were all rejected."
+                    )
             logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
             continue
 
@@ -488,6 +499,16 @@ async def _try_sub_goal(
             nearby = await _extract_nearby_from_container(container_handle)
             if nearby:
                 last_action_result = f"{last_action_result}. {nearby}"
+        # 같은 필드에 반복 fill 실패 감지 → UI 탐색 유도
+        if action_type == "fill" and action_result.succeeded and current_obs.url == prev_state.url:
+            fill_target = action.get("target", "")
+            _fill_fail_counts[fill_target] = _fill_fail_counts.get(fill_target, 0) + 1
+            if _fill_fail_counts[fill_target] >= 2:
+                last_action_result = (
+                    f"{last_action_result}. "
+                    f"Text input on '{fill_target}' has not produced results ({_fill_fail_counts[fill_target]} times). "
+                    "Stop typing and try clicking on the filter field to explore available UI controls instead."
+                )
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
