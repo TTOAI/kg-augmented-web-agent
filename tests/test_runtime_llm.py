@@ -43,10 +43,11 @@ class BuildSystemPromptTests(unittest.TestCase):
         self.assertIn("not_found", prompt)
         self.assertIn("done", prompt)
 
-    def test_system_prompt_contains_strategy_hint(self) -> None:
+    def test_system_prompt_contains_core_actions(self) -> None:
         prompt = build_system_prompt(None)
-        self.assertIn("prefer", prompt.lower())
-        self.assertIn("goto", prompt)
+        self.assertIn("click", prompt)
+        self.assertIn("extract", prompt)
+        self.assertIn("done", prompt)
 
     def test_prior_bundle_includes_site_info(self) -> None:
         profile = make_site_profile(site_id="gitlab")
