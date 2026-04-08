@@ -435,6 +435,29 @@ async def _try_sub_goal(
             current_obs = await observe_page(page)
             continue
 
+        # --- Observe action (키워드 필터링된 관측) ---
+        if action_type == "observe":
+            keyword = (action.get("target") or "").lower()
+            if keyword:
+                filtered: list[str] = []
+                for item in current_obs.links:
+                    if keyword in item.lower():
+                        filtered.append(f"[link] {item}")
+                for item in current_obs.buttons:
+                    if keyword in item.lower():
+                        filtered.append(f"[button] {item}")
+                for item in current_obs.text_lines:
+                    if keyword in item.lower():
+                        filtered.append(f"[text] {item}")
+                for item in current_obs.dropdown_options:
+                    if keyword in item.lower():
+                        filtered.append(f"[dropdown] {item}")
+                last_action_result = f"Filtered observation for '{keyword}': {filtered}" if filtered else f"No matches found for '{keyword}'"
+            else:
+                last_action_result = "observe requires a 'target' keyword to filter by."
+            logger.info("[LLM] step=%d  observe=%r  results=%d", step + 1, keyword, len(filtered) if keyword else 0)
+            continue
+
         # --- Browser actions ---
         prev_state = _capture_page_state(current_obs)
         action_result = await _execute_browser_action(

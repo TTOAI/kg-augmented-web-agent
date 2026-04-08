@@ -128,7 +128,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "When stuck, click on visible controls to reveal hidden options before trying text input.",
         "",
         "Respond ONLY with a JSON object using this schema:",
-        '{"reasoning": "...", "action": "extract|click|goto|goback|search|fill|done|not_found|permission_denied|action_not_allowed|data_validation_error|unknown_error",',
+        '{"reasoning": "...", "action": "extract|click|goto|goback|search|fill|observe|done|not_found|permission_denied|action_not_allowed|data_validation_error|unknown_error",',
         ' "value": "...", "label": "...", "target": "...", "url": "...", "element_type": "button|link"}',
         "Keep reasoning to 1-2 sentences. Be concise.",
         "",
@@ -143,6 +143,8 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         '  "goto"      — navigate to a URL directly; set "url"',
         '  "goback"    — go back to the previous page (browser back)',
         '  "search"    — type in a search box and submit; set "target" (the query)',
+        '  "observe"   — request filtered observation when lists are truncated; set "target" (keyword to filter by).',
+        '               Returns all links, buttons, text matching the keyword from the full page.',
         '  "done"      — NAVIGATE or MUTATE task is complete; the target page or action is confirmed.',
         '               Before declaring done, review the current page state (URL, title, links, buttons,',
         '               filters) and verify it matches the task goal exactly. If there is any mismatch,',
@@ -281,11 +283,17 @@ def build_action_request(
     if observation.text_lines:
         lines.append(f"Visible text (first 10): {observation.text_lines[:10]}")
     if observation.links:
-        lines.append(f"Links (first 20): {observation.links[:20]}")
+        total = len(observation.links)
+        shown = min(20, total)
+        label = f"Links ({shown} of {total})" if total > shown else "Links"
+        lines.append(f"{label}: {observation.links[:20]}")
     if observation.dropdown_options:
         lines.append(f"Dropdown options (click to select): {observation.dropdown_options[:20]}")
     if observation.buttons:
-        lines.append(f"Buttons: {observation.buttons[:10]}")
+        total = len(observation.buttons)
+        shown = min(10, total)
+        label = f"Buttons ({shown} of {total})" if total > shown else "Buttons"
+        lines.append(f"{label}: {observation.buttons[:10]}")
     if observation.inputs:
         lines.append(f"Input fields: {observation.inputs[:10]}")
     lines += ["", "What single action should be taken? Respond with JSON only."]
