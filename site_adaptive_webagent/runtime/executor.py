@@ -461,21 +461,25 @@ async def _try_sub_goal(
         # 포커스가 살아있는 동안 액션 컨테이너 참조 캡처
         container_handle = await _capture_action_container(page) if is_inpage else None
 
-        # in-page 인터랙션에서 DOM 변화 감지 → 비동기 콘텐츠 안정화 대기
+        # in-page 인터랙션에서 DOM 변화 감지 → 비동기 콘텐츠(AJAX) 안정화 대기
+        # 연속 안정 2회를 요구: 하드코딩 요소 후 서버 응답이 늦게 올 수 있으므로
         if (is_inpage
                 and (set(current_obs.dropdown_options) != prev_state.dropdown
                      or set(current_obs.links) != prev_state.links
                      or set(current_obs.buttons) != prev_state.buttons)):
-            for _ in range(4):  # max 2s
+            consecutive_stable = 0
+            for _ in range(6):  # max 3s
                 await page.wait_for_timeout(500)
                 updated_obs = await observe_page(page)
                 if (set(updated_obs.dropdown_options) == set(current_obs.dropdown_options)
                         and set(updated_obs.links) == set(current_obs.links)
                         and set(updated_obs.buttons) == set(current_obs.buttons)):
-                    break  # 안정됨
-                current_obs = updated_obs
-            else:
-                current_obs = updated_obs
+                    consecutive_stable += 1
+                    if consecutive_stable >= 2:
+                        break  # 연속 2회 안정 → 확정
+                else:
+                    consecutive_stable = 0
+                    current_obs = updated_obs
         last_action_result = _summarize_action_result(
             action_type, action, action_result.succeeded, current_obs, prev_state,
         )
