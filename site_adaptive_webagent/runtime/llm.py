@@ -129,7 +129,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "",
         "Respond ONLY with a JSON object using this schema:",
         '{"reasoning": "...", "action": "extract|click|goto|goback|search|fill|done|not_found|permission_denied|action_not_allowed|data_validation_error|unknown_error",',
-        ' "value": "...", "label": "...", "target": "...", "url": "..."}',
+        ' "value": "...", "label": "...", "target": "...", "url": "...", "element_type": "button|link"}',
         "Keep reasoning to 1-2 sentences. Be concise.",
         "",
         "Action descriptions:",
