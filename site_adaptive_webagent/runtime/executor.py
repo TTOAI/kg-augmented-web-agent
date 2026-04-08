@@ -217,9 +217,10 @@ async def _execute_with_llm(
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
-    checkpoint_url = page.url
+    checkpoint_stack = [page.url]  # goal별 checkpoint 스택 (index 0 = task 시작 URL)
     steps_used = 0
     replans_remaining = 3
+    max_replans = replans_remaining
 
     goal_idx = 0
     while goal_idx < len(sub_goals):
@@ -250,9 +251,9 @@ async def _execute_with_llm(
 
             # sub-goal 성공 (done)
             if result is None:
-                checkpoint_url = page.url
+                checkpoint_stack.append(page.url)
                 logger.info("[LLM] goal %d/%d complete — checkpoint: %s",
-                            goal_idx + 1, len(sub_goals), checkpoint_url)
+                            goal_idx + 1, len(sub_goals), checkpoint_stack[-1])
                 goal_succeeded = True
                 break
 
@@ -262,16 +263,29 @@ async def _execute_with_llm(
             logger.info("[LLM] goal %d/%d failed (attempt %d): %s — restoring checkpoint",
                         goal_idx + 1, len(sub_goals), attempt + 1, failure_desc)
             try:
-                await page.goto(checkpoint_url)
+                await page.goto(checkpoint_stack[-1])
             except Exception:
                 pass
 
         if not goal_succeeded and replans_remaining > 0:
-            # Replanning: 현재 상태에서 남은 목표를 재계획
             replans_remaining -= 1
+            replan_count = max_replans - replans_remaining  # 1차, 2차, 3차
+
+            # 2차 이상 replan: 이전 checkpoint로 점진적 롤백 (현재 checkpoint 오염 가능성)
+            if replan_count >= 2 and len(checkpoint_stack) > 1:
+                checkpoint_stack.pop()
+                goal_idx = max(0, len(checkpoint_stack) - 1)
+                logger.info("[LLM] deep rollback to checkpoint %d: %s",
+                            goal_idx, checkpoint_stack[-1])
+
+            try:
+                await page.goto(checkpoint_stack[-1])
+            except Exception:
+                pass
+
             current_obs = await observe_page(page)
-            logger.info("[LLM] replanning (remaining=%d) after goal %d/%d failed",
-                        replans_remaining, goal_idx + 1, len(sub_goals))
+            logger.info("[LLM] replanning (remaining=%d, depth=%d) after goal %d/%d failed",
+                        replans_remaining, replan_count, goal_idx + 1, len(sub_goals))
             new_goals = _replan(
                 task=task, observation=current_obs, llm=llm,
                 completed_goals=sub_goals[:goal_idx],
@@ -280,7 +294,7 @@ async def _execute_with_llm(
             if new_goals:
                 logger.info("[LLM] new plan: %s", new_goals)
                 sub_goals = sub_goals[:goal_idx] + new_goals
-                continue  # 같은 goal_idx에서 새 sub_goal로 재시도
+                continue
             else:
                 logger.info("[LLM] replan returned empty — failing task")
 
