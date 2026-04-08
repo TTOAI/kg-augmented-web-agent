@@ -354,6 +354,7 @@ async def _try_sub_goal(
     last_action_result = ""
     current_obs = await observe_page(page)
     checkpoint_url = page.url  # navigation goal의 URL 변화 체크용
+    browser_actions_taken = 0  # 브라우저 액션 이력 (navigation done 판단용)
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -391,8 +392,8 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
-            # navigation goal은 URL 변화 필수
-            if sub_goal.goal_type == "navigation" and page.url == checkpoint_url:
+            # navigation goal: 액션을 했는데 URL 안 바뀌면 거부, 액션 없으면 이미 도착 → 통과
+            if sub_goal.goal_type == "navigation" and page.url == checkpoint_url and browser_actions_taken > 0:
                 last_action_result = "The URL has not changed from the starting point. Your previous actions did not result in navigation — try a different action to reach the target page."
                 logger.info("[LLM] navigation done rejected — URL unchanged: %s", checkpoint_url)
                 continue
@@ -439,6 +440,7 @@ async def _try_sub_goal(
             logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
             continue
 
+        browser_actions_taken += 1
         current_obs = await observe_page(page)
         is_inpage = action_result.succeeded and current_obs.url == prev_state.url
 
