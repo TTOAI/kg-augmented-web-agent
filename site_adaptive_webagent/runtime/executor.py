@@ -369,7 +369,6 @@ async def _try_sub_goal(
     current_obs = await observe_page(page)
     checkpoint_url = page.url  # navigation goal의 URL 변화 체크용
     browser_actions_taken = 0  # 브라우저 액션 이력 (navigation done 판단용)
-    nav_url_confirmed = False  # navigation 0-action URL 확인 (1회 요청용)
     _disambiguate_counts: dict[str, int] = {}  # target별 disambiguate 횟수
     _fill_no_effect_counts: dict[str, int] = {}  # target별 fill 실패 횟수
 
@@ -412,19 +411,28 @@ async def _try_sub_goal(
             if sub_goal.goal_type == "navigation" and page.url == checkpoint_url:
                 if browser_actions_taken > 0:
                     # 액션을 했는데 URL 안 바뀜 → 제출 안 됨
-                    last_action_result = "The URL has not changed from the starting point. Your previous actions did not result in navigation — try a different action to reach the target page."
+                    last_action_result = (
+                        "The URL has not changed from the starting point. "
+                        "Your previous actions did not result in navigation. "
+                        "If you configured filters or forms, look for a submit/search/apply button to commit your changes."
+                    )
                     logger.info("[LLM] navigation done rejected — URL unchanged (actions taken): %s", checkpoint_url)
                     continue
-                elif not nav_url_confirmed:
-                    # 액션 0개 + URL 같음 → LLM에게 URL 확인 요청 (1회만)
-                    nav_url_confirmed = True
-                    last_action_result = (
-                        f"No actions taken. Current URL: {page.url} — "
-                        "Does this URL already reflect the target page? "
-                        "If yes, declare done again. If not, take an action to navigate."
-                    )
-                    logger.info("[LLM] navigation done — asking URL confirmation: %s", checkpoint_url)
-                    continue
+                else:
+                    # 액션 0개 + URL 같음: 파라미터 유무로 판단
+                    from urllib.parse import urlparse, parse_qs
+                    has_params = bool(parse_qs(urlparse(page.url).query))
+                    if has_params:
+                        pass  # 파라미터 있음 → 이미 도착 (357 케이스) → 통과
+                    else:
+                        # 파라미터 없음 → 필터 미제출 가능성 → 블로킹
+                        last_action_result = (
+                            f"The URL has not changed and has no query parameters. "
+                            f"Goal: {sub_goal.goal}. "
+                            "If you configured filters or forms, look for a submit/search/apply button to commit your changes."
+                        )
+                        logger.info("[LLM] navigation done blocked — no URL params: %s", checkpoint_url)
+                        continue
             logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
             return None, step + 1
 
