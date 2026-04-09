@@ -316,12 +316,11 @@ async def _execute_with_llm(
     # 모든 goal 완료 (또는 소진)
     # RETRIEVE task이면 최종 답 추출
     if task_type == "RETRIEVE":
-        obs = await observe_page(page)
         try:
             from .skills import verified_extract as _ve
             skill_result = _ve(
                 task=task, task_type=task_type, preliminary_answer="",
-                current_obs=obs, task_notes=task_notes, llm=llm,
+                task_notes=task_notes, llm=llm,
             )
             if skill_result.outcome is not None:
                 elapsed = time.time() - t_start
@@ -511,7 +510,6 @@ async def _try_sub_goal(
             skill_result = _ve_skill(
                 task=task, task_type=task_type,
                 preliminary_answer=args.get("preliminary_answer", ""),
-                current_obs=current_obs,
                 task_notes=task_notes if task_notes is not None else [],
                 llm=llm,
             )

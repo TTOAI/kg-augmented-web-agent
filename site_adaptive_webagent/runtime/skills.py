@@ -91,16 +91,15 @@ def verified_extract(
     task: str,
     task_type: str,
     preliminary_answer: str,
-    current_obs: PageObservation,
     task_notes: list[str],
     llm: LLMClient,
 ) -> SkillResult:
-    """저장된 facts와 현재 페이지를 대조하여 검증된 답을 추출한다."""
+    """저장된 facts를 대조하여 검증된 답을 추출한다."""
     notes_str = "\n".join(f"- {n}" for n in task_notes) if task_notes else "(no saved facts)"
 
     system = (
         "You are a verification assistant. "
-        "Cross-check the preliminary answer against ALL saved facts and the current page. "
+        "Cross-check the preliminary answer against ALL saved facts. "
         "If any saved facts are missing from the answer, ADD them. "
         'Return ONLY JSON: {"value": "complete answer", "label": "what it is"}\n'
         "For multiple values, separate with commas in the value field."
@@ -109,11 +108,7 @@ def verified_extract(
         f"Task: {task}\n"
         f"Preliminary answer: {preliminary_answer or '(none)'}\n\n"
         f"Saved facts:\n{notes_str}\n\n"
-        f"Current page URL: {current_obs.url}\n"
-        f"Page title: {current_obs.title}\n"
-        f"Visible text: {current_obs.text_lines[:10]}\n"
-        f"Links: {current_obs.links[:10]}\n\n"
-        "Cross-check: Does the preliminary answer include ALL relevant facts? "
+        "Cross-check: Does the preliminary answer include ALL relevant saved facts? "
         "Extract the COMPLETE verified answer."
     )
 

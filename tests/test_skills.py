@@ -90,7 +90,6 @@ class VerifiedExtractTests(unittest.TestCase):
             task="Get project IDs of top-starred projects",
             task_type="RETRIEVE",
             preliminary_answer="183",
-            current_obs=_make_obs(),
             task_notes=notes,
             llm=llm,
         )
@@ -103,7 +102,6 @@ class VerifiedExtractTests(unittest.TestCase):
         result = verified_extract(
             task="test", task_type="RETRIEVE",
             preliminary_answer="42",
-            current_obs=_make_obs(),
             task_notes=[],
             llm=llm,
         )
@@ -116,7 +114,6 @@ class VerifiedExtractTests(unittest.TestCase):
         result = verified_extract(
             task="test", task_type="RETRIEVE",
             preliminary_answer="",
-            current_obs=_make_obs(),
             task_notes=[],
             llm=llm,
         )
@@ -130,11 +127,9 @@ class VerifiedExtractTests(unittest.TestCase):
         verified_extract(
             task="test", task_type="RETRIEVE",
             preliminary_answer="183",
-            current_obs=_make_obs(),
             task_notes=notes,
             llm=llm,
         )
-        # LLM 호출에 notes가 포함되어야 함
         self.assertEqual(len(llm.calls), 1)
         user_msg = llm.calls[0]["messages"][0]["content"]
         self.assertIn("Project 183 has 6 stars", user_msg)
