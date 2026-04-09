@@ -461,8 +461,17 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_name == "done":
-            logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
-            return None, step + 1
+            # done 검증: LLM에게 현재 상태와 목표를 대조시킴
+            verified = _verify_done(
+                goal=sub_goal.goal, current_obs=current_obs, llm=llm,
+            )
+            if verified:
+                logger.info("[LLM] sub-goal done (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
+                return None, step + 1
+            logger.info("[LLM] sub-goal done REJECTED: %s", verified)
+            last_action_feedback = f"Done rejected — goal not yet achieved: {verified}. Keep working."
+            messages.append(format_tool_result(tool_id, last_action_feedback))
+            continue
 
         if action_name == "extract":
             return _handle_extract({"value": args.get("value", ""), "label": args.get("label", "")}, task_type), step + 1
@@ -1030,6 +1039,40 @@ def _summarize_action_result(
 # ---------------------------------------------------------------------------
 # LLM helpers
 # ---------------------------------------------------------------------------
+
+def _verify_done(*, goal: str, current_obs: PageObservation, llm: LLMClient) -> str | bool:
+    """LLM에게 현재 상태와 목표를 대조하여 done 검증을 요청한다.
+
+    Returns:
+        True — 목표 달성 확인
+        str — 미달성 이유
+    """
+    from urllib.parse import urlparse, parse_qs
+    parsed_url = urlparse(current_obs.url)
+    params = parse_qs(parsed_url.query)
+    params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
+
+    system = (
+        "You verify whether a sub-goal has been achieved given the current page state. "
+        'Respond ONLY with JSON: {"achieved": true} or {"achieved": false, "reason": "..."}'
+    )
+    user_msg = (
+        f"Goal: {goal}\n"
+        f"Current URL: {current_obs.url}\n"
+        f"URL parameters: {params_str}\n"
+        f"Page title: {current_obs.title}\n"
+        f"Visible text (first 5): {current_obs.text_lines[:5]}\n"
+    )
+    try:
+        from .llm import parse_llm_action
+        response = llm.complete(system=system, messages=[{"role": "user", "content": user_msg}])
+        parsed = parse_llm_action(response)
+        if parsed.get("achieved", True):
+            return True
+        return parsed.get("reason", "goal not achieved")
+    except Exception:
+        return True  # 검증 실패 시 통과 (보수적)
+
 
 def _get_tool_action(
     llm: LLMClient, system: str, messages: list[dict], tools: list[dict],
