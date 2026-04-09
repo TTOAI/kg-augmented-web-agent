@@ -457,6 +457,12 @@ async def _try_sub_goal(
     _repeated_action_counts: dict[str, int] = {}  # "action:target" 별 비효과 반복 횟수
     _action_history: list[str] = []  # 이번 attempt의 액션 이력 (retry 시 전달용)
     _MAX_MESSAGES = 6  # 최근 N개 메시지만 유지 (컨텍스트 비대화 방지)
+    # 이전 실패에서 추출한 실패 접근 방법 (매 스텝 관측에 포함)
+    _failed_approaches: list[str] = []
+    for f in previous_failures:
+        if "Actions tried:" in f:
+            _failed_approaches.append(f[f.index("Actions tried:"):])
+
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -479,6 +485,7 @@ async def _try_sub_goal(
         user_msg = build_action_request(
             task=task, observation=current_obs, last_action_result=last_action_result,
             sub_goals=sub_goals, current_goal_index=goal_index,
+            failed_approaches=_failed_approaches or None,
         )
         messages.append({"role": "user", "content": user_msg})
         # 컨텍스트 비대화 방지: 최근 N개 메시지만 유지
