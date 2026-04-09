@@ -133,7 +133,6 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "",
         '  "click"    — click a link or button. Set "target" (visible name), "url" (pathname) or "element_type" to disambiguate.',
         '  "fill"     — type into a field. Set "target", "value". "submit": true to press Enter.',
-        '  "goto"     — navigate to URL. Set "url".',
         '  "goback"   — go back to previous page.',
         '  "search"   — search. Set "target" (query).',
         '  "observe"  — filtered observation. Set "target" (keyword to filter by).',
