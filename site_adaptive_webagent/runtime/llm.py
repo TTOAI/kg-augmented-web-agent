@@ -314,8 +314,6 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
         "Example: if the task is 'go to bug issues', the last goal should be\n"
         "'Navigate to the filtered bug issues page' (navigation), not 'Apply bug filter' (action).\n"
         "This ensures the page URL reflects the final state.\n"
-        "Do NOT create sub-goals to apply filters or sorts that are likely already the page defaults.\n"
-        "Only filter/sort when the task explicitly requires a non-default state (e.g. 'bug label', 'help wanted').\n"
         "\n"
         'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
