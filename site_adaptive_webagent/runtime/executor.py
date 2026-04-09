@@ -212,6 +212,7 @@ async def _execute_with_llm(
     """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
     t_start = time.time()
     system = build_tool_use_system_prompt(prior_bundle)
+    has_prior = prior_bundle is not None
 
     sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm, prior_bundle=prior_bundle)
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
@@ -243,6 +244,7 @@ async def _execute_with_llm(
                 is_last_goal=(goal_idx == len(sub_goals) - 1),
                 task_notes=task_notes,
                 start_url=checkpoint_stack[0],
+                has_prior=has_prior,
             )
             steps_used += used
 
@@ -374,6 +376,7 @@ async def _execute_with_llm(
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
                     start_url=checkpoint_stack[0],
+                    has_prior=has_prior,
                 )
                 steps_used += used
                 if result is not None and result.status != "SUB_GOAL_FAILED":
@@ -406,6 +409,7 @@ async def _try_sub_goal(
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
     start_url: str = "",
+    has_prior: bool = False,
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
@@ -419,7 +423,7 @@ async def _try_sub_goal(
     current_obs = await observe_page(page)
     _action_history: list[str] = []
     _MAX_MESSAGES = 10
-    tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type)
+    tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type, has_prior=has_prior)
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -776,11 +780,13 @@ async def _execute_browser_action(
     page: Any,
     current_obs: PageObservation,
 ) -> _ActionResult:
-    """click/fill/goback 등 browser 액션 실행. _ActionResult를 반환한다."""
+    """click/fill/goto/goback 등 browser 액션 실행. _ActionResult를 반환한다."""
     if action_type == "click":
         return await _execute_click(action, page, current_obs)
     if action_type == "fill":
         return await _execute_fill(action, page)
+    if action_type == "goto":
+        return await _execute_goto(action, page)
     if action_type == "goback":
         return await _execute_goback(page)
     return _ActionResult()
@@ -919,6 +925,24 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
     if await try_click_target(page, [target]):
         return _ActionResult(succeeded=True)
 
+    return _ActionResult(succeeded=False)
+
+
+async def _execute_goto(action: dict[str, Any], page: Any) -> _ActionResult:
+    """goto 액션: URL로 직접 이동한다."""
+    url = action.get("url", "")
+    logger.info("[LLM] goto  url=%r", url)
+    if url:
+        try:
+            # 상대 경로면 현재 origin 기준으로 이동
+            if url.startswith("/"):
+                from urllib.parse import urlparse
+                current = urlparse(page.url)
+                url = f"{current.scheme}://{current.netloc}{url}"
+            await page.goto(url)
+            return _ActionResult(succeeded=True)
+        except Exception:
+            pass
     return _ActionResult(succeeded=False)
 
 
@@ -1108,6 +1132,12 @@ def _summarize_action_result(
         if delta:
             return f"fill '{target}': submitted. {delta}"
         return f"fill '{target}': submitted (no visible change)"
+
+    if action_type == "goto":
+        url = action.get("url", "")
+        if not succeeded:
+            return f"goto '{url}': navigation failed"
+        return f"goto: navigated to {current_obs.url}"
 
     if action_type == "goback":
         if not succeeded:

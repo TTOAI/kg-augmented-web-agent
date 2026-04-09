@@ -112,6 +112,23 @@ def _search_tool() -> dict:
     }
 
 
+def _goto_tool() -> dict:
+    return {
+        "name": "goto",
+        "description": "Navigate directly to a URL path. Only use paths from site knowledge (Known Pages / Available Actions).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL path to navigate to (e.g. /explore/projects?visibility_level=20)",
+                },
+            },
+            "required": ["url"],
+        },
+    }
+
+
 def _goback_tool() -> dict:
     return {
         "name": "goback",
@@ -273,7 +290,7 @@ def replan_tool() -> dict:
     }
 
 
-def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
+def tools_for_goal(*, is_last_goal: bool, task_type: str, has_prior: bool = False) -> list[dict]:
     """sub-goal 위치와 task_type에 따라 제공할 tool 목록을 구성한다.
 
     중간 goal: browser + cognition + done
@@ -284,6 +301,8 @@ def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
         _click_tool(), _fill_tool(), _search_tool(), _goback_tool(),
         _observe_tool(), _remember_tool(), _recall_tool(), _done_tool(),
     ]
+    if has_prior:
+        tools.insert(4, _goto_tool())  # browser tools에 goto 추가
     if is_last_goal:
         if task_type == "RETRIEVE":
             tools.append(_extract_tool())
