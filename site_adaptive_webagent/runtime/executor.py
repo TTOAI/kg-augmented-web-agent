@@ -501,6 +501,15 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
+            # 이전 실패 이력이 있고 진행 없으면 done 거부 (포기 방지)
+            if previous_failures and _no_progress_steps >= step:
+                last_action_result = (
+                    f"This goal has failed {len(previous_failures)} times before. "
+                    "You have not made progress in this attempt — do NOT give up. "
+                    "Try a completely different approach."
+                )
+                logger.info("[LLM] done rejected — no progress after %d prior failures", len(previous_failures))
+                continue
             logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
             return None, step + 1
 
