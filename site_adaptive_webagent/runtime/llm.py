@@ -314,6 +314,8 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
         "Example: if the task is 'go to bug issues', the last goal should be\n"
         "'Navigate to the filtered bug issues page' (navigation), not 'Apply bug filter' (action).\n"
         "This ensures the page URL reflects the final state.\n"
+        "Do NOT create sub-goals to apply filters or sorts that are likely already the page defaults.\n"
+        "Only filter/sort when the task explicitly requires a non-default state (e.g. 'bug label', 'help wanted').\n"
         "\n"
         'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
@@ -433,11 +435,12 @@ def build_tool_use_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "",
         "## Strategy",
         "1. Act on what you SEE, not what you KNOW. Click to explore — never guess.",
-        "2. Click before typing. Reveal options first, then decide.",
+        "2. Click before typing. To apply filters, click the filter/search input to reveal dropdown categories (e.g. Label, Assignee), then click through options. Do NOT type filter queries directly.",
         "3. After selecting filters/options, click Search/Submit to commit. Check URL parameters to confirm.",
-        "4. Never repeat a failed action. Use goback to return to a known page and try a different path.",
-        "5. Use the remember tool to save important facts (IDs, counts, names).",
-        "6. Before extract or done, use recall to verify completeness.",
+        "4. Check if the page already shows the desired state before applying filters. Don't re-apply defaults.",
+        "5. Never repeat a failed action. Use goback to return to a known page and try a different path.",
+        "6. Use the remember tool to save important facts (IDs, counts, names).",
+        "7. Before extract or done, use recall to verify completeness.",
     ]
 
     if prior_bundle is not None:
@@ -476,13 +479,17 @@ def build_observation_message(
     last_action_feedback: str = "",
     sub_goals: list[SubGoal] | None = None,
     current_goal_index: int = 0,
+    start_url: str = "",
 ) -> str:
     """페이지 상태를 마크다운 섹션으로 구조화한다 (Tool Use용)."""
     from urllib.parse import urlparse, parse_qs
 
     sections: list[str] = []
 
-    sections.append(f"## Task\n{task}")
+    task_section = f"## Task\n{task}"
+    if start_url:
+        task_section += f"\n**Started from:** {start_url}"
+    sections.append(task_section)
 
     if sub_goals and current_goal_index < len(sub_goals):
         current_goal = sub_goals[current_goal_index].goal

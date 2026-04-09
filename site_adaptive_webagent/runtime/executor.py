@@ -242,6 +242,7 @@ async def _execute_with_llm(
                 step_budget=step_budget, previous_failures=failures,
                 is_last_goal=(goal_idx == len(sub_goals) - 1),
                 task_notes=task_notes,
+                start_url=checkpoint_stack[0],
             )
             steps_used += used
 
@@ -372,6 +373,7 @@ async def _execute_with_llm(
                     step_budget=step_budget, previous_failures=[],
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
+                    start_url=checkpoint_stack[0],
                 )
                 steps_used += used
                 if result is not None and result.status != "SUB_GOAL_FAILED":
@@ -403,6 +405,7 @@ async def _try_sub_goal(
     previous_failures: list[str],
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
+    start_url: str = "",
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
@@ -446,6 +449,7 @@ async def _try_sub_goal(
         user_msg = build_observation_message(
             task=task, observation=current_obs, last_action_feedback=last_action_feedback,
             sub_goals=sub_goals, current_goal_index=goal_index,
+            start_url=start_url,
         )
         messages.append({"role": "user", "content": user_msg})
         if len(messages) > _MAX_MESSAGES:
