@@ -246,7 +246,7 @@ class SubGoal:
         return f"{self.goal} [{self.goal_type}]"
 
 
-def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -> list[SubGoal]:
+def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient, prior_bundle: PriorBundle | None = None) -> list[SubGoal]:
     """태스크를 2~5개 sub-goal로 분해한다. LLM 1회 호출."""
     system = (
         "You are a web task planner. Break down a web automation task into 2-5 sub-goals.\n"
@@ -279,6 +279,13 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
         lines.append(f"Buttons: {observation.buttons[:10]}")
     if observation.inputs:
         lines.append(f"Input fields: {observation.inputs[:10]}")
+    if prior_bundle is not None:
+        if prior_bundle.page_types:
+            pages_str = ", ".join(f"{pt.page_key} ({pt.description[:40]})" for pt in prior_bundle.page_types)
+            lines.append(f"Known pages: {pages_str}")
+        if prior_bundle.action_schemas:
+            actions_str = ", ".join(f"{a.action_key}: {a.description[:50]}" for a in prior_bundle.action_schemas)
+            lines.append(f"Available actions: {actions_str}")
 
     messages = [{"role": "user", "content": "\n".join(lines)}]
     response = llm.complete(system=system, messages=messages)

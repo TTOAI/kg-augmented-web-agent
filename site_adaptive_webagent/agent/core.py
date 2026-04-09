@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -38,18 +40,28 @@ async def run_agent(  # noqa: PLR0913
 
     conn = sqlite3.connect(":memory:")
     bootstrap_runtime_schema(conn)
+
+    primary_site = sites[0] if sites else "unknown"
+
+    # 알려진 사이트면 Prior 시딩
+    if primary_site == "gitlab" and start_urls:
+        from site_adaptive_webagent.runtime.seeds.gitlab import seed_gitlab_prior
+        parsed = urlparse(start_urls[0])
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        seed_gitlab_prior(conn, base_url=base_url)
+
     llm = make_llm_client()
     plan = analyze_intent(intent, llm=llm)
     orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
 
-    primary_site = sites[0] if sites else "unknown"
     task_family = plan.task_type.lower()
+    page_type_id = _resolve_page_type(conn, primary_site, start_urls[0]) if start_urls else "unresolved"
 
     runtime_result = await orchestrator.run(
         RunRequest(request_text=intent, task_family=task_family),
         RunContext(
             site_id=primary_site,
-            page_type_id="unresolved",
+            page_type_id=page_type_id,
             task_family=task_family,
             state_summary=intent,
         ),
@@ -71,3 +83,21 @@ async def run_agent(  # noqa: PLR0913
         )
 
     return AgentRunResult.unknown_error(runtime_result.error_details or "No execution result")
+
+
+def _resolve_page_type(conn: sqlite3.Connection, site_id: str, url: str) -> str:
+    """URL을 page_types의 url_patterns와 매칭하여 page_key를 반환한다."""
+    path = urlparse(url).path.rstrip("/")
+    cur = conn.execute(
+        "SELECT page_key, url_patterns FROM page_types WHERE site_id = ?", (site_id,)
+    )
+    for page_key, patterns_json in cur:
+        patterns = json.loads(patterns_json)
+        for pattern in patterns:
+            # 단순 suffix 매칭: URL path가 pattern으로 끝나면 매칭
+            pattern_clean = pattern.rstrip("/")
+            if "{" in pattern_clean:
+                continue  # 템플릿 패턴은 skip (/{namespace}/{project} 등)
+            if path == pattern_clean or path.endswith(pattern_clean):
+                return page_key
+    return "unresolved"

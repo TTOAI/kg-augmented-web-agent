@@ -213,7 +213,7 @@ async def _execute_with_llm(
     t_start = time.time()
     system = build_tool_use_system_prompt(prior_bundle)
 
-    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm)
+    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm, prior_bundle=prior_bundle)
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
