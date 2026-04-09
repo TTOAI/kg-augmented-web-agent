@@ -762,7 +762,11 @@ async def _execute_browser_action(
     if action_type == "fill":
         return await _execute_fill(action, page)
     if action_type == "goto":
-        return await _execute_goto(action, page)
+        # goto는 Prior 도입 전까지 비활성화 (URL 추측 방지)
+        return _ActionResult(
+            should_continue=True,
+            feedback="goto is not available. Use click to navigate through visible links instead.",
+        )
     if action_type == "search":
         return await _execute_search(action, page)
     if action_type == "goback":
