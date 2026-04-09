@@ -93,13 +93,18 @@ def _fill_tool() -> dict:
 def _search_tool() -> dict:
     return {
         "name": "search",
-        "description": "Execute a search query using the page's search field.",
+        "description": (
+            "Use the page's search or filter input. "
+            "Clicks the input first to reveal dropdown options, "
+            "then selects a matching option or types the query, "
+            "then submits with Enter. Handles AJAX loading automatically."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query text",
+                    "description": "What to search or filter for",
                 },
             },
             "required": ["query"],
@@ -176,10 +181,16 @@ def _recall_tool() -> dict:
 def _done_tool() -> dict:
     return {
         "name": "done",
-        "description": "Declare the current objective complete and move to the next one.",
+        "description": "Declare the current objective complete. You must provide evidence from the current page state.",
         "input_schema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "Evidence why this objective is complete (e.g. 'URL changed to the target page' or 'the expected content is visible')",
+                },
+            },
+            "required": ["reason"],
         },
     }
 
@@ -211,53 +222,14 @@ def _extract_tool() -> dict:
 def _not_found_tool() -> dict:
     return {
         "name": "not_found",
-        "description": "The requested information or element was not found on the site.",
+        "description": (
+            "The task cannot be completed: information not found, access denied, "
+            "action not allowed, or an unexpected error occurred."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "reason": {"type": "string", "description": "Why it was not found"},
-            },
-            "required": ["reason"],
-        },
-    }
-
-
-def _permission_denied_tool() -> dict:
-    return {
-        "name": "permission_denied",
-        "description": "Access to the requested resource is denied.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "reason": {"type": "string", "description": "Details about the permission denial"},
-            },
-            "required": ["reason"],
-        },
-    }
-
-
-def _action_not_allowed_tool() -> dict:
-    return {
-        "name": "action_not_allowed",
-        "description": "The requested action is not permitted on this site.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "reason": {"type": "string", "description": "Why the action is not allowed"},
-            },
-            "required": ["reason"],
-        },
-    }
-
-
-def _unknown_error_tool() -> dict:
-    return {
-        "name": "unknown_error",
-        "description": "An unexpected error prevents completing the task.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "reason": {"type": "string", "description": "Error description"},
+                "reason": {"type": "string", "description": "Why the task cannot be completed"},
             },
             "required": ["reason"],
         },
@@ -316,8 +288,7 @@ def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
         if task_type == "RETRIEVE":
             tools.append(_extract_tool())
         tools += [
-            _not_found_tool(), _permission_denied_tool(),
-            _action_not_allowed_tool(), _unknown_error_tool(),
+            _not_found_tool(),
         ]
     return tools
 
