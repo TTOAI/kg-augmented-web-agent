@@ -90,16 +90,21 @@ def _fill_tool() -> dict:
     }
 
 
-def _search_tool() -> dict:
+def _use_search_tool() -> dict:
     return {
-        "name": "search",
-        "description": "Execute a search query using the page's search field.",
+        "name": "use_search",
+        "description": (
+            "Use the page's search or filter input. "
+            "Clicks the input first to reveal dropdown options, "
+            "then selects a matching option or types the query, "
+            "then submits with Enter. Handles AJAX loading automatically."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query text",
+                    "description": "What to search or filter for (e.g. 'bug', 'help wanted')",
                 },
             },
             "required": ["query"],
@@ -276,7 +281,7 @@ def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
     마지막 goal (NAVIGATE/MUTATE): + failure tools
     """
     tools = [
-        _click_tool(), _fill_tool(), _search_tool(), _goback_tool(),
+        _click_tool(), _fill_tool(), _use_search_tool(), _goback_tool(),
         _observe_tool(), _remember_tool(), _recall_tool(), _done_tool(),
     ]
     if is_last_goal:

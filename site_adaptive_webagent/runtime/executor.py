@@ -528,6 +528,22 @@ async def _try_sub_goal(
             messages.append(format_tool_result(tool_id, feedback))
             continue
 
+        # --- use_search skill ---
+        if action_name == "use_search":
+            query = args.get("query", "")
+            prev_state = _capture_page_state(current_obs)
+            feedback = await _execute_use_search(query=query, page=page)
+            current_obs = await observe_page(page)
+            if current_obs.url != prev_state.url:
+                from urllib.parse import urlparse, parse_qs
+                params = parse_qs(urlparse(current_obs.url).query)
+                params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
+                feedback += f" URL: {current_obs.url} | Params: {params_str}"
+            logger.info("[LLM] step=%d  use_search=%r  result=%s", step + 1, query, feedback)
+            messages.append(format_tool_result(tool_id, feedback))
+            last_action_feedback = feedback
+            continue
+
         # --- Browser actions ---
         action_dict = {
             "target": args.get("target", ""),
@@ -535,11 +551,7 @@ async def _try_sub_goal(
             "url": args.get("url", ""),
             "element_type": args.get("element_type", ""),
             "submit": args.get("submit", False),
-            "query": args.get("query", ""),
         }
-        # search tool uses 'query' not 'target'
-        if action_name == "search" and not action_dict["target"]:
-            action_dict["target"] = action_dict["query"]
 
         prev_state = _capture_page_state(current_obs)
         action_result = await _execute_browser_action(
@@ -764,7 +776,7 @@ async def _execute_browser_action(
     page: Any,
     current_obs: PageObservation,
 ) -> _ActionResult:
-    """click/fill/search/goback 액션 실행. _ActionResult를 반환한다."""
+    """click/fill/goback 등 browser 액션 실행. _ActionResult를 반환한다."""
     if action_type == "click":
         return await _execute_click(action, page, current_obs)
     if action_type == "fill":
@@ -933,6 +945,93 @@ async def _execute_search(action: dict[str, Any], page: Any) -> _ActionResult:
         succeeded = await try_search(page, query)
         return _ActionResult(succeeded=succeeded)
     return _ActionResult(succeeded=False)
+
+
+async def _execute_use_search(*, query: str, page: Any) -> str:
+    """use_search skill: 검색/필터 input 클릭 → AJAX 대기 → 드롭다운 매칭 또는 fill → Enter.
+
+    Returns: 피드백 문자열
+    """
+    logger.info("[LLM] use_search  query=%r", query)
+    if not query:
+        return "use_search requires a 'query'."
+
+    # 1. 검색/필터 input 찾아서 클릭 (포커스)
+    search_selectors = [
+        'input[type="search"]:visible',
+        'input[placeholder*="search" i]:visible',
+        'input[placeholder*="filter" i]:visible',
+        'input[role="searchbox"]:visible',
+    ]
+    input_clicked = False
+    for sel in search_selectors:
+        try:
+            loc = page.locator(sel)
+            if await loc.count() > 0:
+                await loc.first.click()
+                input_clicked = True
+                logger.info("[LLM] use_search: clicked input via %s", sel)
+                break
+        except Exception:
+            continue
+
+    if not input_clicked:
+        # fallback: try_search로 대체
+        succeeded = await try_search(page, query)
+        return f"use_search '{query}': {'submitted via fallback' if succeeded else 'search field not found'}"
+
+    # 2. DOM 안정화 (AJAX 드롭다운 로딩 대기)
+    await page.wait_for_timeout(500)
+    obs_after_click = await observe_page(page)
+
+    # 연속 안정 체크
+    for _ in range(4):
+        await page.wait_for_timeout(500)
+        obs_check = await observe_page(page)
+        if set(obs_check.dropdown_options) == set(obs_after_click.dropdown_options):
+            break
+        obs_after_click = obs_check
+
+    # 3. 드롭다운에서 query 매칭 시도
+    query_lower = query.lower()
+    matched_option = None
+    for opt in obs_after_click.dropdown_options:
+        opt_name = opt.split(" → ")[0] if " → " in opt else opt
+        if query_lower == opt_name.lower():
+            matched_option = opt_name
+            break
+
+    if matched_option:
+        # 드롭다운 항목 클릭
+        for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
+            try:
+                loc = page.locator(f'{dd_sel}:visible').filter(has_text=matched_option)
+                if await loc.count() > 0:
+                    await loc.first.click()
+                    logger.info("[LLM] use_search: clicked dropdown option '%s' via %s", matched_option, dd_sel)
+
+                    # 하위 드롭다운 로딩 대기
+                    await page.wait_for_timeout(500)
+                    break
+            except Exception:
+                continue
+
+        return f"use_search '{query}': selected '{matched_option}' from dropdown."
+    else:
+        # 드롭다운에 없으면 fill + Enter
+        try:
+            for sel in search_selectors:
+                loc = page.locator(sel)
+                if await loc.count() > 0:
+                    await loc.first.fill(query)
+                    await loc.first.press("Enter")
+                    logger.info("[LLM] use_search: filled '%s' and pressed Enter", query)
+                    break
+        except Exception as exc:
+            logger.debug("use_search fill failed: %s", exc)
+            return f"use_search '{query}': failed to fill search field."
+
+        return f"use_search '{query}': typed and submitted."
 
 
 async def _execute_goback(page: Any) -> _ActionResult:
