@@ -268,6 +268,39 @@ def _unknown_error_tool() -> dict:
 # Tool set composition
 # ---------------------------------------------------------------------------
 
+def replan_tool() -> dict:
+    """replan용 tool 정의. LLM이 새로운 sub-goal 목록을 반환한다."""
+    return {
+        "name": "replan",
+        "description": (
+            "Create a new list of sub-goals to complete the remaining task. "
+            "Each sub-goal should be a concrete, verifiable objective."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sub_goals": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "goal": {"type": "string", "description": "Short sentence describing the objective"},
+                            "type": {
+                                "type": "string",
+                                "enum": ["navigation", "action", "cognition"],
+                                "description": "navigation=move to page, action=change state, cognition=read/analyze",
+                            },
+                        },
+                        "required": ["goal", "type"],
+                    },
+                    "description": "2-5 sub-goals to complete the remaining task",
+                },
+            },
+            "required": ["sub_goals"],
+        },
+    }
+
+
 def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
     """sub-goal 위치와 task_type에 따라 제공할 tool 목록을 구성한다.
 

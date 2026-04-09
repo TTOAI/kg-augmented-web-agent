@@ -10,8 +10,8 @@ logger = logging.getLogger("webarena_verified")
 
 from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
-from .llm import LLMClient, SubGoal, build_action_request, build_observation_message, build_plan, build_system_prompt, build_tool_use_system_prompt, parse_llm_action
-from .tools import format_assistant_tool_use, format_tool_result, tools_for_goal
+from .llm import LLMClient, SubGoal, build_observation_message, build_plan, build_tool_use_system_prompt
+from .tools import format_assistant_tool_use, format_tool_result, replan_tool, tools_for_goal
 from .recovery import execute_recovery
 from .store import ExecutionStore
 from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, PageObservation, PriorBundle, StepRecord, ValidatorRule
@@ -603,7 +603,7 @@ def _replan(
     failed_goal: SubGoal,
     failure_history: list[str],
 ) -> list[SubGoal]:
-    """실패한 sub-goal 이후의 plan을 재생성한다."""
+    """실패한 sub-goal 이후의 plan을 재생성한다 (Tool Use)."""
     navigate_rule = (
         "\nIMPORTANT: For NAVIGATE tasks, the LAST sub-goal MUST be type 'navigation'.\n"
         if task_type == "NAVIGATE" else ""
@@ -611,12 +611,7 @@ def _replan(
     system = (
         "You are a web task planner. A sub-goal has failed after multiple retries.\n"
         "Create a new list of sub-goals to complete the remaining task from the current page state.\n"
-        "For each sub-goal, classify its type:\n"
-        '  "navigation" — move to a different page\n'
-        '  "action" — change page state\n'
-        '  "cognition" — analyze or read information\n'
         f"{navigate_rule}"
-        'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
     )
     user_msg = (
@@ -630,17 +625,21 @@ def _replan(
         f"Buttons: {observation.buttons[:10]}\n"
     )
     try:
-        response = llm.complete(system=system, messages=[{"role": "user", "content": user_msg}])
-        parsed = parse_llm_action(response)
-        new_goals = parsed.get("sub_goals", [])
-        if isinstance(new_goals, list) and new_goals:
-            result = []
-            for g in new_goals:
-                if isinstance(g, dict):
-                    result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "cognition"))))
-                else:
-                    result.append(SubGoal(str(g)))
-            return result
+        response = llm.complete_with_tools(
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+            tools=[replan_tool()],
+        )
+        if response.tool_calls and response.tool_calls[0].name == "replan":
+            new_goals = response.tool_calls[0].arguments.get("sub_goals", [])
+            if isinstance(new_goals, list) and new_goals:
+                result = []
+                for g in new_goals:
+                    if isinstance(g, dict):
+                        result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "cognition"))))
+                    else:
+                        result.append(SubGoal(str(g)))
+                return result
     except Exception:
         pass
     return []
@@ -694,17 +693,11 @@ async def _execute_browser_action(
     page: Any,
     current_obs: PageObservation,
 ) -> _ActionResult:
-    """click/fill/goto/search/goback 액션 실행. _ActionResult를 반환한다."""
+    """click/fill/search/goback 액션 실행. _ActionResult를 반환한다."""
     if action_type == "click":
         return await _execute_click(action, page, current_obs)
     if action_type == "fill":
         return await _execute_fill(action, page)
-    if action_type == "goto":
-        # goto는 Prior 도입 전까지 비활성화 (URL 추측 방지)
-        return _ActionResult(
-            should_continue=True,
-            feedback="goto is not available. Use click to navigate through visible links instead.",
-        )
     if action_type == "search":
         return await _execute_search(action, page)
     if action_type == "goback":
@@ -861,19 +854,6 @@ async def _execute_fill(action: dict[str, Any], page: Any) -> _ActionResult:
     return _ActionResult(succeeded=succeeded)
 
 
-async def _execute_goto(action: dict[str, Any], page: Any) -> _ActionResult:
-    """goto 액션."""
-    url = action.get("url", "")
-    logger.info("[LLM] goto  url=%r", url)
-    if url:
-        try:
-            await page.goto(url)
-            return _ActionResult(succeeded=True)
-        except Exception:
-            pass
-    return _ActionResult(succeeded=False)
-
-
 async def _execute_search(action: dict[str, Any], page: Any) -> _ActionResult:
     """search 액션."""
     query = action.get("target", "")
@@ -970,12 +950,6 @@ def _summarize_action_result(
         if delta:
             return f"fill '{target}': submitted. {delta}"
         return f"fill '{target}': submitted (no visible change)"
-
-    if action_type == "goto":
-        url = action.get("url", "")
-        if not succeeded:
-            return f"goto '{url}': navigation failed"
-        return f"goto: navigated to {current_obs.url}"
 
     if action_type == "search":
         query = action.get("target", "")
