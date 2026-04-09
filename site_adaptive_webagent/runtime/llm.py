@@ -145,6 +145,8 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "## Verify (before every action)",
         "In your reasoning, state WHICH visible element you are acting on.",
         "Ask yourself: Am I acting on something I SEE, or something I KNOW? If KNOW, stop and click to explore instead.",
+        "After selecting options from dropdowns or filters, look for a Search/Submit/Apply button to commit your selections.",
+        "Check the URL parameters — if they don't reflect your selections, your changes have not been submitted yet.",
         "If your previous action had no effect, do NOT repeat it — try a completely different approach.",
     ]
 
