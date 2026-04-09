@@ -454,7 +454,7 @@ async def _try_sub_goal(
     last_action_result = ""
     current_obs = await observe_page(page)
     _disambiguate_counts: dict[str, int] = {}  # target별 disambiguate 횟수
-    _repeated_action_counts: dict[str, int] = {}  # "action:target" 별 비효과 반복 횟수
+    _no_progress_steps = 0  # URL 변화 없는 연속 스텝 수
     _action_history: list[str] = []  # 이번 attempt의 액션 이력 (retry 시 전달용)
     _MAX_MESSAGES = 6  # 최근 N개 메시지만 유지 (컨텍스트 비대화 방지)
     # 이전 실패에서 추출한 실패 접근 방법 (매 스텝 관측에 포함)
@@ -617,24 +617,23 @@ async def _try_sub_goal(
             nearby = await _extract_nearby_from_container(container_handle)
             if nearby:
                 last_action_result = f"{last_action_result}. {nearby}"
-        # 같은 액션 반복 비효과 감지 → 피드백 or 강제 종료
-        if action_result.succeeded and current_obs.url == prev_state.url:
-            action_key = f"{action_type}:{action.get('target', '')}"
-            _repeated_action_counts[action_key] = _repeated_action_counts.get(action_key, 0) + 1
-            count = _repeated_action_counts[action_key]
-            if count >= 4:
-                # 4회 이상 반복 → 빠른 실패: goal 강제 종료
-                logger.info("[LLM] step=%d  repeated action %s x%d — forcing goal failure", step + 1, action_key, count)
+        # 진행 없음 감지: URL 변화 없는 연속 스텝 → 피드백 or 강제 종료
+        if current_obs.url == prev_state.url:
+            _no_progress_steps += 1
+            if _no_progress_steps >= 6:
+                logger.info("[LLM] step=%d  no progress for %d steps — forcing goal failure", step + 1, _no_progress_steps)
                 return ExecutionOutcome(
                     task_type=task_type, status="SUB_GOAL_FAILED",
-                    error_details=f"Repeated '{action_key}' {count} times. {_summarize_action_history(_action_history)}",
+                    error_details=f"No URL change for {_no_progress_steps} steps. {_summarize_action_history(_action_history)}",
                 ), step + 1
-            if count >= 2:
+            if _no_progress_steps >= 3:
                 last_action_result = (
                     f"{last_action_result}. "
-                    f"This action has been tried {count} times without visible effect. "
+                    f"No progress for {_no_progress_steps} consecutive steps. "
                     "Try a completely different approach."
                 )
+        else:
+            _no_progress_steps = 0  # URL 변화 → 리셋
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
@@ -772,7 +771,7 @@ async def _execute_browser_action(
 
 
 async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation) -> _ActionResult:
-    """click 액션: element_type → 드롭다운 → 충돌감지 → links → get_by_role → fallback 순으로 시도."""
+    """click 액션: 드롭다운 → element_type → 충돌감지 → links → get_by_role → fallback 순으로 시도."""
     target = action.get("target", "")
     url_hint = action.get("url", "")
     element_type = action.get("element_type", "")
@@ -782,7 +781,20 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
 
     target_lower = target.lower()
 
-    # 0. element_type이 지정되면 LLM의 지시를 우선 존중
+    # 0. 드롭다운 정확 매칭 (최우선 — 드롭다운 항목은 role="menuitem"이라 link/button으로 못 잡음)
+    matching_dropdown = [d for d in obs.dropdown_options if d.split(" → ")[0].lower() == target_lower]
+    if matching_dropdown:
+        for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
+            try:
+                loc = page.locator(f'{dd_sel}:visible').filter(has_text=target)
+                if await loc.count() > 0:
+                    await loc.first.click()
+                    logger.info("[LLM] click via dropdown option (%s): %r", dd_sel, target)
+                    return _ActionResult(succeeded=True)
+            except Exception as exc:
+                logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
+
+    # 1. element_type이 지정되면 해당 타입으로 시도
     if element_type in ("button", "link"):
         try:
             loc = page.get_by_role(element_type, name=target)
@@ -812,20 +824,6 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
                 return _ActionResult(succeeded=True)
         except Exception as exc:
             logger.debug("element_type=%s click failed: %s", element_type, exc)
-
-    # 1. 드롭다운 정확 매칭
-    matching_dropdown = [d for d in obs.dropdown_options if d.split(" → ")[0].lower() == target_lower]
-    if matching_dropdown:
-        for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
-            try:
-                loc = page.locator(f'{dd_sel}:visible').filter(has_text=target)
-                if await loc.count() > 0:
-                    await loc.first.click()
-                    logger.info("[LLM] click via dropdown option (%s): %r", dd_sel, target)
-                    return _ActionResult(succeeded=True)
-            except Exception as exc:
-                logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
-
     # 2. 타입 충돌 감지: element_type 없이 여러 타입에 매칭되면 되묻기
     matching_links = [l for l in obs.links if target_lower in l.split(" → ")[0].lower()]
     matching_buttons = [b for b in obs.buttons if target_lower in b.split(" [")[0].lower()]
