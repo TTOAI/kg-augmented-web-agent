@@ -365,18 +365,28 @@ async def _execute_with_llm(
                 self_check_done = True
             else:
                 reason = parsed.get("reason", "task not complete")
-                logger.info("[LLM] self-check failed: %s — replanning", reason)
+                logger.info("[LLM] self-check failed: %s — rolling back and replanning", reason)
                 replans_remaining -= 1
+                # 마지막 정상 checkpoint로 롤백
+                if len(checkpoint_stack) > 1:
+                    checkpoint_stack.pop()
+                    goal_idx = max(0, len(checkpoint_stack) - 1)
+                try:
+                    await page.goto(checkpoint_stack[-1])
+                except Exception:
+                    pass
+                logger.info("[LLM] self-check rollback to checkpoint %d: %s",
+                            goal_idx, checkpoint_stack[-1])
+                obs = await observe_page(page)
                 new_goals = _replan(
                     task=task, task_type=task_type, observation=obs, llm=llm,
-                    completed_goals=sub_goals,
+                    completed_goals=sub_goals[:goal_idx],
                     failed_goal=SubGoal(f"self-check: {reason}"),
                     failure_history=[reason],
                 )
                 if new_goals:
                     logger.info("[LLM] self-check replan: %s", new_goals)
-                    sub_goals = sub_goals + new_goals
-                    # while 루프로 복귀하여 새 goal 실행
+                    sub_goals = sub_goals[:goal_idx] + new_goals
                 else:
                     self_check_done = True  # replan 실패 → 최선을 다함
         except Exception:
