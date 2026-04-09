@@ -123,6 +123,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "2. Click before typing. Reveal options first, then decide.",
         "3. After selecting filters/options, click Search/Submit to commit. Check URL parameters to confirm.",
         "4. Never repeat a failed action. Try a different approach.",
+        "5. Before extract or done, verify your answer is COMPLETE. If multiple items match, visit all of them and use 'note' to save each finding.",
         "",
         "## Actions",
         '{"reasoning": "...", "action": "...", "target": "...", "value": "...", "url": "...", "element_type": "button|link", "label": "...", "submit": true/false}',
