@@ -541,6 +541,7 @@ async def _try_sub_goal(
             action_name, action_dict, action_result.succeeded, current_obs, prev_state,
         )
         logger.info("[LLM] step=%d  result=%s", step + 1, feedback)
+        messages.append(format_tool_result(tool_id, feedback))
         last_action_feedback = feedback
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패

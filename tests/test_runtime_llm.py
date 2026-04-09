@@ -315,7 +315,8 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(llm.calls), 3)  # plan + 2 action calls
         # 세 번째 호출(두 번째 액션)에 대화 히스토리가 포함되어야 한다
-        self.assertEqual(len(llm.calls[2]["messages"]), 3)  # user, assistant, user
+        # Tool Use: [user, assistant(tool_use), user(tool_result), user(obs)]
+        self.assertEqual(len(llm.calls[2]["messages"]), 4)
         self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
 
     async def test_conversation_history_accumulates(self) -> None:
@@ -348,12 +349,13 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
 
         # calls[0] = plan, calls[1..3] = action steps
+        # Tool Use: user → assistant(tool_use) → user(tool_result) → user(obs) → ...
         # 1번째 액션 호출: [user]
         self.assertEqual(len(llm.calls[1]["messages"]), 1)
-        # 2번째 액션 호출: [user, assistant, user]
-        self.assertEqual(len(llm.calls[2]["messages"]), 3)
-        # 3번째 액션 호출: [user, assistant, user, assistant, user]
-        self.assertEqual(len(llm.calls[3]["messages"]), 5)
+        # 2번째 액션 호출: [user, assistant, tool_result, user]
+        self.assertEqual(len(llm.calls[2]["messages"]), 4)
+        # 3번째 액션 호출: [user, assistant, tool_result, user, assistant, tool_result, user]
+        self.assertEqual(len(llm.calls[3]["messages"]), 7)
 
     async def test_llm_permission_denied_triggers_retry(self) -> None:
         """LLM이 permission_denied를 반환하면 sub-goal 실패 → retry (v2)."""
