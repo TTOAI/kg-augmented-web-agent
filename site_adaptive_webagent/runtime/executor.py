@@ -442,7 +442,7 @@ async def _try_sub_goal(
         )
         messages.append({"role": "user", "content": user_msg})
         if len(messages) > _MAX_MESSAGES:
-            messages = messages[-_MAX_MESSAGES:]
+            messages = _trim_messages(messages, _MAX_MESSAGES)
         last_action_feedback = ""
 
         action_name, args, thought, tool_id, messages = _get_tool_action(
@@ -580,6 +580,55 @@ async def _wait_for_dom_stable(
     except Exception:
         logger.debug("DOM stabilization interrupted")
     return current_obs
+
+
+def _trim_messages(messages: list[dict], max_messages: int) -> list[dict]:
+    """Tool Use 쌍 무결성을 보장하면서 메시지를 트리밍한다.
+
+    assistant(tool_use)의 tool_call_id가 반드시 대응하는 tool_result를 가지도록
+    완전한 교환 단위로만 자른다.
+    """
+    if len(messages) <= max_messages:
+        return messages
+
+    # 뒤에서 max_messages개 자르기
+    trimmed = messages[-max_messages:]
+
+    # 잘린 결과에서 assistant(tool_use)의 tool_call_id 수집
+    assistant_tool_ids: set[str] = set()
+    result_tool_ids: set[str] = set()
+    for msg in trimmed:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "tool_use":
+                    assistant_tool_ids.add(block.get("id", ""))
+                elif block.get("type") == "tool_result":
+                    result_tool_ids.add(block.get("tool_use_id", ""))
+
+    # orphaned: tool_result는 있는데 대응하는 assistant가 없거나 그 반대
+    orphaned_ids = (assistant_tool_ids - result_tool_ids) | (result_tool_ids - assistant_tool_ids)
+    if not orphaned_ids:
+        return trimmed
+
+    # orphaned 메시지 제거
+    cleaned = []
+    for msg in trimmed:
+        content = msg.get("content")
+        if isinstance(content, list):
+            dominated = False
+            for block in content:
+                if isinstance(block, dict):
+                    bid = block.get("id", "") or block.get("tool_use_id", "")
+                    if bid in orphaned_ids:
+                        dominated = True
+                        break
+            if dominated:
+                continue
+        cleaned.append(msg)
+    return cleaned
 
 
 def _summarize_action_history(history: list[str]) -> str:

@@ -120,6 +120,7 @@ class OpenAILLMClient:
             messages=oai_messages,  # type: ignore[arg-type]
             tools=oai_tools,  # type: ignore[arg-type]
             max_completion_tokens=1024,
+            parallel_tool_calls=False,  # 1턴 1 tool call 강제
         )
         choice = response.choices[0]
         thought = choice.message.content
