@@ -624,11 +624,10 @@ async def _try_sub_goal(
             count = _repeated_action_counts[action_key]
             if count >= 4:
                 # 4회 이상 반복 → 빠른 실패: goal 강제 종료
-                history_summary = " → ".join(_action_history[-10:])
                 logger.info("[LLM] step=%d  repeated action %s x%d — forcing goal failure", step + 1, action_key, count)
                 return ExecutionOutcome(
                     task_type=task_type, status="SUB_GOAL_FAILED",
-                    error_details=f"Repeated '{action_key}' {count} times. Actions tried: {history_summary}",
+                    error_details=f"Repeated '{action_key}' {count} times. {_summarize_action_history(_action_history)}",
                 ), step + 1
             if count >= 2:
                 last_action_result = (
@@ -639,11 +638,18 @@ async def _try_sub_goal(
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
-    history_summary = " → ".join(_action_history[-10:])  # 최근 10개 액션
     return ExecutionOutcome(
         task_type=task_type, status="SUB_GOAL_FAILED",
-        error_details=f"Not completed in {step_budget} steps. Actions tried: {history_summary}",
+        error_details=f"Not completed in {step_budget} steps. {_summarize_action_history(_action_history)}",
     ), step_budget
+
+
+def _summarize_action_history(history: list[str]) -> str:
+    """액션 이력을 행동 유형별로 그룹화하여 요약한다."""
+    from collections import Counter
+    counts = Counter(history)
+    parts = [f"{action} x{count}" for action, count in counts.most_common()]
+    return f"Actions tried: {' | '.join(parts)}" if parts else ""
 
 
 # ---------------------------------------------------------------------------
