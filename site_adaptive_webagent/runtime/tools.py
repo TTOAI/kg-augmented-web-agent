@@ -176,10 +176,16 @@ def _recall_tool() -> dict:
 def _done_tool() -> dict:
     return {
         "name": "done",
-        "description": "Declare the current objective complete and move to the next one.",
+        "description": "Declare the current objective complete. You must provide evidence from the current page state.",
         "input_schema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "Evidence why this objective is complete (e.g. 'URL contains label_name=bug and state=opened')",
+                },
+            },
+            "required": ["reason"],
         },
     }
 

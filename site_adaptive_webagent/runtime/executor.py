@@ -462,8 +462,9 @@ async def _try_sub_goal(
         # --- Terminal actions ---
         if action_name == "done":
             # done 검증: LLM에게 현재 상태와 목표를 대조시킴
+            done_reason = args.get("reason", "")
             verified = _verify_done(
-                goal=sub_goal.goal, current_obs=current_obs, llm=llm,
+                goal=sub_goal.goal, reason=done_reason, current_obs=current_obs, llm=llm,
             )
             if verified:
                 logger.info("[LLM] sub-goal done (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
@@ -1040,7 +1041,7 @@ def _summarize_action_result(
 # LLM helpers
 # ---------------------------------------------------------------------------
 
-def _verify_done(*, goal: str, current_obs: PageObservation, llm: LLMClient) -> str | bool:
+def _verify_done(*, goal: str, reason: str, current_obs: PageObservation, llm: LLMClient) -> str | bool:
     """LLM에게 현재 상태와 목표를 대조하여 done 검증을 요청한다.
 
     Returns:
@@ -1054,14 +1055,17 @@ def _verify_done(*, goal: str, current_obs: PageObservation, llm: LLMClient) -> 
 
     system = (
         "You verify whether a sub-goal has been achieved given the current page state. "
+        "The agent claims the goal is done. Check if the claim matches the actual page state. "
         'Respond ONLY with JSON: {"achieved": true} or {"achieved": false, "reason": "..."}'
     )
     user_msg = (
         f"Goal: {goal}\n"
-        f"Current URL: {current_obs.url}\n"
-        f"URL parameters: {params_str}\n"
-        f"Page title: {current_obs.title}\n"
-        f"Visible text (first 5): {current_obs.text_lines[:5]}\n"
+        f"Agent's claim: {reason}\n\n"
+        f"Actual page state:\n"
+        f"  URL: {current_obs.url}\n"
+        f"  URL parameters: {params_str}\n"
+        f"  Page title: {current_obs.title}\n"
+        f"  Visible text (first 5): {current_obs.text_lines[:5]}\n"
     )
     try:
         from .llm import parse_llm_action
