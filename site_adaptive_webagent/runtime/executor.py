@@ -455,6 +455,8 @@ async def _try_sub_goal(
     current_obs = await observe_page(page)
     _disambiguate_counts: dict[str, int] = {}  # target별 disambiguate 횟수
     _repeated_action_counts: dict[str, int] = {}  # "action:target" 별 비효과 반복 횟수
+    _action_history: list[str] = []  # 이번 attempt의 액션 이력 (retry 시 전달용)
+    _MAX_MESSAGES = 6  # 최근 N개 메시지만 유지 (컨텍스트 비대화 방지)
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -483,10 +485,14 @@ async def _try_sub_goal(
             sub_goals=sub_goals, current_goal_index=goal_index,
         )
         messages.append({"role": "user", "content": user_msg})
+        # 컨텍스트 비대화 방지: 최근 N개 메시지만 유지
+        if len(messages) > _MAX_MESSAGES:
+            messages = messages[-_MAX_MESSAGES:]
         last_action_result = ""
 
         action, messages = _get_llm_action(llm, system, messages)
         action_type = action.get("action", "not_found")
+        _action_history.append(f"{action_type}({action.get('target', '')})")
         logger.info("[LLM] step=%d  action=%s  reasoning=%r",
                     step + 1, action_type, action.get("reasoning", "")[:200])
 
@@ -615,10 +621,11 @@ async def _try_sub_goal(
             count = _repeated_action_counts[action_key]
             if count >= 4:
                 # 4회 이상 반복 → 빠른 실패: goal 강제 종료
+                history_summary = " → ".join(_action_history[-10:])
                 logger.info("[LLM] step=%d  repeated action %s x%d — forcing goal failure", step + 1, action_key, count)
                 return ExecutionOutcome(
                     task_type=task_type, status="SUB_GOAL_FAILED",
-                    error_details=f"Repeated ineffective action '{action_key}' {count} times",
+                    error_details=f"Repeated '{action_key}' {count} times. Actions tried: {history_summary}",
                 ), step + 1
             if count >= 2:
                 last_action_result = (
@@ -629,9 +636,10 @@ async def _try_sub_goal(
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
+    history_summary = " → ".join(_action_history[-10:])  # 최근 10개 액션
     return ExecutionOutcome(
         task_type=task_type, status="SUB_GOAL_FAILED",
-        error_details=f"Sub-goal '{sub_goal}' not completed in {step_budget} steps",
+        error_details=f"Not completed in {step_budget} steps. Actions tried: {history_summary}",
     ), step_budget
 
 
