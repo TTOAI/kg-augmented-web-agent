@@ -22,7 +22,7 @@ def seed_gitlab_prior(conn: sqlite3.Connection, *, base_url: str) -> None:
     page_types = [
         ("gitlab_dashboard", "dashboard", "Dashboard", "Projects, todos, issues", ["/", "/dashboard"]),
         ("gitlab_project_overview", "project_overview", "Project", "README, files, sidebar nav", ["/{ns}/{project}"]),
-        ("gitlab_issues_list", "issues_list", "Issues", "Default: open, created desc", ["/-/issues"]),
+        ("gitlab_issues_list", "issues_list", "Issues", "Default already shows open issues, newest first. No filter needed for default view.", ["/-/issues"]),
         ("gitlab_merge_requests", "merge_requests", "Merge Requests", "", ["/-/merge_requests", "/dashboard/merge_requests"]),
         ("gitlab_commits", "commits_list", "Commits", "Repository > Commits", ["/-/commits"]),
         ("gitlab_contributors", "contributors", "Contributors", "Repository > Contributors", ["/-/graphs"]),
@@ -41,7 +41,7 @@ def seed_gitlab_prior(conn: sqlite3.Connection, *, base_url: str) -> None:
     # (id, key, name, description, source, target)
     action_schemas = [
         ("gitlab_open_public_projects", "open_public_projects", "Public Projects",
-         "goto /explore?visibility_level=20", "any", "explore_projects"),
+         "Use goto /explore?visibility_level=20 (click won't add the parameter)", "any", "explore_projects"),
         ("gitlab_filter_by_label", "filter_issues_by_label", "Filter by Label",
          "Click search → Label → select → Search", "issues_list", "issues_list"),
         ("gitlab_view_contributors", "view_contributors", "Contributors",
