@@ -287,7 +287,7 @@ async def _execute_with_llm(
             logger.info("[LLM] replanning (remaining=%d, depth=%d) after goal %d/%d failed",
                         replans_remaining, replan_count, goal_idx + 1, len(sub_goals))
             new_goals = _replan(
-                task=task, observation=current_obs, llm=llm,
+                task=task, task_type=task_type, observation=current_obs, llm=llm,
                 completed_goals=sub_goals[:goal_idx],
                 failed_goal=sub_goal, failure_history=failures,
             )
@@ -337,6 +337,11 @@ async def _execute_with_llm(
                 return result
         except Exception:
             pass
+        # RETRIEVE인데 extract 실패 → 데이터 없이 SUCCESS 방지
+        elapsed = time.time() - t_start
+        logger.info("[LLM] RETRIEVE final extract failed in %.1fs (%d steps)", elapsed, steps_used)
+        return ExecutionOutcome(task_type=task_type, status="NOT_FOUND_ERROR",
+                                error_details="Final extract failed — no data retrieved")
 
     elapsed = time.time() - t_start
     logger.info("[LLM] all goals complete in %.1fs (%d steps)", elapsed, steps_used)
@@ -438,8 +443,8 @@ async def _try_sub_goal(
         # --- Observe action (키워드 필터링된 관측) ---
         if action_type == "observe":
             keyword = (action.get("target") or "").lower()
+            filtered: list[str] = []
             if keyword:
-                filtered: list[str] = []
                 for item in current_obs.links:
                     if keyword in item.lower():
                         filtered.append(f"[link] {item}")
@@ -455,7 +460,7 @@ async def _try_sub_goal(
                 last_action_result = f"Filtered observation for '{keyword}': {filtered}" if filtered else f"No matches found for '{keyword}'"
             else:
                 last_action_result = "observe requires a 'target' keyword to filter by."
-            logger.info("[LLM] step=%d  observe=%r  results=%d", step + 1, keyword, len(filtered) if keyword else 0)
+            logger.info("[LLM] step=%d  observe=%r  results=%d", step + 1, keyword, len(filtered))
             continue
 
         # --- Browser actions ---
@@ -488,28 +493,31 @@ async def _try_sub_goal(
 
         # in-page 인터랙션에서 DOM 변화 감지 → 비동기 콘텐츠(AJAX) 안정화 대기
         # 연속 안정 2회를 요구: 하드코딩 요소 후 서버 응답이 늦게 올 수 있으므로
-        if (is_inpage
-                and (set(current_obs.dropdown_options) != prev_state.dropdown
-                     or set(current_obs.links) != prev_state.links
-                     or set(current_obs.buttons) != prev_state.buttons)):
-            consecutive_stable = 0
-            cur_dropdown = set(current_obs.dropdown_options)
-            cur_links = set(current_obs.links)
-            cur_buttons = set(current_obs.buttons)
-            for _ in range(6):  # max 3s
-                await page.wait_for_timeout(500)
-                updated_obs = await observe_page(page)
-                upd_dropdown = set(updated_obs.dropdown_options)
-                upd_links = set(updated_obs.links)
-                upd_buttons = set(updated_obs.buttons)
-                if upd_dropdown == cur_dropdown and upd_links == cur_links and upd_buttons == cur_buttons:
-                    consecutive_stable += 1
-                    if consecutive_stable >= 2:
-                        break
-                else:
-                    consecutive_stable = 0
-                    current_obs = updated_obs
-                    cur_dropdown, cur_links, cur_buttons = upd_dropdown, upd_links, upd_buttons
+        try:
+            if (is_inpage
+                    and (set(current_obs.dropdown_options) != prev_state.dropdown
+                         or set(current_obs.links) != prev_state.links
+                         or set(current_obs.buttons) != prev_state.buttons)):
+                consecutive_stable = 0
+                cur_dropdown = set(current_obs.dropdown_options)
+                cur_links = set(current_obs.links)
+                cur_buttons = set(current_obs.buttons)
+                for _ in range(6):  # max 3s
+                    await page.wait_for_timeout(500)
+                    updated_obs = await observe_page(page)
+                    upd_dropdown = set(updated_obs.dropdown_options)
+                    upd_links = set(updated_obs.links)
+                    upd_buttons = set(updated_obs.buttons)
+                    if upd_dropdown == cur_dropdown and upd_links == cur_links and upd_buttons == cur_buttons:
+                        consecutive_stable += 1
+                        if consecutive_stable >= 2:
+                            break
+                    else:
+                        consecutive_stable = 0
+                        current_obs = updated_obs
+                        cur_dropdown, cur_links, cur_buttons = upd_dropdown, upd_links, upd_buttons
+        except Exception:
+            logger.debug("DOM stabilization interrupted")
         last_action_result = _summarize_action_result(
             action_type, action, action_result.succeeded, current_obs, prev_state,
         )
@@ -534,6 +542,7 @@ async def _try_sub_goal(
 def _replan(
     *,
     task: str,
+    task_type: str,
     observation: PageObservation,
     llm: LLMClient,
     completed_goals: list[SubGoal],
@@ -541,6 +550,10 @@ def _replan(
     failure_history: list[str],
 ) -> list[SubGoal]:
     """실패한 sub-goal 이후의 plan을 재생성한다."""
+    navigate_rule = (
+        "\nIMPORTANT: For NAVIGATE tasks, the LAST sub-goal MUST be type 'navigation'.\n"
+        if task_type == "NAVIGATE" else ""
+    )
     system = (
         "You are a web task planner. A sub-goal has failed after multiple retries.\n"
         "Create a new list of sub-goals to complete the remaining task from the current page state.\n"
@@ -548,6 +561,7 @@ def _replan(
         '  "navigation" — move to a different page\n'
         '  "action" — change page state\n'
         '  "cognition" — analyze or read information\n'
+        f"{navigate_rule}"
         'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
     )
