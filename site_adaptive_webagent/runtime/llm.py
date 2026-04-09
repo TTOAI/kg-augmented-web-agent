@@ -265,8 +265,13 @@ def build_action_request(
         lines += [f"Last action result: {last_action_result}", ""]
     if failed_approaches:
         lines += [f"FAILED approaches (do NOT repeat): {failed_approaches}", ""]
+    from urllib.parse import urlparse, parse_qs
+    parsed_url = urlparse(observation.url)
+    params = parse_qs(parsed_url.query)
+    params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
     lines += [
         f"Current URL: {observation.url}",
+        f"URL parameters: {params_str}",
         f"Page title: {observation.title}",
     ]
     if observation.headings:
