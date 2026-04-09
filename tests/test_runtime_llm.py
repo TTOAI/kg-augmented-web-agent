@@ -548,16 +548,19 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertIn("click", names)
         self.assertIn("remember", names)
         self.assertIn("recall", names)
+        self.assertIn("scan_and_remember", names)
         self.assertIn("done", names)
         self.assertNotIn("extract", names)
+        self.assertNotIn("verified_extract", names)
         self.assertNotIn("not_found", names)
         self.assertNotIn("permission_denied", names)
 
-    def test_last_goal_retrieve_includes_extract(self) -> None:
+    def test_last_goal_retrieve_includes_verified_extract(self) -> None:
         from site_adaptive_webagent.runtime.tools import tools_for_goal
         tools = tools_for_goal(is_last_goal=True, task_type="RETRIEVE")
         names = {t["name"] for t in tools}
-        self.assertIn("extract", names)
+        self.assertIn("verified_extract", names)
+        self.assertNotIn("extract", names)
         self.assertIn("not_found", names)
 
     def test_last_goal_navigate_excludes_extract(self) -> None:

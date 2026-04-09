@@ -173,6 +173,46 @@ def _recall_tool() -> dict:
     }
 
 
+def _scan_and_remember_tool() -> dict:
+    return {
+        "name": "scan_and_remember",
+        "description": (
+            "Scan the current page for ALL task-relevant facts and save them automatically. "
+            "Use on data-rich pages instead of manually calling remember for each fact."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_hint": {
+                    "type": "string",
+                    "description": "What to look for (e.g. 'project IDs and star counts')",
+                },
+            },
+        },
+    }
+
+
+def _verified_extract_tool() -> dict:
+    return {
+        "name": "verified_extract",
+        "description": (
+            "Extract and verify the final answer for a RETRIEVE task. "
+            "Automatically recalls ALL saved facts and cross-checks them "
+            "against the current page before extracting. More reliable than raw extract."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "preliminary_answer": {
+                    "type": "string",
+                    "description": "Your current best answer to verify against saved facts",
+                },
+            },
+            "required": ["preliminary_answer"],
+        },
+    }
+
+
 def _done_tool() -> dict:
     return {
         "name": "done",
@@ -304,17 +344,19 @@ def replan_tool() -> dict:
 def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
     """sub-goal 위치와 task_type에 따라 제공할 tool 목록을 구성한다.
 
-    중간 goal: browser + cognition + done
-    마지막 goal (RETRIEVE): + extract + failure tools
+    중간 goal: browser + cognition + scan_and_remember + done
+    마지막 goal (RETRIEVE): + verified_extract + failure tools
     마지막 goal (NAVIGATE/MUTATE): + failure tools
     """
     tools = [
         _click_tool(), _fill_tool(), _search_tool(), _goback_tool(),
-        _observe_tool(), _remember_tool(), _recall_tool(), _done_tool(),
+        _observe_tool(), _remember_tool(), _recall_tool(),
+        _scan_and_remember_tool(),
+        _done_tool(),
     ]
     if is_last_goal:
         if task_type == "RETRIEVE":
-            tools.append(_extract_tool())
+            tools.append(_verified_extract_tool())
         tools += [
             _not_found_tool(), _permission_denied_tool(),
             _action_not_allowed_tool(), _unknown_error_tool(),

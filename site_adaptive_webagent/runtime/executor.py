@@ -318,31 +318,17 @@ async def _execute_with_llm(
     if task_type == "RETRIEVE":
         obs = await observe_page(page)
         try:
-            from .tools import _extract_tool
-            notes_str = f"\nRemembered facts: {task_notes}" if task_notes else ""
-            extract_msg = (
-                f"Task: {task}\n"
-                f"All preparation steps are complete. Now extract the final answer.{notes_str}\n"
-                f"Current URL: {obs.url}\n"
-                f"Page title: {obs.title}\n"
-                f"Visible text (first 10): {obs.text_lines[:10]}\n"
-                f"Links (first 10): {obs.links[:10]}\n"
-                f"Cross-check your answer against the remembered facts above. Include ALL matching items."
+            from .skills import verified_extract as _ve
+            skill_result = _ve(
+                task=task, task_type=task_type, preliminary_answer="",
+                current_obs=obs, task_notes=task_notes, llm=llm,
             )
-            extract_response = llm.complete_with_tools(
-                system=system,
-                messages=[{"role": "user", "content": extract_msg}],
-                tools=[_extract_tool()],
-            )
-            if extract_response.tool_calls and extract_response.tool_calls[0].name == "extract":
-                args = extract_response.tool_calls[0].arguments
-                result = _handle_extract({"value": args.get("value", ""), "label": args.get("label", "")}, task_type)
+            if skill_result.outcome is not None:
                 elapsed = time.time() - t_start
-                logger.info("[LLM] final extract in %.1fs (%d steps)", elapsed, steps_used)
-                return result
+                logger.info("[LLM] final verified_extract in %.1fs (%d steps)", elapsed, steps_used)
+                return skill_result.outcome
         except Exception:
             pass
-        # RETRIEVE인데 extract 실패 → 데이터 없이 SUCCESS 방지
         elapsed = time.time() - t_start
         logger.info("[LLM] RETRIEVE final extract failed in %.1fs (%d steps)", elapsed, steps_used)
         return ExecutionOutcome(task_type=task_type, status="NOT_FOUND_ERROR",
@@ -505,6 +491,35 @@ async def _try_sub_goal(
                 feedback = "observe requires a 'keyword' to filter by."
             logger.info("[LLM] step=%d  observe=%r  results=%d", step + 1, keyword, len(filtered))
             messages.append(format_tool_result(tool_id, feedback))
+            continue
+
+        # --- Skill tools ---
+        if action_name == "scan_and_remember":
+            from .skills import scan_and_remember as _scan_skill
+            skill_result = _scan_skill(
+                task=task, task_hint=args.get("task_hint", ""),
+                current_obs=current_obs,
+                task_notes=task_notes if task_notes is not None else [],
+                llm=llm,
+            )
+            logger.info("[LLM] step=%d  scan_and_remember  added=%d", step + 1, len(skill_result.notes_added))
+            messages.append(format_tool_result(tool_id, skill_result.feedback))
+            continue
+
+        if action_name == "verified_extract":
+            from .skills import verified_extract as _ve_skill
+            skill_result = _ve_skill(
+                task=task, task_type=task_type,
+                preliminary_answer=args.get("preliminary_answer", ""),
+                current_obs=current_obs,
+                task_notes=task_notes if task_notes is not None else [],
+                llm=llm,
+            )
+            if skill_result.outcome is not None:
+                logger.info("[LLM] verified_extract → %s  value=%r",
+                            skill_result.outcome.status, skill_result.outcome.retrieved_data)
+                return skill_result.outcome, step + 1
+            messages.append(format_tool_result(tool_id, skill_result.feedback))
             continue
 
         # --- Browser actions ---

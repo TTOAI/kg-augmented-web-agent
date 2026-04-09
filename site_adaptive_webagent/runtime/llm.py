@@ -436,8 +436,9 @@ def build_tool_use_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "2. Click before typing. Reveal options first, then decide.",
         "3. After selecting filters/options, click Search/Submit to commit. Check URL parameters to confirm.",
         "4. Never repeat a failed action. Try a different approach.",
-        "5. Use the remember tool to save important facts (IDs, counts, names).",
-        "6. Before extract or done, use recall to verify completeness.",
+        "5. On data-rich pages, use scan_and_remember to automatically find and save all task-relevant facts.",
+        "6. To extract the final answer, use verified_extract with your preliminary answer. It auto-recalls saved facts and cross-checks.",
+        "7. You can still use remember/recall manually for individual facts.",
     ]
 
     if prior_bundle is not None:
