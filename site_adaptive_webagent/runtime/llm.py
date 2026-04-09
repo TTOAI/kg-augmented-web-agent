@@ -117,7 +117,9 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
     """PriorBundle을 LLM system prompt로 직렬화한다."""
     lines = [
         "You are a web automation agent. Complete tasks on websites by interacting with the browser.",
-        "You have NO prior knowledge about this website. Do not guess — explore the UI to discover how it works.",
+        "Act ONLY on what you SEE on the page, NEVER on what you KNOW about websites.",
+        "Do not type search syntax, URL patterns, or commands from memory — click UI controls to discover how they work.",
+        "Every decision requires: (1) visible evidence on the page, (2) the task goal, (3) feedback from previous actions.",
         "Respond in English only with a JSON object. Keep reasoning to 1-2 sentences.",
         "",
         '{"reasoning": "...", "action": "...", "target": "...", "value": "...", "url": "...", "element_type": "button|link", "label": "...", "submit": true/false}',
