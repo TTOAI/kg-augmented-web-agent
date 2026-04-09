@@ -196,7 +196,7 @@ async def _run_with_browser(
 # LLM execution loop
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES_PER_GOAL = 5
+_MAX_RETRIES_PER_GOAL = 8
 
 
 async def _execute_with_llm(
@@ -227,7 +227,7 @@ async def _execute_with_llm(
     while goal_idx < len(sub_goals):
         sub_goal = sub_goals[goal_idx]
         remaining_goals = len(sub_goals) - goal_idx
-        step_budget = max(10, (max_steps - steps_used) // remaining_goals)
+        step_budget = max(6, (max_steps - steps_used) // remaining_goals)
         failures: list[str] = []
         goal_succeeded = False
 
@@ -364,7 +364,7 @@ async def _execute_with_llm(
             while goal_idx < len(sub_goals):
                 sub_goal = sub_goals[goal_idx]
                 remaining_goals = len(sub_goals) - goal_idx
-                step_budget = max(10, (max_steps - steps_used) // remaining_goals)
+                step_budget = max(6, (max_steps - steps_used) // remaining_goals)
                 result, used = await _try_sub_goal(
                     task=task, task_type=task_type, sub_goal=sub_goal,
                     sub_goals=sub_goals, goal_index=goal_idx,
@@ -422,15 +422,22 @@ async def _try_sub_goal(
     if previous_failures:
         retry_count = len(previous_failures)
         all_failures = " | ".join(previous_failures)
-        if retry_count <= 3:
+        if retry_count <= 2:
             last_action_feedback = (
                 f"Attempt {retry_count} failed. Previous attempts: {all_failures}. "
-                "Do NOT repeat these actions. Try a different approach."
+                "Do NOT repeat these actions. Try a different approach. "
+                "Use goback to return to a known page if you're lost."
+            )
+        elif retry_count <= 5:
+            last_action_feedback = (
+                f"Attempt {retry_count} failed. Previous attempts: {all_failures}. "
+                "Try a COMPLETELY different navigation path. "
+                "Use goback aggressively to return to a familiar page, then explore a new route."
             )
         else:
             last_action_feedback = (
                 f"This goal has failed {retry_count} times. Previous attempts: {all_failures}. "
-                "Try a COMPLETELY different method. Do NOT repeat any previous actions."
+                "STOP trying the same area. Go back to the starting page and take an entirely different path."
             )
 
     for step in range(step_budget):

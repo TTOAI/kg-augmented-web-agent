@@ -435,7 +435,7 @@ def build_tool_use_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "1. Act on what you SEE, not what you KNOW. Click to explore — never guess.",
         "2. Click before typing. Reveal options first, then decide.",
         "3. After selecting filters/options, click Search/Submit to commit. Check URL parameters to confirm.",
-        "4. Never repeat a failed action. Try a different approach.",
+        "4. Never repeat a failed action. Use goback to return to a known page and try a different path.",
         "5. Use the remember tool to save important facts (IDs, counts, names).",
         "6. Before extract or done, use recall to verify completeness.",
     ]
