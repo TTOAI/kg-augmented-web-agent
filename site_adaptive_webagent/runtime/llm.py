@@ -348,22 +348,16 @@ def build_tool_use_system_prompt(prior_bundle: PriorBundle | None) -> str:
         ]
 
         if prior_bundle.page_types:
-            lines += ["", "### Known Pages"]
+            lines.append("")
             for pt in prior_bundle.page_types:
-                desc = f" — {pt.description}" if pt.description else ""
-                lines.append(f"  [{pt.page_key}] {pt.display_name}{desc}")
-                if pt.url_patterns:
-                    lines.append(f"    URLs: {', '.join(pt.url_patterns)}")
+                urls = ", ".join(pt.url_patterns) if pt.url_patterns else ""
+                desc = f" ({pt.description})" if pt.description else ""
+                lines.append(f"  Page: {pt.display_name}{desc} → {urls}")
 
         if prior_bundle.action_schemas:
-            lines += ["", "### Available Actions (use these to navigate the site)"]
+            lines.append("")
             for action in prior_bundle.action_schemas:
-                desc = f" — {action.description}" if action.description else ""
-                src = action.source_page_key or "any"
-                tgt = f" → {action.target_page_key}" if action.target_page_key else ""
-                lines.append(f"  [{action.action_key}] {action.display_name}{desc} (from: {src}{tgt})")
-                if action.locator_value:
-                    lines.append(f"    Locator ({action.locator_strategy}): {action.locator_value}")
+                lines.append(f"  Action: {action.display_name} — {action.description}")
 
     return "\n".join(lines)
 
