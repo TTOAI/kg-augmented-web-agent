@@ -66,7 +66,9 @@ _LINK_EXTRACT_JS = """(selector) => {
       .map(el => {
         const aria = (el.getAttribute('aria-label') || '').trim();
         const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
-        const name = aria || text;
+        const title = (el.getAttribute('title') || '').trim();
+        const imgAlt = (el.querySelector('img[alt]')?.getAttribute('alt') || '').trim();
+        const name = aria || text || title || imgAlt;
         const path = el.pathname || '';
         if (!name) return '';
         const entry = path ? name + ' \\u2192 ' + path : name;
