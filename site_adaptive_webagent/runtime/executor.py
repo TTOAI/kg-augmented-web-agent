@@ -669,7 +669,27 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
     if element_type in ("button", "link"):
         try:
             loc = page.get_by_role(element_type, name=target)
-            if await loc.count() > 0:
+            count = await loc.count()
+            if count > 1 and url_hint:
+                for i in range(count):
+                    href = await loc.nth(i).get_attribute("href") or ""
+                    if url_hint in href:
+                        await loc.nth(i).click()
+                        logger.info("[LLM] click via element_type=%s + url_hint: %r", element_type, target)
+                        return _ActionResult(succeeded=True)
+            if count > 1 and not url_hint:
+                hrefs = []
+                for i in range(min(count, 5)):
+                    href = await loc.nth(i).get_attribute("href") or ""
+                    hrefs.append(href)
+                return _ActionResult(
+                    should_continue=True,
+                    feedback=(
+                        f"Multiple {element_type}s match '{target}': {hrefs}. "
+                        "Set 'url' to the pathname of the intended target."
+                    ),
+                )
+            if count == 1:
                 await loc.first.click()
                 logger.info("[LLM] click via element_type=%s: %r", element_type, target)
                 return _ActionResult(succeeded=True)
