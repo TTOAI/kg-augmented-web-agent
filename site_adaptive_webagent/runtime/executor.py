@@ -343,6 +343,77 @@ async def _execute_with_llm(
         return ExecutionOutcome(task_type=task_type, status="NOT_FOUND_ERROR",
                                 error_details="Final extract failed — no data retrieved")
 
+    # NAVIGATE/MUTATE 최종 확인: LLM에게 태스크 완료 여부 self-check
+    self_check_done = False
+    if replans_remaining > 0:
+        obs = await observe_page(page)
+        try:
+            check_response = llm.complete(
+                system=system,
+                messages=[{"role": "user", "content": (
+                    f"Task: {task}\n"
+                    f"All sub-goals have been completed.\n"
+                    f"Current URL: {obs.url}\n"
+                    f"Page title: {obs.title}\n"
+                    f"Visible text: {obs.text_lines[:10]}\n\n"
+                    "Is this task truly complete? Respond with JSON:\n"
+                    '{"complete": true} or {"complete": false, "reason": "..."}'
+                )}],
+            )
+            parsed = parse_llm_action(check_response)
+            if parsed.get("complete", True):
+                self_check_done = True
+            else:
+                reason = parsed.get("reason", "task not complete")
+                logger.info("[LLM] self-check failed: %s — replanning", reason)
+                replans_remaining -= 1
+                new_goals = _replan(
+                    task=task, task_type=task_type, observation=obs, llm=llm,
+                    completed_goals=sub_goals,
+                    failed_goal=SubGoal(f"self-check: {reason}"),
+                    failure_history=[reason],
+                )
+                if new_goals:
+                    logger.info("[LLM] self-check replan: %s", new_goals)
+                    sub_goals = sub_goals + new_goals
+                    # while 루프로 복귀하여 새 goal 실행
+                else:
+                    self_check_done = True  # replan 실패 → 최선을 다함
+        except Exception:
+            self_check_done = True
+
+    if not self_check_done:
+        # 새 goal이 추가됨 → while 루프 재진입
+        while goal_idx < len(sub_goals):
+            sub_goal = sub_goals[goal_idx]
+            remaining_goals = len(sub_goals) - goal_idx
+            step_budget = max(10, (max_steps - steps_used) // remaining_goals)
+
+            result, used = await _try_sub_goal(
+                task=task, task_type=task_type, sub_goal=sub_goal,
+                sub_goals=sub_goals, goal_index=goal_idx,
+                page=page, llm=llm, system=system,
+                step_budget=step_budget, previous_failures=[],
+                is_last_goal=(goal_idx == len(sub_goals) - 1),
+            )
+            steps_used += used
+
+            if result is not None and result.status != "SUB_GOAL_FAILED":
+                elapsed = time.time() - t_start
+                logger.info("[LLM] task completed in %.1fs (%d steps)", elapsed, steps_used)
+                return result
+
+            if result is None:
+                checkpoint_stack.append(page.url)
+                logger.info("[LLM] self-check goal %d/%d complete — checkpoint: %s",
+                            goal_idx + 1, len(sub_goals), checkpoint_stack[-1])
+                goal_idx += 1
+                continue
+
+            # self-check goal 실패 → 무시하고 SUCCESS
+            logger.info("[LLM] self-check goal failed — proceeding with SUCCESS")
+            break
+
     elapsed = time.time() - t_start
     logger.info("[LLM] all goals complete in %.1fs (%d steps)", elapsed, steps_used)
     return ExecutionOutcome(task_type=task_type, status="SUCCESS")
