@@ -515,34 +515,8 @@ async def _try_sub_goal(
 
         current_obs = await observe_page(page)
         is_inpage = action_result.succeeded and current_obs.url == prev_state.url
-
-        # in-page 인터랙션에서 DOM 변화 감지 → 비동기 콘텐츠(AJAX) 안정화 대기
-        # 연속 안정 2회를 요구: 하드코딩 요소 후 서버 응답이 늦게 올 수 있으므로
-        try:
-            if (is_inpage
-                    and (set(current_obs.dropdown_options) != prev_state.dropdown
-                         or set(current_obs.links) != prev_state.links
-                         or set(current_obs.buttons) != prev_state.buttons)):
-                consecutive_stable = 0
-                cur_dropdown = set(current_obs.dropdown_options)
-                cur_links = set(current_obs.links)
-                cur_buttons = set(current_obs.buttons)
-                for _ in range(6):  # max 3s
-                    await page.wait_for_timeout(500)
-                    updated_obs = await observe_page(page)
-                    upd_dropdown = set(updated_obs.dropdown_options)
-                    upd_links = set(updated_obs.links)
-                    upd_buttons = set(updated_obs.buttons)
-                    if upd_dropdown == cur_dropdown and upd_links == cur_links and upd_buttons == cur_buttons:
-                        consecutive_stable += 1
-                        if consecutive_stable >= 2:
-                            break
-                    else:
-                        consecutive_stable = 0
-                        current_obs = updated_obs
-                        cur_dropdown, cur_links, cur_buttons = upd_dropdown, upd_links, upd_buttons
-        except Exception:
-            logger.debug("DOM stabilization interrupted")
+        if is_inpage:
+            current_obs = await _wait_for_dom_stable(page, prev_state, current_obs)
         last_action_result = _summarize_action_result(
             action_type, action, action_result.succeeded, current_obs, prev_state,
         )
@@ -553,6 +527,37 @@ async def _try_sub_goal(
         task_type=task_type, status="SUB_GOAL_FAILED",
         error_details=f"Not completed in {step_budget} steps. {_summarize_action_history(_action_history)}",
     ), step_budget
+
+
+async def _wait_for_dom_stable(
+    page: Any, prev_state: Any, current_obs: PageObservation,
+) -> PageObservation:
+    """in-page 클릭 후 AJAX 콘텐츠 안정화 대기. 연속 안정 2회 확인."""
+    try:
+        if (set(current_obs.dropdown_options) != prev_state.dropdown
+                or set(current_obs.links) != prev_state.links
+                or set(current_obs.buttons) != prev_state.buttons):
+            consecutive_stable = 0
+            cur_dropdown = set(current_obs.dropdown_options)
+            cur_links = set(current_obs.links)
+            cur_buttons = set(current_obs.buttons)
+            for _ in range(6):  # max 3s
+                await page.wait_for_timeout(500)
+                updated_obs = await observe_page(page)
+                upd_dropdown = set(updated_obs.dropdown_options)
+                upd_links = set(updated_obs.links)
+                upd_buttons = set(updated_obs.buttons)
+                if upd_dropdown == cur_dropdown and upd_links == cur_links and upd_buttons == cur_buttons:
+                    consecutive_stable += 1
+                    if consecutive_stable >= 2:
+                        break
+                else:
+                    consecutive_stable = 0
+                    current_obs = updated_obs
+                    cur_dropdown, cur_links, cur_buttons = upd_dropdown, upd_links, upd_buttons
+    except Exception:
+        logger.debug("DOM stabilization interrupted")
+    return current_obs
 
 
 def _summarize_action_history(history: list[str]) -> str:
