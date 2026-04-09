@@ -348,42 +348,6 @@ async def _execute_with_llm(
         return ExecutionOutcome(task_type=task_type, status="NOT_FOUND_ERROR",
                                 error_details="Final extract failed — no data retrieved")
 
-    # NAVIGATE 최종 체크: URL == 시작 URL이면 replan (navigate인데 안 움직임)
-    if task_type == "NAVIGATE" and replans_remaining > 0 and page.url == checkpoint_stack[0]:
-        logger.info("[LLM] NAVIGATE final check — URL unchanged from start, replanning")
-        replans_remaining -= 1
-        obs = await observe_page(page)
-        new_goals = _replan(
-            task=task, task_type=task_type, observation=obs, llm=llm,
-            completed_goals=sub_goals,
-            failed_goal=SubGoal("URL unchanged from task start"),
-            failure_history=["All goals completed but URL is still the starting URL"],
-        )
-        if new_goals:
-            sub_goals = sub_goals + new_goals
-            while goal_idx < len(sub_goals):
-                sub_goal = sub_goals[goal_idx]
-                remaining_goals = len(sub_goals) - goal_idx
-                step_budget = max(10, (max_steps - steps_used) // remaining_goals)
-                result, used = await _try_sub_goal(
-                    task=task, task_type=task_type, sub_goal=sub_goal,
-                    sub_goals=sub_goals, goal_index=goal_idx,
-                    page=page, llm=llm, system=system,
-                    step_budget=step_budget, previous_failures=[],
-                    is_last_goal=(goal_idx == len(sub_goals) - 1),
-                    task_notes=task_notes,
-                    )
-                steps_used += used
-                if result is not None and result.status != "SUB_GOAL_FAILED":
-                    elapsed = time.time() - t_start
-                    logger.info("[LLM] task completed in %.1fs (%d steps)", elapsed, steps_used)
-                    return result
-                if result is None:
-                    checkpoint_stack.append(page.url)
-                    goal_idx += 1
-                    continue
-                break
-
     elapsed = time.time() - t_start
     logger.info("[LLM] all goals complete in %.1fs (%d steps)", elapsed, steps_used)
     return ExecutionOutcome(task_type=task_type, status="SUCCESS")
