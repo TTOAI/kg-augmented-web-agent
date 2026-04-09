@@ -127,7 +127,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "## Actions",
         '{"reasoning": "...", "action": "...", "target": "...", "value": "...", "url": "...", "element_type": "button|link", "label": "...", "submit": true/false}',
         '  click, fill, goback, search, observe, extract, done, not_found, permission_denied, action_not_allowed, unknown_error',
-        '  click: set "target". Use "url" or "element_type" to disambiguate.',
+        '  click: set "target" to the name only (NOT the path). Use "url" or "element_type" to disambiguate.',
         '  fill: set "target", "value". "submit": true to press Enter.',
         '  observe: set "target" (keyword) to filter truncated lists.',
         '  extract: set "value" (complete answer), "label".',
