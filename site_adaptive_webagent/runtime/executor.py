@@ -669,6 +669,11 @@ def _replan(
     failure_history: list[str],
 ) -> list[SubGoal]:
     """실패한 sub-goal 이후의 plan을 재생성한다 (Tool Use)."""
+    retrieve_rule = (
+        "\nIMPORTANT: For RETRIEVE tasks, include a 'cognition' sub-goal that explicitly "
+        "scans and saves all task-relevant data (use scan_and_remember) BEFORE the final extraction step.\n"
+        if task_type == "RETRIEVE" else ""
+    )
     navigate_rule = (
         "\nIMPORTANT: For NAVIGATE tasks, the LAST sub-goal MUST be type 'navigation'.\n"
         if task_type == "NAVIGATE" else ""
@@ -676,7 +681,7 @@ def _replan(
     system = (
         "You are a web task planner. A sub-goal has failed after multiple retries.\n"
         "Create a new list of sub-goals to complete the remaining task from the current page state.\n"
-        f"{navigate_rule}"
+        f"{retrieve_rule}{navigate_rule}"
         "Keep each sub-goal to one short sentence."
     )
     user_msg = (
