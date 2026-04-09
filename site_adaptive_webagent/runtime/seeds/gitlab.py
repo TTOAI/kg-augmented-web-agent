@@ -105,7 +105,7 @@ def seed_gitlab_prior(conn: sqlite3.Connection, *, base_url: str) -> None:
             "action_schema_id": "gitlab_open_public_projects",
             "action_key": "open_public_projects",
             "display_name": "Open Public Projects",
-            "description": "Navigate to public projects listing. URL: /explore/projects?visibility_level=20",
+            "description": "Navigate to public projects listing. URL: /explore?visibility_level=20",
             "source_page_key": "any",
             "target_page_key": "explore_projects",
         },
