@@ -7,7 +7,7 @@ import unittest
 
 from site_adaptive_webagent.runtime.enums import PriorConfidence, SiteOnboardingStatus, TaskRunStatus
 from site_adaptive_webagent.runtime.intent import analyze_intent
-from site_adaptive_webagent.runtime.llm import build_action_request, build_system_prompt, classify_task_type, parse_llm_action
+from site_adaptive_webagent.runtime.llm import classify_task_type, parse_llm_action
 from site_adaptive_webagent.runtime.orchestrator import RuntimeOrchestrator
 from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
 from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
@@ -32,75 +32,8 @@ from .fixtures import (
 
 
 # ---------------------------------------------------------------------------
-# Prompt builder tests
+# Parser tests
 # ---------------------------------------------------------------------------
-
-class BuildSystemPromptTests(unittest.TestCase):
-    def test_no_prior_bundle_contains_action_schema(self) -> None:
-        prompt = build_system_prompt(None)
-        self.assertIn("extract", prompt)
-        self.assertIn("click", prompt)
-        self.assertIn("not_found", prompt)
-        self.assertIn("done", prompt)
-
-    def test_system_prompt_contains_core_actions(self) -> None:
-        prompt = build_system_prompt(None)
-        self.assertIn("click", prompt)
-        self.assertIn("extract", prompt)
-        self.assertIn("done", prompt)
-
-    def test_prior_bundle_includes_site_info(self) -> None:
-        profile = make_site_profile(site_id="gitlab")
-        bundle = PriorBundle(site_profile=profile)
-        prompt = build_system_prompt(bundle)
-        self.assertIn("gitlab", prompt)
-        self.assertIn("Site Knowledge", prompt)
-
-    def test_prior_bundle_includes_page_types(self) -> None:
-        profile = make_site_profile()
-        page_type = make_page_type()
-        bundle = PriorBundle(site_profile=profile, page_types=[page_type])
-        prompt = build_system_prompt(bundle)
-        self.assertIn("dashboard", prompt)
-        self.assertIn("Known Pages", prompt)
-
-    def test_prior_bundle_includes_action_schemas(self) -> None:
-        profile = make_site_profile()
-        schema = make_action_schema()
-        bundle = PriorBundle(site_profile=profile, action_schemas=[schema])
-        prompt = build_system_prompt(bundle)
-        self.assertIn("click_dashboard", prompt)
-        self.assertIn("Available Actions", prompt)
-
-
-class BuildActionRequestTests(unittest.TestCase):
-    def test_contains_task_and_url(self) -> None:
-        obs = PageObservation(
-            url="https://example.com/dashboard",
-            title="Dashboard",
-            headings=["My Project"],
-            text_lines=[],
-            links=[],
-            buttons=[],
-        )
-        msg = build_action_request(task="Find the todo count", observation=obs)
-        self.assertIn("Find the todo count", msg)
-        self.assertIn("https://example.com/dashboard", msg)
-        self.assertIn("Dashboard", msg)
-
-    def test_includes_headings_and_links(self) -> None:
-        obs = PageObservation(
-            url="https://example.com",
-            title="Home",
-            headings=["Welcome"],
-            text_lines=[],
-            links=["Settings", "Profile"],
-            buttons=["Submit"],
-        )
-        msg = build_action_request(task="go to settings", observation=obs)
-        self.assertIn("Welcome", msg)
-        self.assertIn("Settings", msg)
-
 
 class ParseLlmActionTests(unittest.TestCase):
     def test_valid_json_returns_dict(self) -> None:

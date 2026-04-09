@@ -104,7 +104,7 @@ def _search_tool() -> dict:
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "What to search or filter for (e.g. 'bug', 'help wanted')",
+                    "description": "What to search or filter for",
                 },
             },
             "required": ["query"],
@@ -156,7 +156,7 @@ def _remember_tool() -> dict:
             "properties": {
                 "fact": {
                     "type": "string",
-                    "description": "The fact to save (e.g. 'Project ID is 183')",
+                    "description": "The fact to save",
                 },
             },
             "required": ["fact"],
@@ -187,7 +187,7 @@ def _done_tool() -> dict:
             "properties": {
                 "reason": {
                     "type": "string",
-                    "description": "Evidence why this objective is complete (e.g. 'URL contains label_name=bug and state=opened')",
+                    "description": "Evidence why this objective is complete (e.g. 'URL changed to the target page' or 'the expected content is visible')",
                 },
             },
             "required": ["reason"],

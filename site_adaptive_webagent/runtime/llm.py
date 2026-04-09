@@ -233,57 +233,6 @@ def classify_task_type(intent: str, llm: LLMClient) -> str:
     return task_type if task_type in ("RETRIEVE", "NAVIGATE", "MUTATE") else "NAVIGATE"
 
 
-def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
-    """PriorBundle을 LLM system prompt로 직렬화한다."""
-    lines = [
-        "You are a web automation agent. Respond in English with a single JSON action.",
-        "",
-        "## Rules",
-        "1. Act on what you SEE, not what you KNOW. Click to explore — never guess syntax or URLs.",
-        "2. Click before typing. Reveal options first, then decide.",
-        "3. After selecting filters/options, click Search/Submit to commit. Check URL parameters to confirm.",
-        "4. Never repeat a failed action. Try a different approach.",
-        "5. When you find important facts, write 'NOTE: ...' in your reasoning (e.g. 'NOTE: Project ID is 183'). These are saved and shown in every step.",
-        "6. Before extract or done, cross-check your answer against your collected notes. If notes show multiple items, include ALL of them.",
-        "",
-        "## Actions",
-        '{"reasoning": "...", "action": "...", "target": "...", "value": "...", "url": "...", "element_type": "button|link", "label": "...", "submit": true/false}',
-        '  click, fill, goback, search, observe, extract, done, not_found, permission_denied, action_not_allowed, unknown_error',
-        '  click: set "target" to the name only (NOT the path). Use "url" or "element_type" to disambiguate.',
-        '  fill: set "target", "value". "submit": true to press Enter.',
-        '  observe: set "target" (keyword) to filter truncated lists.',
-        '  note: save information for later. Set "value" (fact to remember). Use when collecting data across pages.',
-        '  extract: set "value" (complete answer), "label".',
-    ]
-
-    if prior_bundle is not None:
-        profile = prior_bundle.site_profile
-        lines += [
-            "",
-            "## Site Knowledge",
-            f"Site: {profile.display_name}  Base URL: {profile.base_url}  Auth: {profile.auth_type}",
-        ]
-
-        if prior_bundle.page_types:
-            lines += ["", "### Known Pages"]
-            for pt in prior_bundle.page_types:
-                desc = f" — {pt.description}" if pt.description else ""
-                lines.append(f"  [{pt.page_key}] {pt.display_name}{desc}")
-                if pt.url_patterns:
-                    lines.append(f"    URLs: {', '.join(pt.url_patterns)}")
-
-        if prior_bundle.action_schemas:
-            lines += ["", "### Available Actions (use these to navigate the site)"]
-            for action in prior_bundle.action_schemas:
-                desc = f" — {action.description}" if action.description else ""
-                src = action.source_page_key or "any"
-                tgt = f" → {action.target_page_key}" if action.target_page_key else ""
-                lines.append(f"  [{action.action_key}] {action.display_name}{desc} (from: {src}{tgt})")
-                if action.locator_value:
-                    lines.append(f"    Locator ({action.locator_strategy}): {action.locator_value}")
-
-    return "\n".join(lines)
-
 
 class SubGoal:
     """sub-goal과 유형 정보."""
@@ -302,7 +251,7 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
     system = (
         "You are a web task planner. Break down a web automation task into 2-5 sub-goals.\n"
         "Each sub-goal should be a concrete, verifiable objective — not a specific UI action.\n"
-        "Good: 'Apply the bug label filter'  Bad: 'Click the Label dropdown'\n"
+        "Good: 'Apply the status filter'  Bad: 'Click the dropdown'\n"
         "Consider the current page state when planning.\n"
         "For each sub-goal, classify its type:\n"
         '  "navigation" — move to a different page (open, navigate, go to)\n'
@@ -311,8 +260,8 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
         "\n"
         "IMPORTANT: For NAVIGATE tasks, the LAST sub-goal MUST be type 'navigation'.\n"
         "The final goal should be to arrive at the target page with the correct URL.\n"
-        "Example: if the task is 'go to bug issues', the last goal should be\n"
-        "'Navigate to the filtered bug issues page' (navigation), not 'Apply bug filter' (action).\n"
+        "Example: if the task is 'go to filtered items', the last goal should be\n"
+        "'Navigate to the filtered page' (navigation), not 'Apply filter' (action).\n"
         "This ensures the page URL reflects the final state.\n"
         "\n"
         'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
@@ -346,63 +295,6 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
     return [SubGoal(task)]
 
 
-def build_action_request(
-    *,
-    task: str,
-    observation: Any,
-    last_action_result: str = "",
-    sub_goals: list[SubGoal] | None = None,
-    current_goal_index: int = 0,
-    notes: list[str] | None = None,
-) -> str:
-    """태스크 지시와 현재 페이지 상태를 user 메시지로 직렬화한다."""
-    lines = [f"Task: {task}", ""]
-    if notes:
-        lines += [f"Collected notes: {notes}", ""]
-
-    if sub_goals and current_goal_index < len(sub_goals):
-        current_goal = sub_goals[current_goal_index].goal
-        is_last = current_goal_index == len(sub_goals) - 1
-        lines += [
-            f"Current objective ({current_goal_index + 1}/{len(sub_goals)}): {current_goal}",
-            "When this objective is achieved, declare done. Do not work beyond this objective.",
-        ]
-        if not is_last:
-            lines.append("Use only action commands (click, fill, goto, search, done). Do not use extract or failure actions.")
-        lines.append("")
-
-    if last_action_result:
-        lines += [f"Last action result: {last_action_result}", ""]
-    from urllib.parse import urlparse, parse_qs
-    parsed_url = urlparse(observation.url)
-    params = parse_qs(parsed_url.query)
-    params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
-    lines += [
-        f"Current URL: {observation.url}",
-        f"URL parameters: {params_str}",
-        f"Page title: {observation.title}",
-    ]
-    if observation.headings:
-        lines.append(f"Headings: {observation.headings}")
-    if observation.text_lines:
-        lines.append(f"Visible text (first 10): {observation.text_lines[:10]}")
-    if observation.links:
-        total = len(observation.links)
-        shown = min(30, total)
-        label = f"Links ({shown} of {total} — use 'observe' to see more)" if total > shown else "Links"
-        lines.append(f"{label}: {observation.links[:30]}")
-    if observation.dropdown_options:
-        lines.append(f"Dropdown options (click to select): {observation.dropdown_options[:20]}")
-    if observation.buttons:
-        total = len(observation.buttons)
-        shown = min(10, total)
-        label = f"Buttons ({shown} of {total})" if total > shown else "Buttons"
-        lines.append(f"{label}: {observation.buttons[:10]}")
-    if observation.inputs:
-        lines.append(f"Input fields: {observation.inputs[:10]}")
-    lines += ["", "What single action should be taken? Respond with JSON only."]
-    return "\n".join(lines)
-
 
 def parse_llm_action(response_text: str) -> dict[str, Any]:
     """LLM 응답 텍스트에서 JSON action을 파싱한다.
@@ -433,10 +325,9 @@ def build_tool_use_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "",
         "## Strategy",
         "1. Act on what you SEE, not what you KNOW. Click to explore — never guess.",
-        "2. Click before typing. To apply filters, click the filter/search input to reveal dropdown categories (e.g. Label, Assignee), then click through options. Do NOT type filter queries directly.",
-        "3. After selecting filters/options, click Search/Submit to commit. Check URL parameters to confirm.",
-        "4. Check if the page already shows the desired state before applying filters. Don't re-apply defaults.",
-        "5. Never repeat a failed action. Use goback to return to a known page and try a different path.",
+        "2. Click before typing. Reveal dropdown options first, then decide.",
+        "3. After selecting options, submit to commit. Check URL parameters to confirm.",
+        "4. Never repeat a failed action. Use goback to return to a known page and try a different path.",
         "6. Use the remember tool to save important facts (IDs, counts, names).",
         "7. Before extract or done, use recall to verify completeness.",
     ]
