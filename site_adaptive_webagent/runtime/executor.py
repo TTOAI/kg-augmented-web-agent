@@ -217,6 +217,7 @@ async def _execute_with_llm(
     logger.info("[LLM] plan=%s", sub_goals)
 
     checkpoint_stack = [page.url]  # goal별 checkpoint 스택 (index 0 = task 시작 URL)
+    task_notes: list[str] = []  # LLM이 수집한 정보 (전체 태스크 동안 유지)
     steps_used = 0
     replans_remaining = 3
     max_replans = replans_remaining
@@ -239,6 +240,7 @@ async def _execute_with_llm(
                 page=page, llm=llm, system=system,
                 step_budget=step_budget, previous_failures=failures,
                 is_last_goal=(goal_idx == len(sub_goals) - 1),
+                task_notes=task_notes,
             )
             steps_used += used
 
@@ -315,17 +317,19 @@ async def _execute_with_llm(
     if task_type == "RETRIEVE":
         obs = await observe_page(page)
         try:
+            notes_str = f"Collected notes: {task_notes}\n" if task_notes else ""
             extract_response = llm.complete(
                 system=system,
                 messages=[{"role": "user", "content": (
                     f"Task: {task}\n"
                     f"All preparation steps are complete. Now extract the final answer.\n"
+                    f"{notes_str}"
                     f"Current URL: {obs.url}\n"
                     f"Page title: {obs.title}\n"
                     f"Visible text (first 10): {obs.text_lines[:10]}\n"
                     f"Links (first 10): {obs.links[:10]}\n"
                     f"Buttons: {obs.buttons[:5]}\n"
-                    f"Respond with extract action containing the exact answer."
+                    f"Respond with extract action containing the complete answer."
                 )}],
             )
             action = parse_llm_action(extract_response)
@@ -365,6 +369,7 @@ async def _execute_with_llm(
                     page=page, llm=llm, system=system,
                     step_budget=step_budget, previous_failures=[],
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
+                    task_notes=task_notes,
                 )
                 steps_used += used
                 if result is not None and result.status != "SUB_GOAL_FAILED":
@@ -395,6 +400,7 @@ async def _try_sub_goal(
     step_budget: int,
     previous_failures: list[str],
     is_last_goal: bool = False,
+    task_notes: list[str] | None = None,
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다.
 
@@ -431,6 +437,7 @@ async def _try_sub_goal(
         user_msg = build_action_request(
             task=task, observation=current_obs, last_action_result=last_action_result,
             sub_goals=sub_goals, current_goal_index=goal_index,
+            notes=task_notes or None,
         )
         messages.append({"role": "user", "content": user_msg})
         # 컨텍스트 비대화 방지: 최근 N개 메시지만 유지
@@ -474,6 +481,17 @@ async def _try_sub_goal(
                 "Use action commands (click, fill, goto, search, done, goback) instead."
             )
             current_obs = await observe_page(page)
+            continue
+
+        # --- Note action (정보 수집 — 전체 태스크 동안 유지) ---
+        if action_type == "note":
+            note_value = action.get("value", "")
+            if note_value and task_notes is not None:
+                task_notes.append(note_value)
+                last_action_result = f"Noted: {note_value}"
+            else:
+                last_action_result = "note requires a 'value' to save."
+            logger.info("[LLM] step=%d  note=%r", step + 1, note_value)
             continue
 
         # --- Observe action (키워드 필터링된 관측) ---

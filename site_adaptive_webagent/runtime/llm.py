@@ -130,6 +130,7 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         '  click: set "target" to the name only (NOT the path). Use "url" or "element_type" to disambiguate.',
         '  fill: set "target", "value". "submit": true to press Enter.',
         '  observe: set "target" (keyword) to filter truncated lists.',
+        '  note: save information for later. Set "value" (fact to remember). Use when collecting data across pages.',
         '  extract: set "value" (complete answer), "label".',
     ]
 
@@ -230,9 +231,12 @@ def build_action_request(
     last_action_result: str = "",
     sub_goals: list[SubGoal] | None = None,
     current_goal_index: int = 0,
+    notes: list[str] | None = None,
 ) -> str:
     """태스크 지시와 현재 페이지 상태를 user 메시지로 직렬화한다."""
     lines = [f"Task: {task}", ""]
+    if notes:
+        lines += [f"Collected notes: {notes}", ""]
 
     if sub_goals and current_goal_index < len(sub_goals):
         current_goal = sub_goals[current_goal_index].goal
