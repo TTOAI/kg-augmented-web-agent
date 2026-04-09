@@ -125,6 +125,8 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "## Think",
         "Act ONLY on what you SEE on the page, NEVER on what you KNOW about websites.",
         "Do not type search syntax, URL patterns, or commands from memory.",
+        "If you encounter an unfamiliar control (search box, filter, dropdown), CLICK it first to discover how it works.",
+        "Always click before typing — reveal hidden options first, then decide whether to type.",
         "Every decision requires: (1) visible evidence, (2) the task goal, (3) feedback from previous actions.",
         "",
         "## Act",
