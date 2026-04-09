@@ -444,6 +444,7 @@ async def _try_sub_goal(
     last_action_result = ""
     current_obs = await observe_page(page)
     _disambiguate_counts: dict[str, int] = {}  # target별 disambiguate 횟수
+    _repeated_action_counts: dict[str, int] = {}  # "action:target" 별 비효과 반복 횟수
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -597,6 +598,16 @@ async def _try_sub_goal(
             nearby = await _extract_nearby_from_container(container_handle)
             if nearby:
                 last_action_result = f"{last_action_result}. {nearby}"
+        # 같은 액션 반복 비효과 감지 → 다른 접근 유도
+        if action_result.succeeded and current_obs.url == prev_state.url:
+            action_key = f"{action_type}:{action.get('target', '')}"
+            _repeated_action_counts[action_key] = _repeated_action_counts.get(action_key, 0) + 1
+            if _repeated_action_counts[action_key] >= 2:
+                last_action_result = (
+                    f"{last_action_result}. "
+                    f"This action has been tried {_repeated_action_counts[action_key]} times without visible effect. "
+                    "Try a completely different approach."
+                )
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
