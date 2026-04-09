@@ -299,21 +299,6 @@ class SubGoal:
 
 def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -> list[SubGoal]:
     """태스크를 2~5개 sub-goal로 분해한다. LLM 1회 호출."""
-    retrieve_rule = (
-        "\nIMPORTANT: For RETRIEVE tasks, include a 'cognition' sub-goal that explicitly "
-        "scans and saves all task-relevant data (use scan_and_remember) BEFORE the final extraction step.\n"
-        "Example: 'Scan the project list and save star counts and project IDs for all personal projects'\n"
-        "This ensures no data is lost between pages.\n"
-        if task_type == "RETRIEVE" else ""
-    )
-    navigate_rule = (
-        "\nIMPORTANT: For NAVIGATE tasks, the LAST sub-goal MUST be type 'navigation'.\n"
-        "The final goal should be to arrive at the target page with the correct URL.\n"
-        "Example: if the task is 'go to bug issues', the last goal should be\n"
-        "'Navigate to the filtered bug issues page' (navigation), not 'Apply bug filter' (action).\n"
-        "This ensures the page URL reflects the final state.\n"
-        if task_type == "NAVIGATE" else ""
-    )
     system = (
         "You are a web task planner. Break down a web automation task into 2-5 sub-goals.\n"
         "Each sub-goal should be a concrete, verifiable objective — not a specific UI action.\n"
@@ -323,7 +308,13 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
         '  "navigation" — move to a different page (open, navigate, go to)\n'
         '  "action" — change page state (filter, apply, sort, submit, post)\n'
         '  "cognition" — analyze or read information (determine, identify, find, check)\n'
-        f"{retrieve_rule}{navigate_rule}"
+        "\n"
+        "IMPORTANT: For NAVIGATE tasks, the LAST sub-goal MUST be type 'navigation'.\n"
+        "The final goal should be to arrive at the target page with the correct URL.\n"
+        "Example: if the task is 'go to bug issues', the last goal should be\n"
+        "'Navigate to the filtered bug issues page' (navigation), not 'Apply bug filter' (action).\n"
+        "This ensures the page URL reflects the final state.\n"
+        "\n"
         'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
     )
@@ -445,9 +436,8 @@ def build_tool_use_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "2. Click before typing. Reveal options first, then decide.",
         "3. After selecting filters/options, click Search/Submit to commit. Check URL parameters to confirm.",
         "4. Never repeat a failed action. Try a different approach.",
-        "5. On data-rich pages, use scan_and_remember to automatically find and save all task-relevant facts.",
-        "6. To extract the final answer, use verified_extract with your preliminary answer. It auto-recalls saved facts and cross-checks.",
-        "7. You can still use remember/recall manually for individual facts.",
+        "5. Use the remember tool to save important facts (IDs, counts, names).",
+        "6. Before extract or done, use recall to verify completeness.",
     ]
 
     if prior_bundle is not None:
