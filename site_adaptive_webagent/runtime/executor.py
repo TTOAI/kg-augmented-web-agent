@@ -701,6 +701,10 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
         target = parts[0].strip()
         if not url_hint:
             url_hint = parts[1].strip()
+    # url_hint가 전체 URL이면 경로만 추출 (href는 경로만 가짐)
+    if url_hint.startswith("http"):
+        from urllib.parse import urlparse
+        url_hint = urlparse(url_hint).path
     logger.info("[LLM] click  target=%r  url_hint=%r  element_type=%r", target, url_hint, element_type)
     if not target:
         return _ActionResult()
