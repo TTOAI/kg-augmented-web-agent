@@ -262,9 +262,9 @@ def build_action_request(
         lines.append(f"Visible text (first 10): {observation.text_lines[:10]}")
     if observation.links:
         total = len(observation.links)
-        shown = min(20, total)
-        label = f"Links ({shown} of {total})" if total > shown else "Links"
-        lines.append(f"{label}: {observation.links[:20]}")
+        shown = min(30, total)
+        label = f"Links ({shown} of {total} — use 'observe' to see more)" if total > shown else "Links"
+        lines.append(f"{label}: {observation.links[:30]}")
     if observation.dropdown_options:
         lines.append(f"Dropdown options (click to select): {observation.dropdown_options[:20]}")
     if observation.buttons:

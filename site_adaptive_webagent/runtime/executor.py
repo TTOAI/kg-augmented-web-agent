@@ -947,7 +947,7 @@ def _summarize_action_result(
         delta = _describe_content_delta(prev, current_obs)
         if delta:
             return f"fill '{target}': submitted. {delta}"
-        return f"fill '{target}': submitted"
+        return f"fill '{target}': submitted (no visible change)"
 
     if action_type == "goto":
         url = action.get("url", "")
