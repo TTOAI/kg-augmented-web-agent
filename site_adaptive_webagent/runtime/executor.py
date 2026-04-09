@@ -329,6 +329,7 @@ async def _execute_with_llm(
                     f"Visible text (first 10): {obs.text_lines[:10]}\n"
                     f"Links (first 10): {obs.links[:10]}\n"
                     f"Buttons: {obs.buttons[:5]}\n"
+                    f"Cross-check your answer against the collected notes above. Include ALL matching items.\n"
                     f"Respond with extract action containing the complete answer."
                 )}],
             )
@@ -448,8 +449,16 @@ async def _try_sub_goal(
         action, messages = _get_llm_action(llm, system, messages)
         action_type = action.get("action", "not_found")
         _action_history.append(f"{action_type}({action.get('target', '')})")
+        reasoning = action.get("reasoning", "")
         logger.info("[LLM] step=%d  action=%s  reasoning=%r",
-                    step + 1, action_type, action.get("reasoning", "")[:200])
+                    step + 1, action_type, reasoning[:200])
+        # reasoning에서 NOTE: 감지 → task_notes에 저장
+        if task_notes is not None and "NOTE:" in reasoning:
+            for part in reasoning.split("NOTE:")[1:]:
+                note_text = part.strip().split(".")[0].strip()  # 첫 문장만
+                if note_text:
+                    task_notes.append(note_text)
+                    logger.info("[LLM] step=%d  auto-note: %s", step + 1, note_text)
 
         # --- Terminal actions ---
         if action_type == "done":
