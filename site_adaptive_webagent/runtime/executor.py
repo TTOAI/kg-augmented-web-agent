@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 logger = logging.getLogger("webarena_verified")
 
