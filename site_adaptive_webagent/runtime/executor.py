@@ -608,14 +608,22 @@ async def _try_sub_goal(
             nearby = await _extract_nearby_from_container(container_handle)
             if nearby:
                 last_action_result = f"{last_action_result}. {nearby}"
-        # 같은 액션 반복 비효과 감지 → 다른 접근 유도
+        # 같은 액션 반복 비효과 감지 → 피드백 or 강제 종료
         if action_result.succeeded and current_obs.url == prev_state.url:
             action_key = f"{action_type}:{action.get('target', '')}"
             _repeated_action_counts[action_key] = _repeated_action_counts.get(action_key, 0) + 1
-            if _repeated_action_counts[action_key] >= 2:
+            count = _repeated_action_counts[action_key]
+            if count >= 4:
+                # 4회 이상 반복 → 빠른 실패: goal 강제 종료
+                logger.info("[LLM] step=%d  repeated action %s x%d — forcing goal failure", step + 1, action_key, count)
+                return ExecutionOutcome(
+                    task_type=task_type, status="SUB_GOAL_FAILED",
+                    error_details=f"Repeated ineffective action '{action_key}' {count} times",
+                ), step + 1
+            if count >= 2:
                 last_action_result = (
                     f"{last_action_result}. "
-                    f"This action has been tried {_repeated_action_counts[action_key]} times without visible effect. "
+                    f"This action has been tried {count} times without visible effect. "
                     "Try a completely different approach."
                 )
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
