@@ -196,7 +196,7 @@ async def _run_with_browser(
 # LLM execution loop
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES_PER_GOAL = 8
+_MAX_RETRIES_PER_GOAL = 5
 
 
 async def _execute_with_llm(
@@ -227,7 +227,7 @@ async def _execute_with_llm(
     while goal_idx < len(sub_goals):
         sub_goal = sub_goals[goal_idx]
         remaining_goals = len(sub_goals) - goal_idx
-        step_budget = max(6, (max_steps - steps_used) // remaining_goals)
+        step_budget = max(10, (max_steps - steps_used) // remaining_goals)
         failures: list[str] = []
         goal_succeeded = False
 
@@ -242,7 +242,6 @@ async def _execute_with_llm(
                 step_budget=step_budget, previous_failures=failures,
                 is_last_goal=(goal_idx == len(sub_goals) - 1),
                 task_notes=task_notes,
-                start_url=checkpoint_stack[0],
             )
             steps_used += used
 
@@ -365,7 +364,7 @@ async def _execute_with_llm(
             while goal_idx < len(sub_goals):
                 sub_goal = sub_goals[goal_idx]
                 remaining_goals = len(sub_goals) - goal_idx
-                step_budget = max(6, (max_steps - steps_used) // remaining_goals)
+                step_budget = max(10, (max_steps - steps_used) // remaining_goals)
                 result, used = await _try_sub_goal(
                     task=task, task_type=task_type, sub_goal=sub_goal,
                     sub_goals=sub_goals, goal_index=goal_idx,
@@ -373,8 +372,7 @@ async def _execute_with_llm(
                     step_budget=step_budget, previous_failures=[],
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
-                    start_url=checkpoint_stack[0],
-                )
+                    )
                 steps_used += used
                 if result is not None and result.status != "SUB_GOAL_FAILED":
                     elapsed = time.time() - t_start
@@ -405,7 +403,6 @@ async def _try_sub_goal(
     previous_failures: list[str],
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
-    start_url: str = "",
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
@@ -425,22 +422,15 @@ async def _try_sub_goal(
     if previous_failures:
         retry_count = len(previous_failures)
         all_failures = " | ".join(previous_failures)
-        if retry_count <= 2:
+        if retry_count <= 3:
             last_action_feedback = (
                 f"Attempt {retry_count} failed. Previous attempts: {all_failures}. "
-                "Do NOT repeat these actions. Try a different approach. "
-                "Use goback to return to a known page if you're lost."
-            )
-        elif retry_count <= 5:
-            last_action_feedback = (
-                f"Attempt {retry_count} failed. Previous attempts: {all_failures}. "
-                "Try a COMPLETELY different navigation path. "
-                "Use goback aggressively to return to a familiar page, then explore a new route."
+                "Do NOT repeat these actions. Try a different approach."
             )
         else:
             last_action_feedback = (
                 f"This goal has failed {retry_count} times. Previous attempts: {all_failures}. "
-                "STOP trying the same area. Go back to the starting page and take an entirely different path."
+                "Try a COMPLETELY different method. Do NOT repeat any previous actions."
             )
 
     for step in range(step_budget):
@@ -449,7 +439,6 @@ async def _try_sub_goal(
         user_msg = build_observation_message(
             task=task, observation=current_obs, last_action_feedback=last_action_feedback,
             sub_goals=sub_goals, current_goal_index=goal_index,
-            start_url=start_url,
         )
         messages.append({"role": "user", "content": user_msg})
         if len(messages) > _MAX_MESSAGES:
@@ -465,18 +454,8 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_name == "done":
-            # done 검증: LLM에게 현재 상태와 목표를 대조시킴
-            done_reason = args.get("reason", "")
-            verified = _verify_done(
-                goal=sub_goal.goal, reason=done_reason, current_obs=current_obs, llm=llm,
-            )
-            if verified:
-                logger.info("[LLM] sub-goal done (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
-                return None, step + 1
-            logger.info("[LLM] sub-goal done REJECTED: %s", verified)
-            last_action_feedback = f"Done rejected — goal not yet achieved: {verified}. Keep working."
-            messages.append(format_tool_result(tool_id, last_action_feedback))
-            continue
+            logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
+            return None, step + 1
 
         if action_name == "extract":
             return _handle_extract({"value": args.get("value", ""), "label": args.get("label", "")}, task_type), step + 1
@@ -528,22 +507,6 @@ async def _try_sub_goal(
             messages.append(format_tool_result(tool_id, feedback))
             continue
 
-        # --- search skill ---
-        if action_name == "search":
-            query = args.get("query", "")
-            prev_state = _capture_page_state(current_obs)
-            feedback = await _execute_search(query=query, page=page)
-            current_obs = await observe_page(page)
-            if current_obs.url != prev_state.url:
-                from urllib.parse import urlparse, parse_qs
-                params = parse_qs(urlparse(current_obs.url).query)
-                params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
-                feedback += f" URL: {current_obs.url} | Params: {params_str}"
-            logger.info("[LLM] step=%d  search=%r  result=%s", step + 1, query, feedback)
-            messages.append(format_tool_result(tool_id, feedback))
-            last_action_feedback = feedback
-            continue
-
         # --- Browser actions ---
         action_dict = {
             "target": args.get("target", ""),
@@ -551,7 +514,10 @@ async def _try_sub_goal(
             "url": args.get("url", ""),
             "element_type": args.get("element_type", ""),
             "submit": args.get("submit", False),
+            "query": args.get("query", ""),
         }
+        if action_name == "search" and not action_dict["target"]:
+            action_dict["target"] = action_dict["query"]
 
         prev_state = _capture_page_state(current_obs)
         action_result = await _execute_browser_action(
@@ -776,11 +742,13 @@ async def _execute_browser_action(
     page: Any,
     current_obs: PageObservation,
 ) -> _ActionResult:
-    """click/fill/goback 등 browser 액션 실행. _ActionResult를 반환한다."""
+    """click/fill/search/goback 액션 실행. _ActionResult를 반환한다."""
     if action_type == "click":
         return await _execute_click(action, page, current_obs)
     if action_type == "fill":
         return await _execute_fill(action, page)
+    if action_type == "search":
+        return await _execute_search(action, page)
     if action_type == "goback":
         return await _execute_goback(page)
     return _ActionResult()
@@ -935,91 +903,14 @@ async def _execute_fill(action: dict[str, Any], page: Any) -> _ActionResult:
     return _ActionResult(succeeded=succeeded)
 
 
-async def _execute_search(*, query: str, page: Any) -> str:
-    """search skill: 검색/필터 input 클릭 → AJAX 대기 → 드롭다운 매칭 또는 fill → Enter.
-
-    Returns: 피드백 문자열
-    """
+async def _execute_search(action: dict[str, Any], page: Any) -> _ActionResult:
+    """search 액션."""
+    query = action.get("target", "")
     logger.info("[LLM] search  query=%r", query)
-    if not query:
-        return "search requires a 'query'."
-
-    # 1. 검색/필터 input 찾아서 클릭 (포커스)
-    search_selectors = [
-        'input[type="search"]:visible',
-        'input[placeholder*="search" i]:visible',
-        'input[placeholder*="filter" i]:visible',
-        'input[role="searchbox"]:visible',
-    ]
-    input_clicked = False
-    for sel in search_selectors:
-        try:
-            loc = page.locator(sel)
-            if await loc.count() > 0:
-                await loc.first.click()
-                input_clicked = True
-                logger.info("[LLM] search: clicked input via %s", sel)
-                break
-        except Exception:
-            continue
-
-    if not input_clicked:
-        # fallback: try_search로 대체
+    if query:
         succeeded = await try_search(page, query)
-        return f"search '{query}': {'submitted via fallback' if succeeded else 'search field not found'}"
-
-    # 2. DOM 안정화 (AJAX 드롭다운 로딩 대기)
-    await page.wait_for_timeout(500)
-    obs_after_click = await observe_page(page)
-
-    # 연속 안정 체크
-    for _ in range(4):
-        await page.wait_for_timeout(500)
-        obs_check = await observe_page(page)
-        if set(obs_check.dropdown_options) == set(obs_after_click.dropdown_options):
-            break
-        obs_after_click = obs_check
-
-    # 3. 드롭다운에서 query 매칭 시도
-    query_lower = query.lower()
-    matched_option = None
-    for opt in obs_after_click.dropdown_options:
-        opt_name = opt.split(" → ")[0] if " → " in opt else opt
-        if query_lower == opt_name.lower():
-            matched_option = opt_name
-            break
-
-    if matched_option:
-        # 드롭다운 항목 클릭
-        for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
-            try:
-                loc = page.locator(f'{dd_sel}:visible').filter(has_text=matched_option)
-                if await loc.count() > 0:
-                    await loc.first.click()
-                    logger.info("[LLM] search: clicked dropdown option '%s' via %s", matched_option, dd_sel)
-
-                    # 하위 드롭다운 로딩 대기
-                    await page.wait_for_timeout(500)
-                    break
-            except Exception:
-                continue
-
-        return f"search '{query}': selected '{matched_option}' from dropdown."
-    else:
-        # 드롭다운에 없으면 fill + Enter
-        try:
-            for sel in search_selectors:
-                loc = page.locator(sel)
-                if await loc.count() > 0:
-                    await loc.first.fill(query)
-                    await loc.first.press("Enter")
-                    logger.info("[LLM] search: filled '%s' and pressed Enter", query)
-                    break
-        except Exception as exc:
-            logger.debug("search fill failed: %s", exc)
-            return f"search '{query}': failed to fill search field."
-
-        return f"search '{query}': typed and submitted."
+        return _ActionResult(succeeded=succeeded)
+    return _ActionResult(succeeded=False)
 
 
 async def _execute_goback(page: Any) -> _ActionResult:
@@ -1109,6 +1000,17 @@ def _summarize_action_result(
             return f"fill '{target}': submitted. {delta}"
         return f"fill '{target}': submitted (no visible change)"
 
+    if action_type == "search":
+        query = action.get("target", "")
+        if not succeeded:
+            return f"search '{query}': search field not found"
+        if current_obs.url != prev.url:
+            return f"search '{query}': navigated to {current_obs.url}"
+        delta = _describe_content_delta(prev, current_obs)
+        if delta:
+            return f"search '{query}': {delta}"
+        return f"search '{query}': URL unchanged"
+
     if action_type == "goback":
         if not succeeded:
             return "goback: failed"
@@ -1120,42 +1022,6 @@ def _summarize_action_result(
 # ---------------------------------------------------------------------------
 # LLM helpers
 # ---------------------------------------------------------------------------
-
-def _verify_done(*, goal: str, reason: str, current_obs: PageObservation, llm: LLMClient) -> str | bool:
-    """LLM에게 현재 상태와 목표를 대조하여 done 검증을 요청한다.
-
-    Returns:
-        True — 목표 달성 확인
-        str — 미달성 이유
-    """
-    from urllib.parse import urlparse, parse_qs
-    parsed_url = urlparse(current_obs.url)
-    params = parse_qs(parsed_url.query)
-    params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
-
-    system = (
-        "You verify whether a sub-goal has been achieved given the current page state. "
-        "The agent claims the goal is done. Check if the claim matches the actual page state. "
-        'Respond ONLY with JSON: {"achieved": true} or {"achieved": false, "reason": "..."}'
-    )
-    user_msg = (
-        f"Goal: {goal}\n"
-        f"Agent's claim: {reason}\n\n"
-        f"Actual page state:\n"
-        f"  URL: {current_obs.url}\n"
-        f"  URL parameters: {params_str}\n"
-        f"  Page title: {current_obs.title}\n"
-        f"  Visible text (first 5): {current_obs.text_lines[:5]}\n"
-    )
-    try:
-        from .llm import parse_llm_action
-        response = llm.complete(system=system, messages=[{"role": "user", "content": user_msg}])
-        parsed = parse_llm_action(response)
-        if parsed.get("achieved", True):
-            return True
-        return parsed.get("reason", "goal not achieved")
-    except Exception:
-        return True  # 검증 실패 시 통과 (보수적)
 
 
 def _get_tool_action(
