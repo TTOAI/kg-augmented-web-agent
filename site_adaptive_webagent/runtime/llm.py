@@ -140,9 +140,10 @@ def build_system_prompt(prior_bundle: PriorBundle | None) -> str:
         '  "done"     — task is complete.',
         '  "not_found" / "permission_denied" / "action_not_allowed" / "unknown_error" — failure.',
         "",
-        "## Verify",
-        "If something is not working, try a different approach — click instead of type, explore UI controls.",
-        "If you cannot find what you need, click on visible controls to reveal hidden options.",
+        "## Verify (before every action)",
+        "In your reasoning, state WHICH visible element you are acting on.",
+        "Ask yourself: Am I acting on something I SEE, or something I KNOW? If KNOW, stop and click to explore instead.",
+        "If your previous action had no effect, do NOT repeat it — try a completely different approach.",
     ]
 
     if prior_bundle is not None:
