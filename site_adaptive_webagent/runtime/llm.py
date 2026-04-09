@@ -230,7 +230,6 @@ def build_action_request(
     last_action_result: str = "",
     sub_goals: list[SubGoal] | None = None,
     current_goal_index: int = 0,
-    failed_approaches: list[str] | None = None,
 ) -> str:
     """태스크 지시와 현재 페이지 상태를 user 메시지로 직렬화한다."""
     lines = [f"Task: {task}", ""]
@@ -248,8 +247,6 @@ def build_action_request(
 
     if last_action_result:
         lines += [f"Last action result: {last_action_result}", ""]
-    if failed_approaches:
-        lines += [f"FAILED approaches (do NOT repeat): {failed_approaches}", ""]
     from urllib.parse import urlparse, parse_qs
     parsed_url = urlparse(observation.url)
     params = parse_qs(parsed_url.query)

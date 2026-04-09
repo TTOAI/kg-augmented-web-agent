@@ -343,86 +343,40 @@ async def _execute_with_llm(
         return ExecutionOutcome(task_type=task_type, status="NOT_FOUND_ERROR",
                                 error_details="Final extract failed — no data retrieved")
 
-    # NAVIGATE/MUTATE 최종 확인: LLM에게 태스크 완료 여부 self-check
-    self_check_done = False
-    if replans_remaining > 0:
+    # NAVIGATE 최종 체크: URL == 시작 URL이면 replan (navigate인데 안 움직임)
+    if task_type == "NAVIGATE" and replans_remaining > 0 and page.url == checkpoint_stack[0]:
+        logger.info("[LLM] NAVIGATE final check — URL unchanged from start, replanning")
+        replans_remaining -= 1
         obs = await observe_page(page)
-        try:
-            check_response = llm.complete(
-                system=system,
-                messages=[{"role": "user", "content": (
-                    f"Task: {task}\n"
-                    f"All sub-goals have been completed.\n"
-                    f"Current URL: {obs.url}\n"
-                    f"Page title: {obs.title}\n"
-                    f"Visible text: {obs.text_lines[:10]}\n\n"
-                    "Is this task truly complete? Respond with JSON:\n"
-                    '{"complete": true} or {"complete": false, "reason": "..."}'
-                )}],
-            )
-            parsed = parse_llm_action(check_response)
-            if parsed.get("complete", True):
-                self_check_done = True
-            else:
-                reason = parsed.get("reason", "task not complete")
-                logger.info("[LLM] self-check failed: %s — rolling back and replanning", reason)
-                replans_remaining -= 1
-                # 마지막 정상 checkpoint로 롤백
-                if len(checkpoint_stack) > 1:
-                    checkpoint_stack.pop()
-                    goal_idx = max(0, len(checkpoint_stack) - 1)
-                try:
-                    await page.goto(checkpoint_stack[-1])
-                except Exception:
-                    pass
-                logger.info("[LLM] self-check rollback to checkpoint %d: %s",
-                            goal_idx, checkpoint_stack[-1])
-                obs = await observe_page(page)
-                new_goals = _replan(
-                    task=task, task_type=task_type, observation=obs, llm=llm,
-                    completed_goals=sub_goals[:goal_idx],
-                    failed_goal=SubGoal(f"self-check: {reason}"),
-                    failure_history=[reason],
+        new_goals = _replan(
+            task=task, task_type=task_type, observation=obs, llm=llm,
+            completed_goals=sub_goals,
+            failed_goal=SubGoal("URL unchanged from task start"),
+            failure_history=["All goals completed but URL is still the starting URL"],
+        )
+        if new_goals:
+            sub_goals = sub_goals + new_goals
+            while goal_idx < len(sub_goals):
+                sub_goal = sub_goals[goal_idx]
+                remaining_goals = len(sub_goals) - goal_idx
+                step_budget = max(10, (max_steps - steps_used) // remaining_goals)
+                result, used = await _try_sub_goal(
+                    task=task, task_type=task_type, sub_goal=sub_goal,
+                    sub_goals=sub_goals, goal_index=goal_idx,
+                    page=page, llm=llm, system=system,
+                    step_budget=step_budget, previous_failures=[],
+                    is_last_goal=(goal_idx == len(sub_goals) - 1),
                 )
-                if new_goals:
-                    logger.info("[LLM] self-check replan: %s", new_goals)
-                    sub_goals = sub_goals[:goal_idx] + new_goals
-                else:
-                    self_check_done = True  # replan 실패 → 최선을 다함
-        except Exception:
-            self_check_done = True
-
-    if not self_check_done:
-        # 새 goal이 추가됨 → while 루프 재진입
-        while goal_idx < len(sub_goals):
-            sub_goal = sub_goals[goal_idx]
-            remaining_goals = len(sub_goals) - goal_idx
-            step_budget = max(10, (max_steps - steps_used) // remaining_goals)
-
-            result, used = await _try_sub_goal(
-                task=task, task_type=task_type, sub_goal=sub_goal,
-                sub_goals=sub_goals, goal_index=goal_idx,
-                page=page, llm=llm, system=system,
-                step_budget=step_budget, previous_failures=[],
-                is_last_goal=(goal_idx == len(sub_goals) - 1),
-            )
-            steps_used += used
-
-            if result is not None and result.status != "SUB_GOAL_FAILED":
-                elapsed = time.time() - t_start
-                logger.info("[LLM] task completed in %.1fs (%d steps)", elapsed, steps_used)
-                return result
-
-            if result is None:
-                checkpoint_stack.append(page.url)
-                logger.info("[LLM] self-check goal %d/%d complete — checkpoint: %s",
-                            goal_idx + 1, len(sub_goals), checkpoint_stack[-1])
-                goal_idx += 1
-                continue
-
-            # self-check goal 실패 → 무시하고 SUCCESS
-            logger.info("[LLM] self-check goal failed — proceeding with SUCCESS")
-            break
+                steps_used += used
+                if result is not None and result.status != "SUB_GOAL_FAILED":
+                    elapsed = time.time() - t_start
+                    logger.info("[LLM] task completed in %.1fs (%d steps)", elapsed, steps_used)
+                    return result
+                if result is None:
+                    checkpoint_stack.append(page.url)
+                    goal_idx += 1
+                    continue
+                break
 
     elapsed = time.time() - t_start
     logger.info("[LLM] all goals complete in %.1fs (%d steps)", elapsed, steps_used)
@@ -453,15 +407,8 @@ async def _try_sub_goal(
     messages: list[dict[str, str]] = []
     last_action_result = ""
     current_obs = await observe_page(page)
-    _disambiguate_counts: dict[str, int] = {}  # target별 disambiguate 횟수
-    _no_progress_steps = 0  # URL 변화 없는 연속 스텝 수
     _action_history: list[str] = []  # 이번 attempt의 액션 이력 (retry 시 전달용)
-    _MAX_MESSAGES = 6  # 최근 N개 메시지만 유지 (컨텍스트 비대화 방지)
-    # 이전 실패에서 추출한 실패 접근 방법 (매 스텝 관측에 포함)
-    _failed_approaches: list[str] = []
-    for f in previous_failures:
-        if "Actions tried:" in f:
-            _failed_approaches.append(f[f.index("Actions tried:"):])
+    _MAX_MESSAGES = 10
 
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
@@ -485,7 +432,6 @@ async def _try_sub_goal(
         user_msg = build_action_request(
             task=task, observation=current_obs, last_action_result=last_action_result,
             sub_goals=sub_goals, current_goal_index=goal_index,
-            failed_approaches=_failed_approaches or None,
         )
         messages.append({"role": "user", "content": user_msg})
         # 컨텍스트 비대화 방지: 최근 N개 메시지만 유지
@@ -501,15 +447,6 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_type == "done":
-            # 이전 실패 이력이 있고 진행 없으면 done 거부 (포기 방지)
-            if previous_failures and _no_progress_steps >= step:
-                last_action_result = (
-                    f"This goal has failed {len(previous_failures)} times before. "
-                    "You have not made progress in this attempt — do NOT give up. "
-                    "Try a completely different approach."
-                )
-                logger.info("[LLM] done rejected — no progress after %d prior failures", len(previous_failures))
-                continue
             logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
             return None, step + 1
 
@@ -573,23 +510,11 @@ async def _try_sub_goal(
         if action_result.should_continue:
             current_obs = action_result.observation or current_obs
             last_action_result = action_result.feedback
-            # 반복 disambiguate 감지 → 강화 피드백
-            if "element_type" in last_action_result and action_type == "click":
-                click_target = action.get("target", "")
-                _disambiguate_counts[click_target] = _disambiguate_counts.get(click_target, 0) + 1
-                if _disambiguate_counts[click_target] >= 2:
-                    last_action_result = (
-                        f"You MUST set \"element_type\" to \"button\" or \"link\" for '{click_target}'. "
-                        f"This is attempt #{_disambiguate_counts[click_target] + 1} — your previous attempts were all rejected."
-                    )
             logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
             continue
 
         current_obs = await observe_page(page)
         is_inpage = action_result.succeeded and current_obs.url == prev_state.url
-
-        # 포커스가 살아있는 동안 액션 컨테이너 참조 캡처
-        container_handle = await _capture_action_container(page) if is_inpage else None
 
         # in-page 인터랙션에서 DOM 변화 감지 → 비동기 콘텐츠(AJAX) 안정화 대기
         # 연속 안정 2회를 요구: 하드코딩 요소 후 서버 응답이 늦게 올 수 있으므로
@@ -621,28 +546,6 @@ async def _try_sub_goal(
         last_action_result = _summarize_action_result(
             action_type, action, action_result.succeeded, current_obs, prev_state,
         )
-        # 캡처된 컨테이너에서 주변 요소 추출 (안정화 후 — AJAX 콘텐츠 반영)
-        if container_handle:
-            nearby = await _extract_nearby_from_container(container_handle)
-            if nearby:
-                last_action_result = f"{last_action_result}. {nearby}"
-        # 진행 없음 감지: URL 변화 없는 연속 스텝 → 피드백 or 강제 종료
-        if current_obs.url == prev_state.url:
-            _no_progress_steps += 1
-            if _no_progress_steps >= 6:
-                logger.info("[LLM] step=%d  no progress for %d steps — forcing goal failure", step + 1, _no_progress_steps)
-                return ExecutionOutcome(
-                    task_type=task_type, status="SUB_GOAL_FAILED",
-                    error_details=f"No URL change for {_no_progress_steps} steps. {_summarize_action_history(_action_history)}",
-                ), step + 1
-            if _no_progress_steps >= 3:
-                last_action_result = (
-                    f"{last_action_result}. "
-                    f"No progress for {_no_progress_steps} consecutive steps. "
-                    "Try a completely different approach."
-                )
-        else:
-            _no_progress_steps = 0  # URL 변화 → 리셋
         logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
@@ -788,6 +691,12 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
     target = action.get("target", "")
     url_hint = action.get("url", "")
     element_type = action.get("element_type", "")
+    # target에 " → /path" 포함 시 자동 파싱 (이름 + url_hint 분리)
+    if " → " in target:
+        parts = target.split(" → ", 1)
+        target = parts[0].strip()
+        if not url_hint:
+            url_hint = parts[1].strip()
     logger.info("[LLM] click  target=%r  url_hint=%r  element_type=%r", target, url_hint, element_type)
     if not target:
         return _ActionResult()
@@ -954,71 +863,6 @@ async def _execute_goback(page: Any) -> _ActionResult:
     except Exception:
         return _ActionResult(succeeded=False)
 
-
-# ---------------------------------------------------------------------------
-# Focused context (action vicinity)
-# ---------------------------------------------------------------------------
-
-_CAPTURE_CONTAINER_JS = """() => {
-    const active = document.activeElement;
-    if (!active || active === document.body) return null;
-    let container = active;
-    for (let i = 0; i < 6; i++) {
-        if (!container.parentElement) break;
-        container = container.parentElement;
-        const tag = container.tagName.toLowerCase();
-        const role = container.getAttribute('role') || '';
-        const cls = container.className || '';
-        if (tag === 'form' || tag === 'nav' || tag === 'section'
-            || role === 'search' || role === 'dialog'
-            || cls.includes('search-box') || cls.includes('filtered-search')
-            || cls.includes('toolbar') || cls.includes('form-group'))
-            break;
-    }
-    return container === document.body ? null : container;
-}"""
-
-_EXTRACT_FROM_CONTAINER_JS = """(container) => {
-    if (!container) return [];
-    return Array.from(container.querySelectorAll('button, a[href], input, select'))
-        .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0)
-        .slice(0, 15)
-        .map(el => {
-            const text = (el.innerText || '').replace(/\\s+/g, ' ').trim()
-                || el.getAttribute('aria-label')
-                || el.getAttribute('placeholder')
-                || el.getAttribute('title')
-                || '';
-            return text || null;
-        })
-        .filter(Boolean);
-}"""
-
-
-async def _capture_action_container(page: Any) -> Any:
-    """현재 포커스 영역의 컨테이너 DOM 참조를 캡처한다."""
-    try:
-        return await page.evaluate_handle(_CAPTURE_CONTAINER_JS)
-    except Exception:
-        return None
-
-
-async def _extract_nearby_from_container(container_handle: Any) -> str:
-    """캡처된 컨테이너에서 인터랙티브 요소를 추출한다."""
-    if container_handle is None:
-        return ""
-    try:
-        nearby: list[str] = await container_handle.evaluate(_EXTRACT_FROM_CONTAINER_JS)
-        if nearby:
-            return f"Nearby elements: {nearby}"
-    except Exception:
-        pass
-    finally:
-        try:
-            await container_handle.dispose()
-        except Exception:
-            pass
-    return ""
 
 
 # ---------------------------------------------------------------------------
