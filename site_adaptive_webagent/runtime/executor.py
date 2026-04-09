@@ -461,20 +461,16 @@ async def _try_sub_goal(
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
         retry_count = len(previous_failures)
+        all_failures = " | ".join(previous_failures)
         if retry_count <= 3:
             last_action_result = (
-                f"Previous attempt failed: {previous_failures[-1]}. "
-                "Try a small adjustment."
-            )
-        elif retry_count == 4:
-            last_action_result = (
-                f"This goal has failed {retry_count} times. "
-                "Try a different approach."
+                f"Attempt {retry_count} failed. Previous attempts: {all_failures}. "
+                "Do NOT repeat these actions. Try a different approach."
             )
         else:
             last_action_result = (
-                f"This goal has failed {retry_count} times. "
-                "Try a completely different method."
+                f"This goal has failed {retry_count} times. Previous attempts: {all_failures}. "
+                "Try a COMPLETELY different method. Do NOT repeat any previous actions."
             )
 
     for step in range(step_budget):
