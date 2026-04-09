@@ -532,5 +532,162 @@ class ClassifyTaskTypeTests(unittest.TestCase):
         self.assertEqual(plan.task_type, "NAVIGATE")
 
 
+# ---------------------------------------------------------------------------
+# Tool Use tests (v5)
+# ---------------------------------------------------------------------------
+
+class ToolDefinitionTests(unittest.TestCase):
+    """tools_for_goal()이 sub-goal 위치에 따라 올바른 tool 목록을 반환하는지 검증."""
+
+    def test_intermediate_goal_excludes_extract_and_failure(self) -> None:
+        from site_adaptive_webagent.runtime.tools import tools_for_goal
+        tools = tools_for_goal(is_last_goal=False, task_type="RETRIEVE")
+        names = {t["name"] for t in tools}
+        self.assertIn("click", names)
+        self.assertIn("remember", names)
+        self.assertIn("recall", names)
+        self.assertIn("done", names)
+        self.assertNotIn("extract", names)
+        self.assertNotIn("not_found", names)
+        self.assertNotIn("permission_denied", names)
+
+    def test_last_goal_retrieve_includes_extract(self) -> None:
+        from site_adaptive_webagent.runtime.tools import tools_for_goal
+        tools = tools_for_goal(is_last_goal=True, task_type="RETRIEVE")
+        names = {t["name"] for t in tools}
+        self.assertIn("extract", names)
+        self.assertIn("not_found", names)
+
+    def test_last_goal_navigate_excludes_extract(self) -> None:
+        from site_adaptive_webagent.runtime.tools import tools_for_goal
+        tools = tools_for_goal(is_last_goal=True, task_type="NAVIGATE")
+        names = {t["name"] for t in tools}
+        self.assertNotIn("extract", names)
+        self.assertIn("not_found", names)
+        self.assertIn("done", names)
+
+
+class ToolUseMessageTests(unittest.TestCase):
+    """Tool Use 메시지 포맷 헬퍼 테스트."""
+
+    def test_format_assistant_tool_use(self) -> None:
+        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
+        response = LLMToolResponse(
+            thought="I should click Issues",
+            tool_calls=[ToolCall(id="tc_1", name="click", arguments={"target": "Issues"})],
+        )
+        msg = format_assistant_tool_use(response)
+        self.assertEqual(msg["role"], "assistant")
+        self.assertEqual(len(msg["content"]), 2)
+        self.assertEqual(msg["content"][0]["type"], "text")
+        self.assertEqual(msg["content"][1]["type"], "tool_use")
+        self.assertEqual(msg["content"][1]["name"], "click")
+
+    def test_format_tool_result(self) -> None:
+        from site_adaptive_webagent.runtime.tools import format_tool_result
+        msg = format_tool_result("tc_1", "click 'Issues': navigated to /issues")
+        self.assertEqual(msg["role"], "user")
+        self.assertEqual(msg["content"][0]["type"], "tool_result")
+        self.assertEqual(msg["content"][0]["tool_use_id"], "tc_1")
+
+    def test_format_assistant_without_thought(self) -> None:
+        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
+        response = LLMToolResponse(
+            thought=None,
+            tool_calls=[ToolCall(id="tc_2", name="done", arguments={})],
+        )
+        msg = format_assistant_tool_use(response)
+        self.assertEqual(len(msg["content"]), 1)
+        self.assertEqual(msg["content"][0]["type"], "tool_use")
+
+
+class FakeLLMClientToolUseTests(unittest.TestCase):
+    """FakeLLMClient.complete_with_tools() 테스트."""
+
+    def test_parses_action_as_tool_name(self) -> None:
+        from site_adaptive_webagent.runtime.tools import LLMToolResponse
+        llm = FakeLLMClient('{"action": "click", "target": "Issues", "url": "/issues"}')
+        response = llm.complete_with_tools(system="test", messages=[], tools=[])
+        self.assertIsInstance(response, LLMToolResponse)
+        self.assertEqual(len(response.tool_calls), 1)
+        self.assertEqual(response.tool_calls[0].name, "click")
+        self.assertEqual(response.tool_calls[0].arguments, {"target": "Issues", "url": "/issues"})
+
+    def test_done_action_has_empty_arguments(self) -> None:
+        llm = FakeLLMClient('{"action": "done"}')
+        response = llm.complete_with_tools(system="test", messages=[], tools=[])
+        self.assertEqual(response.tool_calls[0].name, "done")
+        self.assertEqual(response.tool_calls[0].arguments, {})
+
+    def test_preserves_reasoning_as_thought(self) -> None:
+        llm = FakeLLMClient('{"action": "click", "target": "X", "reasoning": "I see X on the page"}')
+        response = llm.complete_with_tools(system="test", messages=[], tools=[])
+        self.assertEqual(response.thought, "I see X on the page")
+
+    def test_records_tools_in_calls(self) -> None:
+        llm = FakeLLMClient('{"action": "done"}')
+        fake_tools = [{"name": "done"}]
+        llm.complete_with_tools(system="sys", messages=[{"role": "user", "content": "hi"}], tools=fake_tools)
+        self.assertEqual(len(llm.calls), 1)
+        self.assertEqual(llm.calls[0]["tools"], fake_tools)
+
+
+class ToolUseSystemPromptTests(unittest.TestCase):
+    """build_tool_use_system_prompt() 테스트."""
+
+    def test_contains_strategy_not_actions(self) -> None:
+        from site_adaptive_webagent.runtime.llm import build_tool_use_system_prompt
+        prompt = build_tool_use_system_prompt(None)
+        self.assertIn("## Strategy", prompt)
+        self.assertNotIn("## Actions", prompt)
+        self.assertIn("remember", prompt)
+
+    def test_includes_prior_bundle(self) -> None:
+        from site_adaptive_webagent.runtime.llm import build_tool_use_system_prompt
+        bundle = PriorBundle(
+            site_profile=make_site_profile(),
+            page_types=[make_page_type()],
+            action_schemas=[make_action_schema()],
+            validator_rules=[], policy_rules=[], failure_patterns=[],
+        )
+        prompt = build_tool_use_system_prompt(bundle)
+        self.assertIn("gitlab", prompt)
+        self.assertIn("## Site Knowledge", prompt)
+
+
+class ObservationMessageTests(unittest.TestCase):
+    """build_observation_message() 테스트."""
+
+    def test_contains_structured_sections(self) -> None:
+        from site_adaptive_webagent.runtime.llm import SubGoal, build_observation_message
+        obs = PageObservation(
+            url="https://example.com/issues?label=bug",
+            title="Issues", headings=["Issues"], text_lines=["Bug #1"],
+            links=["Issues → /issues"], buttons=["Search [button]"],
+            inputs=["Search"], dropdown_options=["bug"],
+        )
+        msg = build_observation_message(
+            task="Find bug issues", observation=obs,
+            last_action_feedback="click Label: dropdown opened",
+            sub_goals=[SubGoal("Apply bug filter"), SubGoal("Navigate")],
+            current_goal_index=0,
+        )
+        self.assertIn("## Task", msg)
+        self.assertIn("## Current Objective (1/2)", msg)
+        self.assertIn("## Last Action Result", msg)
+        self.assertIn("## Page State", msg)
+        self.assertIn("label=bug", msg)
+        self.assertIn("## Interactive Elements", msg)
+
+    def test_no_action_feedback_omits_section(self) -> None:
+        from site_adaptive_webagent.runtime.llm import build_observation_message
+        obs = PageObservation(
+            url="https://example.com", title="Home",
+            headings=[], text_lines=[], links=[], buttons=[],
+        )
+        msg = build_observation_message(task="Test", observation=obs)
+        self.assertNotIn("## Last Action Result", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

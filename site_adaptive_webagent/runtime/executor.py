@@ -10,7 +10,8 @@ logger = logging.getLogger("webarena_verified")
 
 from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
 from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
-from .llm import LLMClient, SubGoal, build_action_request, build_plan, build_system_prompt, parse_llm_action
+from .llm import LLMClient, SubGoal, build_action_request, build_observation_message, build_plan, build_system_prompt, build_tool_use_system_prompt, parse_llm_action
+from .tools import format_assistant_tool_use, format_tool_result, tools_for_goal
 from .recovery import execute_recovery
 from .store import ExecutionStore
 from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, PageObservation, PriorBundle, StepRecord, ValidatorRule
@@ -210,7 +211,7 @@ async def _execute_with_llm(
 ) -> ExecutionOutcome:
     """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
     t_start = time.time()
-    system = build_system_prompt(prior_bundle)
+    system = build_tool_use_system_prompt(prior_bundle)
 
     sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm)
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
@@ -317,25 +318,25 @@ async def _execute_with_llm(
     if task_type == "RETRIEVE":
         obs = await observe_page(page)
         try:
-            notes_str = f"Collected notes: {task_notes}\n" if task_notes else ""
-            extract_response = llm.complete(
-                system=system,
-                messages=[{"role": "user", "content": (
-                    f"Task: {task}\n"
-                    f"All preparation steps are complete. Now extract the final answer.\n"
-                    f"{notes_str}"
-                    f"Current URL: {obs.url}\n"
-                    f"Page title: {obs.title}\n"
-                    f"Visible text (first 10): {obs.text_lines[:10]}\n"
-                    f"Links (first 10): {obs.links[:10]}\n"
-                    f"Buttons: {obs.buttons[:5]}\n"
-                    f"Cross-check your answer against the collected notes above. Include ALL matching items.\n"
-                    f"Respond with extract action containing the complete answer."
-                )}],
+            from .tools import _extract_tool
+            notes_str = f"\nRemembered facts: {task_notes}" if task_notes else ""
+            extract_msg = (
+                f"Task: {task}\n"
+                f"All preparation steps are complete. Now extract the final answer.{notes_str}\n"
+                f"Current URL: {obs.url}\n"
+                f"Page title: {obs.title}\n"
+                f"Visible text (first 10): {obs.text_lines[:10]}\n"
+                f"Links (first 10): {obs.links[:10]}\n"
+                f"Cross-check your answer against the remembered facts above. Include ALL matching items."
             )
-            action = parse_llm_action(extract_response)
-            if action.get("action") == "extract" and action.get("value"):
-                result = _handle_extract(action, task_type)
+            extract_response = llm.complete_with_tools(
+                system=system,
+                messages=[{"role": "user", "content": extract_msg}],
+                tools=[_extract_tool()],
+            )
+            if extract_response.tool_calls and extract_response.tool_calls[0].name == "extract":
+                args = extract_response.tool_calls[0].arguments
+                result = _handle_extract({"value": args.get("value", ""), "label": args.get("label", "")}, task_type)
                 elapsed = time.time() - t_start
                 logger.info("[LLM] final extract in %.1fs (%d steps)", elapsed, steps_used)
                 return result
@@ -403,31 +404,31 @@ async def _try_sub_goal(
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
 ) -> tuple[ExecutionOutcome | None, int]:
-    """단일 sub-goal을 step_budget 안에서 시도한다.
+    """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
     Returns:
         (None, steps_used) — sub-goal 완료 (done)
         (ExecutionOutcome, steps_used) — extract/failure/timeout 결과
         status="SUB_GOAL_FAILED"이면 retry 가능한 실패
     """
-    messages: list[dict[str, str]] = []
-    last_action_result = ""
+    messages: list[dict] = []
+    last_action_feedback = ""
     current_obs = await observe_page(page)
-    _action_history: list[str] = []  # 이번 attempt의 액션 이력 (retry 시 전달용)
+    _action_history: list[str] = []
     _MAX_MESSAGES = 10
-
+    tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type)
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
         retry_count = len(previous_failures)
         all_failures = " | ".join(previous_failures)
         if retry_count <= 3:
-            last_action_result = (
+            last_action_feedback = (
                 f"Attempt {retry_count} failed. Previous attempts: {all_failures}. "
                 "Do NOT repeat these actions. Try a different approach."
             )
         else:
-            last_action_result = (
+            last_action_feedback = (
                 f"This goal has failed {retry_count} times. Previous attempts: {all_failures}. "
                 "Try a COMPLETELY different method. Do NOT repeat any previous actions."
             )
@@ -435,77 +436,56 @@ async def _try_sub_goal(
     for step in range(step_budget):
         _log_step_observation(step, current_obs, sub_goals, goal_index)
 
-        user_msg = build_action_request(
-            task=task, observation=current_obs, last_action_result=last_action_result,
+        user_msg = build_observation_message(
+            task=task, observation=current_obs, last_action_feedback=last_action_feedback,
             sub_goals=sub_goals, current_goal_index=goal_index,
-            notes=task_notes or None,
         )
         messages.append({"role": "user", "content": user_msg})
-        # 컨텍스트 비대화 방지: 최근 N개 메시지만 유지
         if len(messages) > _MAX_MESSAGES:
             messages = messages[-_MAX_MESSAGES:]
-        last_action_result = ""
+        last_action_feedback = ""
 
-        action, messages = _get_llm_action(llm, system, messages)
-        action_type = action.get("action", "not_found")
-        _action_history.append(f"{action_type}({action.get('target', '')})")
-        reasoning = action.get("reasoning", "")
-        logger.info("[LLM] step=%d  action=%s  reasoning=%r",
-                    step + 1, action_type, reasoning[:200])
-        # reasoning에서 NOTE: 감지 → task_notes에 저장
-        if task_notes is not None and "NOTE:" in reasoning:
-            for part in reasoning.split("NOTE:")[1:]:
-                note_text = part.strip().split(".")[0].strip()  # 첫 문장만
-                if note_text:
-                    task_notes.append(note_text)
-                    logger.info("[LLM] step=%d  auto-note: %s", step + 1, note_text)
+        action_name, args, thought, tool_id, messages = _get_tool_action(
+            llm, system, messages, tools,
+        )
+        _action_history.append(f"{action_name}({args.get('target', args.get('keyword', args.get('fact', '')[:30]))})")
+        logger.info("[LLM] step=%d  action=%s  thought=%r",
+                    step + 1, action_name, (thought or "")[:200])
 
         # --- Terminal actions ---
-        if action_type == "done":
+        if action_name == "done":
             logger.info("[LLM] sub-goal done [%s]: %r", sub_goal.goal_type, sub_goal.goal)
             return None, step + 1
 
-        if action_type == "extract":
-            if is_last_goal and task_type == "RETRIEVE":
-                return _handle_extract(action, task_type), step + 1
-            logger.info("[LLM] extract in non-final goal → rejected")
-            last_action_result = (
-                f"Cannot use extract in intermediate objective ({goal_index + 1}/{len(sub_goals)}). "
-                "Use action commands (click, fill, goto, search, done, goback) instead."
-            )
-            current_obs = await observe_page(page)
+        if action_name == "extract":
+            return _handle_extract({"value": args.get("value", ""), "label": args.get("label", "")}, task_type), step + 1
+
+        if action_name in _FAILURE_ACTION_TO_STATUS:
+            reason = args.get("reason", action_name)
+            logger.info("[LLM] %s → sub-goal failed", action_name)
+            return ExecutionOutcome(
+                task_type=task_type, status="SUB_GOAL_FAILED",
+                error_details=f"{action_name}: {reason[:200]}",
+            ), step + 1
+
+        # --- Cognition tools ---
+        if action_name == "remember":
+            fact = args.get("fact", "")
+            if fact and task_notes is not None:
+                task_notes.append(fact)
+            feedback = f"Remembered: {fact}" if fact else "remember requires a 'fact' to save."
+            logger.info("[LLM] step=%d  remember=%r", step + 1, fact)
+            messages.append(format_tool_result(tool_id, feedback))
             continue
 
-        if action_type in _FAILURE_ACTION_TO_STATUS:
-            if is_last_goal:
-                reason = action.get("reasoning", action_type)
-                logger.info("[LLM] %s in final goal → sub-goal failed", action_type)
-                return ExecutionOutcome(
-                    task_type=task_type, status="SUB_GOAL_FAILED",
-                    error_details=f"{action_type}: {reason[:200]}",
-                ), step + 1
-            logger.info("[LLM] %s in non-final goal → rejected", action_type)
-            last_action_result = (
-                f"Cannot use failure actions in intermediate objective ({goal_index + 1}/{len(sub_goals)}). "
-                "Use action commands (click, fill, goto, search, done, goback) instead."
-            )
-            current_obs = await observe_page(page)
+        if action_name == "recall":
+            notes_text = "\n".join(f"- {n}" for n in task_notes) if task_notes else "(no notes saved yet)"
+            logger.info("[LLM] step=%d  recall=%d notes", step + 1, len(task_notes or []))
+            messages.append(format_tool_result(tool_id, f"Saved notes:\n{notes_text}"))
             continue
 
-        # --- Note action (정보 수집 — 전체 태스크 동안 유지) ---
-        if action_type == "note":
-            note_value = action.get("value", "")
-            if note_value and task_notes is not None:
-                task_notes.append(note_value)
-                last_action_result = f"Noted: {note_value}"
-            else:
-                last_action_result = "note requires a 'value' to save."
-            logger.info("[LLM] step=%d  note=%r", step + 1, note_value)
-            continue
-
-        # --- Observe action (키워드 필터링된 관측) ---
-        if action_type == "observe":
-            keyword = (action.get("target") or "").lower()
+        if action_name == "observe":
+            keyword = (args.get("keyword") or "").lower()
             filtered: list[str] = []
             if keyword:
                 for item in current_obs.links:
@@ -520,33 +500,48 @@ async def _try_sub_goal(
                 for item in current_obs.dropdown_options:
                     if keyword in item.lower():
                         filtered.append(f"[dropdown] {item}")
-                last_action_result = f"Filtered observation for '{keyword}': {filtered}" if filtered else f"No matches found for '{keyword}'"
+                feedback = f"Filtered observation for '{keyword}': {filtered}" if filtered else f"No matches found for '{keyword}'"
             else:
-                last_action_result = "observe requires a 'target' keyword to filter by."
+                feedback = "observe requires a 'keyword' to filter by."
             logger.info("[LLM] step=%d  observe=%r  results=%d", step + 1, keyword, len(filtered))
+            messages.append(format_tool_result(tool_id, feedback))
             continue
 
         # --- Browser actions ---
+        action_dict = {
+            "target": args.get("target", ""),
+            "value": args.get("value", ""),
+            "url": args.get("url", ""),
+            "element_type": args.get("element_type", ""),
+            "submit": args.get("submit", False),
+            "query": args.get("query", ""),
+        }
+        # search tool uses 'query' not 'target'
+        if action_name == "search" and not action_dict["target"]:
+            action_dict["target"] = action_dict["query"]
+
         prev_state = _capture_page_state(current_obs)
         action_result = await _execute_browser_action(
-            action_type=action_type, action=action, page=page,
+            action_type=action_name, action=action_dict, page=page,
             current_obs=current_obs,
         )
 
         if action_result.should_continue:
             current_obs = action_result.observation or current_obs
-            last_action_result = action_result.feedback
-            logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
+            feedback = action_result.feedback
+            logger.info("[LLM] step=%d  result=%s", step + 1, feedback)
+            messages.append(format_tool_result(tool_id, feedback))
             continue
 
         current_obs = await observe_page(page)
         is_inpage = action_result.succeeded and current_obs.url == prev_state.url
         if is_inpage:
             current_obs = await _wait_for_dom_stable(page, prev_state, current_obs)
-        last_action_result = _summarize_action_result(
-            action_type, action, action_result.succeeded, current_obs, prev_state,
+        feedback = _summarize_action_result(
+            action_name, action_dict, action_result.succeeded, current_obs, prev_state,
         )
-        logger.info("[LLM] step=%d  result=%s", step + 1, last_action_result)
+        logger.info("[LLM] step=%d  result=%s", step + 1, feedback)
+        last_action_feedback = feedback
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
     return ExecutionOutcome(
@@ -1005,24 +1000,27 @@ def _summarize_action_result(
 # LLM helpers
 # ---------------------------------------------------------------------------
 
-def _get_llm_action(
-    llm: LLMClient, system: str, messages: list[dict[str, str]],
-) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """LLM 호출 + 파싱. 실패 시 1회 재시도."""
-    response = llm.complete(system=system, messages=messages)
-    messages.append({"role": "assistant", "content": response})
+def _get_tool_action(
+    llm: LLMClient, system: str, messages: list[dict], tools: list[dict],
+) -> tuple[str, dict[str, Any], str, str, list[dict]]:
+    """Tool Use LLM 호출. tool call이 없으면 1회 재시도.
 
-    action = parse_llm_action(response)
-    reasoning = action.get("reasoning", "")
+    Returns: (action_name, arguments, thought, tool_call_id, updated_messages)
+    """
+    response = llm.complete_with_tools(system=system, messages=messages, tools=tools)
+    messages.append(format_assistant_tool_use(response))
 
-    if "파싱 실패" in reasoning:
-        logger.info("[LLM] parse failed, retrying")
-        messages.append({"role": "user", "content": "Your response was truncated or malformed. Reply with valid JSON only."})
-        response = llm.complete(system=system, messages=messages)
-        messages.append({"role": "assistant", "content": response})
-        action = parse_llm_action(response)
+    if not response.tool_calls:
+        logger.info("[LLM] no tool call, nudging")
+        messages.append({"role": "user", "content": "You must call exactly one tool. Choose a tool now."})
+        response = llm.complete_with_tools(system=system, messages=messages, tools=tools)
+        messages.append(format_assistant_tool_use(response))
 
-    return action, messages
+    if not response.tool_calls:
+        return "not_found", {}, "", "none", messages
+
+    tc = response.tool_calls[0]
+    return tc.name, tc.arguments, response.thought or "", tc.id, messages
 
 
 def _log_step_observation(

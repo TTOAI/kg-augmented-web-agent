@@ -1,6 +1,7 @@
 """테스트용 fake 데이터 팩토리 및 Playwright stub."""
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -213,6 +214,23 @@ class FakeLLMClient:
         response = self._responses[min(self._index, len(self._responses) - 1)]
         self._index += 1
         return response
+
+    def complete_with_tools(
+        self, *, system: str, messages: list[dict], tools: list[dict],
+    ) -> "LLMToolResponse":
+        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall
+
+        self.calls.append({"system": system, "messages": list(messages), "tools": tools})
+        response_str = self._responses[min(self._index, len(self._responses) - 1)]
+        self._index += 1
+        parsed = json.loads(response_str)
+        action_name = parsed.pop("action", "done")
+        reasoning = parsed.pop("reasoning", None)
+        return LLMToolResponse(
+            thought=reasoning,
+            tool_calls=[ToolCall(id=f"fake_{self._index}", name=action_name, arguments=parsed)],
+            raw_content=[],
+        )
 
 
 # --- Playwright stub (테스트용 가짜 페이지) ---
