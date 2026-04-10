@@ -13,7 +13,7 @@ import re
 from typing import Any, Protocol, runtime_checkable
 
 from .tools import LLMToolResponse, ToolCall
-from .types import PriorBundle
+from .types import KBBundle
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +246,7 @@ class SubGoal:
         return f"{self.goal} [{self.goal_type}]"
 
 
-def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient, prior_bundle: PriorBundle | None = None) -> list[SubGoal]:
+def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient, kb_bundle: KBBundle | None = None) -> list[SubGoal]:
     """태스크를 2~5개 sub-goal로 분해한다. LLM 1회 호출."""
     system = (
         "You are a web task planner. Break down a web automation task into 2-5 sub-goals.\n"
@@ -279,12 +279,12 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient, p
         lines.append(f"Buttons: {observation.buttons[:10]}")
     if observation.inputs:
         lines.append(f"Input fields: {observation.inputs[:10]}")
-    if prior_bundle is not None:
-        if prior_bundle.page_types:
-            pages_str = ", ".join(f"{pt.page_key} ({pt.description[:40]})" for pt in prior_bundle.page_types)
+    if kb_bundle is not None:
+        if kb_bundle.page_types:
+            pages_str = ", ".join(f"{pt.page_key} ({pt.description[:40]})" for pt in kb_bundle.page_types)
             lines.append(f"Known pages: {pages_str}")
-        if prior_bundle.action_schemas:
-            actions_str = ", ".join(f"{a.action_key}: {a.description[:50]}" for a in prior_bundle.action_schemas)
+        if kb_bundle.action_schemas:
+            actions_str = ", ".join(f"{a.action_key}: {a.description[:50]}" for a in kb_bundle.action_schemas)
             lines.append(f"Available actions: {actions_str}")
 
     messages = [{"role": "user", "content": "\n".join(lines)}]
@@ -324,7 +324,7 @@ def parse_llm_action(response_text: str) -> dict[str, Any]:
 # Tool Use prompt builders
 # ---------------------------------------------------------------------------
 
-def build_tool_use_system_prompt(prior_bundle: PriorBundle | None) -> str:
+def build_tool_use_system_prompt(kb_bundle: KBBundle | None) -> str:
     """Tool Use 모드용 system prompt. 규칙 대신 전략을 전달한다."""
     lines = [
         "You are a web automation agent controlling a browser via tools.",
@@ -339,24 +339,24 @@ def build_tool_use_system_prompt(prior_bundle: PriorBundle | None) -> str:
         "7. Before extract or done, use recall to verify completeness.",
     ]
 
-    if prior_bundle is not None:
-        profile = prior_bundle.site_profile
+    if kb_bundle is not None:
+        profile = kb_bundle.site_profile
         lines += [
             "",
             "## Site Knowledge",
             f"Site: {profile.display_name}  Base URL: {profile.base_url}  Auth: {profile.auth_type}",
         ]
 
-        if prior_bundle.page_types:
+        if kb_bundle.page_types:
             lines.append("")
-            for pt in prior_bundle.page_types:
+            for pt in kb_bundle.page_types:
                 urls = ", ".join(pt.url_patterns) if pt.url_patterns else ""
                 desc = f" ({pt.description})" if pt.description else ""
                 lines.append(f"  Page: {pt.display_name}{desc} → {urls}")
 
-        if prior_bundle.action_schemas:
+        if kb_bundle.action_schemas:
             lines.append("")
-            for action in prior_bundle.action_schemas:
+            for action in kb_bundle.action_schemas:
                 lines.append(f"  Action: {action.display_name} — {action.description}")
 
     return "\n".join(lines)

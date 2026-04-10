@@ -6,7 +6,7 @@ from typing import Any, Literal
 from .enums import (
     ApprovalEventStatus,
     ApprovalState,
-    PriorConfidence,
+    KBConfidence,
     RecoveryResult,
     SiteOnboardingStatus,
     StepRecordStatus,
@@ -96,19 +96,19 @@ class RunContext:
 
 @dataclass(slots=True)
 class SiteProfile:
-    """사이트 수준 prior."""
+    """사이트 수준 KB."""
 
     site_id: str
     display_name: str
     base_url: str
     auth_type: str
     onboarding_status: SiteOnboardingStatus
-    prior_confidence: PriorConfidence
+    kb_confidence: KBConfidence
 
 
 @dataclass(slots=True)
 class PageType:
-    """페이지 유형 prior — 사이트 그래프의 노드."""
+    """페이지 유형 KB — 사이트 그래프의 노드."""
 
     page_type_id: str
     site_id: str
@@ -170,8 +170,8 @@ class FailurePattern:
 
 
 @dataclass(slots=True)
-class PriorBundle:
-    """선택된 site prior 묶음."""
+class KBBundle:
+    """선택된 site KB 묶음."""
 
     site_profile: SiteProfile
     page_types: list[PageType] = field(default_factory=list)
@@ -193,7 +193,7 @@ class TaskRun:
     status: TaskRunStatus
     started_at: str
     ended_at: str
-    prior_used: bool
+    kb_used: bool
     validator_used: bool
     recovery_used: bool
 

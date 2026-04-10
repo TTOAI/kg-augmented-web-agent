@@ -3,14 +3,14 @@ from __future__ import annotations
 import sqlite3
 
 
-PRIOR_STORE_SCHEMA = """
+KB_STORE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS site_profiles (
     site_id TEXT PRIMARY KEY,
     display_name TEXT NOT NULL,
     base_url TEXT NOT NULL,
     auth_type TEXT NOT NULL,
     onboarding_status TEXT NOT NULL,
-    prior_confidence TEXT NOT NULL
+    kb_confidence TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS page_types (
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS task_runs (
     status TEXT NOT NULL,
     started_at TEXT NOT NULL,
     ended_at TEXT NOT NULL,
-    prior_used INTEGER NOT NULL,
+    kb_used INTEGER NOT NULL,
     validator_used INTEGER NOT NULL,
     recovery_used INTEGER NOT NULL,
     FOREIGN KEY (site_id) REFERENCES site_profiles(site_id)
@@ -131,6 +131,6 @@ CREATE TABLE IF NOT EXISTS approval_events (
 def bootstrap_runtime_schema(connection: sqlite3.Connection) -> None:
     """runtime schema를 생성한다."""
     connection.execute("PRAGMA foreign_keys = ON")
-    connection.executescript(PRIOR_STORE_SCHEMA)
+    connection.executescript(KB_STORE_SCHEMA)
     connection.executescript(EXECUTION_MEMORY_SCHEMA)
     connection.commit()

@@ -3,7 +3,7 @@
 from .enums import (
     ApprovalEventStatus,
     ApprovalState,
-    PriorConfidence,
+    KBConfidence,
     RecoveryResult,
     RouteKind,
     SiteOnboardingStatus,
@@ -14,7 +14,7 @@ from .enums import (
 from .orchestrator import RuntimeOrchestrator, RuntimeRunResult
 from .router import RouteDecision, RouteInput, StrategyRouter
 from .schema import bootstrap_runtime_schema
-from .store import ExecutionStore, PriorStore
+from .store import ExecutionStore, KBStore
 from .types import (
     ActionSchema,
     ApprovalEvent,
@@ -22,10 +22,10 @@ from .types import (
     ExecutionOutcome,
     FailurePattern,
     IntentPlan,
+    KBBundle,
     PageObservation,
     PageType,
     PolicyRule,
-    PriorBundle,
     RecoveryRecord,
     RunContext,
     RunRequest,
@@ -49,12 +49,12 @@ __all__ = [
     "ExecutionStore",
     "FailurePattern",
     "IntentPlan",
+    "KBBundle",
+    "KBConfidence",
+    "KBStore",
     "PageObservation",
     "PageType",
     "PolicyRule",
-    "PriorBundle",
-    "PriorConfidence",
-    "PriorStore",
     "RecoveryRecord",
     "RecoveryResult",
     "RouteDecision",

@@ -7,7 +7,7 @@ import unittest
 from site_adaptive_webagent.runtime.enums import (
     ApprovalEventStatus,
     ApprovalState,
-    PriorConfidence,
+    KBConfidence,
     RecoveryResult,
     RouteKind,
     SiteOnboardingStatus,
@@ -23,7 +23,7 @@ from site_adaptive_webagent.runtime.types import (
     FailurePattern,
     PageType,
     PolicyRule,
-    PriorBundle,
+    KBBundle,
     RecoveryRecord,
     RunContext,
     RunRequest,
@@ -48,9 +48,9 @@ class RuntimeContractTests(unittest.TestCase):
             {"site_id", "page_type_id", "task_family", "state_summary", "approval_state"},
         )
 
-    def test_prior_bundle_has_documented_fields(self) -> None:
+    def test_kb_bundle_has_documented_fields(self) -> None:
         self.assertEqual(
-            {field.name for field in fields(PriorBundle)},
+            {field.name for field in fields(KBBundle)},
             {
                 "site_profile",
                 "page_types",
@@ -61,7 +61,7 @@ class RuntimeContractTests(unittest.TestCase):
             },
         )
 
-    def test_prior_entities_have_documented_fields(self) -> None:
+    def test_kb_entities_have_documented_fields(self) -> None:
         entity_fields = {
             SiteProfile: {
                 "site_id",
@@ -69,7 +69,7 @@ class RuntimeContractTests(unittest.TestCase):
                 "base_url",
                 "auth_type",
                 "onboarding_status",
-                "prior_confidence",
+                "kb_confidence",
             },
             PageType: {
                 "page_type_id",
@@ -131,7 +131,7 @@ class RuntimeContractTests(unittest.TestCase):
                 "status",
                 "started_at",
                 "ended_at",
-                "prior_used",
+                "kb_used",
                 "validator_used",
                 "recovery_used",
             },
@@ -174,7 +174,7 @@ class RuntimeContractTests(unittest.TestCase):
                 self.assertEqual({field.name for field in fields(entity_type)}, expected_fields)
 
     def test_documented_enums_match_expected_values(self) -> None:
-        self.assertEqual([member.value for member in PriorConfidence], ["sufficient", "insufficient"])
+        self.assertEqual([member.value for member in KBConfidence], ["sufficient", "insufficient"])
         self.assertEqual([member.value for member in ApprovalState], ["not_required", "requested", "approved", "rejected"])
         self.assertEqual(
             [member.value for member in TaskRunStatus],
@@ -187,7 +187,7 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual([member.value for member in ApprovalEventStatus], ["requested", "approved", "rejected"])
         self.assertEqual(
             [member.value for member in RouteKind],
-            ["fast_path", "partial_prior", "fallback", "approval_first"],
+            ["fast_path", "partial_kb", "fallback", "approval_first"],
         )
 
     def test_run_context_accepts_unresolved_page_type(self) -> None:
@@ -210,7 +210,7 @@ class RuntimeSchemaTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.connection.close()
 
-    def test_bootstrap_creates_prior_and_execution_tables(self) -> None:
+    def test_bootstrap_creates_kb_and_execution_tables(self) -> None:
         tables = {
             row[0]
             for row in self.connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -255,8 +255,8 @@ class RuntimeSchemaTests(unittest.TestCase):
                 }
                 self.assertEqual(refs, expected_refs)
 
-    def test_prior_and_execution_groups_are_separate(self) -> None:
-        prior_tables = {
+    def test_kb_and_execution_groups_are_separate(self) -> None:
+        kb_tables = {
             "site_profiles",
             "page_types",
             "action_schemas",
@@ -276,9 +276,9 @@ class RuntimeSchemaTests(unittest.TestCase):
             row[0]
             for row in self.connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-        self.assertTrue(prior_tables.issubset(tables))
+        self.assertTrue(kb_tables.issubset(tables))
         self.assertTrue(execution_tables.issubset(tables))
-        self.assertTrue(prior_tables.isdisjoint(execution_tables))
+        self.assertTrue(kb_tables.isdisjoint(execution_tables))
 
 
 class StrategyRouterTests(unittest.TestCase):
@@ -288,7 +288,7 @@ class StrategyRouterTests(unittest.TestCase):
     def _base_input(self, **overrides) -> RouteInput:
         defaults = dict(
             site_onboarding_status=SiteOnboardingStatus.ACTIVE,
-            prior_confidence=PriorConfidence.SUFFICIENT,
+            kb_confidence=KBConfidence.SUFFICIENT,
             approval_required=False,
             action_schema_available=True,
             page_type_id="dashboard",
@@ -300,13 +300,13 @@ class StrategyRouterTests(unittest.TestCase):
         decision = self.router.route(self._base_input())
         self.assertEqual(decision.route, RouteKind.FAST_PATH)
 
-    def test_selects_partial_prior_when_action_schema_missing(self) -> None:
+    def test_selects_partial_kb_when_action_schema_missing(self) -> None:
         decision = self.router.route(self._base_input(action_schema_available=False))
-        self.assertEqual(decision.route, RouteKind.PARTIAL_PRIOR)
+        self.assertEqual(decision.route, RouteKind.PARTIAL_KB)
 
-    def test_selects_partial_prior_when_confidence_is_insufficient(self) -> None:
-        decision = self.router.route(self._base_input(prior_confidence=PriorConfidence.INSUFFICIENT))
-        self.assertEqual(decision.route, RouteKind.PARTIAL_PRIOR)
+    def test_selects_partial_kb_when_confidence_is_insufficient(self) -> None:
+        decision = self.router.route(self._base_input(kb_confidence=KBConfidence.INSUFFICIENT))
+        self.assertEqual(decision.route, RouteKind.PARTIAL_KB)
 
     def test_selects_fallback_when_page_type_is_unresolved(self) -> None:
         decision = self.router.route(self._base_input(page_type_id="unresolved"))

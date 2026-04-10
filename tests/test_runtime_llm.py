@@ -5,16 +5,16 @@ import json
 import sqlite3
 import unittest
 
-from site_adaptive_webagent.runtime.enums import PriorConfidence, SiteOnboardingStatus, TaskRunStatus
+from site_adaptive_webagent.runtime.enums import KBConfidence, SiteOnboardingStatus, TaskRunStatus
 from site_adaptive_webagent.runtime.intent import analyze_intent
 from site_adaptive_webagent.runtime.llm import classify_task_type, parse_llm_action
 from site_adaptive_webagent.runtime.orchestrator import RuntimeOrchestrator
 from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
-from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
+from site_adaptive_webagent.runtime.store import ExecutionStore, KBStore
 from site_adaptive_webagent.runtime.types import (
     BrowserSession,
     PageObservation,
-    PriorBundle,
+    KBBundle,
     RunContext,
     RunRequest,
 )
@@ -73,7 +73,7 @@ def _seed_site(conn: sqlite3.Connection, *, site_id: str = "gitlab") -> None:
     conn.execute(
         "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?)",
         (profile.site_id, profile.display_name, profile.base_url, profile.auth_type,
-         profile.onboarding_status, profile.prior_confidence),
+         profile.onboarding_status, profile.kb_confidence),
     )
     schema = make_action_schema(site_id=site_id)
     conn.execute(
@@ -110,7 +110,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         _seed_site(conn)
 
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "extract", "value": "42", "label": "Todo Count"}'])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(
             url="https://example.com/dashboard",
@@ -139,7 +139,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         _seed_site(conn)
 
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "not_found", "reasoning": "데이터가 없습니다"}'])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="https://example.com", title_text="Home")
         plan = analyze_intent("Find the nonexistent metric")
@@ -168,7 +168,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             '{"action": "click", "target": "Dashboard"}',
             '{"action": "extract", "value": "7", "label": "Open Issues"}',
         ])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(
             url="https://example.com",
@@ -191,13 +191,13 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         assert result.execution_outcome is not None
         self.assertEqual(result.execution_outcome.status, "SUCCESS")
 
-    async def test_llm_called_with_system_prompt_containing_prior(self) -> None:
-        """LLM 호출 시 system prompt에 prior 정보가 포함된다."""
+    async def test_llm_called_with_system_prompt_containing_kb(self) -> None:
+        """LLM 호출 시 system prompt에 KB 정보가 포함된다."""
         conn = _make_connection()
         _seed_site(conn)
 
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "extract", "value": "done", "label": "result"}'])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="https://example.com", title_text="Home")
         plan = analyze_intent("Find the todo count")
@@ -228,7 +228,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             '{"action": "fill", "target": "Username", "value": "admin", "submit": false}',
             '{"action": "extract", "value": "Welcome, admin", "label": "greeting"}',
         ])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(
             url="https://example.com/login",
@@ -263,7 +263,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             '{"action": "click", "target": "Open"}',
             '{"action": "extract", "value": "42", "label": "open count"}',
         ])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(
             url="https://example.com",
@@ -296,7 +296,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         _seed_site(conn)
 
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "permission_denied", "reasoning": "No admin role"}'])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="http://localhost:8023/admin", title_text="Admin")
         plan = analyze_intent("Open admin settings")
@@ -320,7 +320,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         _seed_site(conn)
 
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "action_not_allowed", "reasoning": "Billing disabled"}'])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="http://localhost:8023/", title_text="GitLab")
         plan = analyze_intent("Navigate to billing page")
@@ -344,7 +344,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         _seed_site(conn)
 
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "done"}'])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(
             url="http://localhost:8023/dashboard/todos",
@@ -371,7 +371,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         _seed_site(conn)
 
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "done"}'])
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
         page = make_fake_page(url="http://localhost:8023/", title_text="GitLab")
         plan = analyze_intent("Click submit button")
@@ -394,7 +394,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         conn = _make_connection()
         _seed_site(conn)
 
-        orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=None)
+        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=None)
 
         page = make_fake_page(
             url="https://example.com/dashboard",
@@ -577,9 +577,9 @@ class ToolUseSystemPromptTests(unittest.TestCase):
         self.assertNotIn("## Actions", prompt)
         self.assertIn("remember", prompt)
 
-    def test_includes_prior_bundle(self) -> None:
+    def test_includes_kb_bundle(self) -> None:
         from site_adaptive_webagent.runtime.llm import build_tool_use_system_prompt
-        bundle = PriorBundle(
+        bundle = KBBundle(
             site_profile=make_site_profile(),
             page_types=[make_page_type()],
             action_schemas=[make_action_schema()],

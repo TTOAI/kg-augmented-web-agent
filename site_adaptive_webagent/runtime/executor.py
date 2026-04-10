@@ -14,7 +14,7 @@ from .llm import LLMClient, SubGoal, build_observation_message, build_plan, buil
 from .tools import format_assistant_tool_use, format_tool_result, replan_tool, tools_for_goal
 from .recovery import execute_recovery
 from .store import ExecutionStore
-from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, PageObservation, PriorBundle, StepRecord, ValidatorRule
+from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, KBBundle, PageObservation, StepRecord, ValidatorRule
 from .validator import validate
 
 _FAILURE_ACTION_TO_STATUS: dict[str, str] = {
@@ -48,14 +48,14 @@ async def execute_fast_path(
     browser_session: BrowserSession | None = None,
     task: str = "",
     llm: LLMClient | None = None,
-    prior_bundle: PriorBundle | None = None,
+    kb_bundle: KBBundle | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """fast path 실행."""
     if browser_session is not None:
         return await _run_with_browser(
             task_run_id=task_run_id, step_type="fast_path",
             browser_session=browser_session, execution_store=execution_store,
-            task=task, llm=llm, prior_bundle=prior_bundle,
+            task=task, llm=llm, kb_bundle=kb_bundle,
         )
 
     step = _make_step(task_run_id, "fast_path")
@@ -85,25 +85,25 @@ async def execute_fast_path(
     return TaskRunStatus.HANDOFF, validator_used, recovery_used, None
 
 
-async def execute_partial_prior(
+async def execute_partial_kb(
     *,
     task_run_id: str,
     execution_store: ExecutionStore,
     browser_session: BrowserSession | None = None,
     task: str = "",
     llm: LLMClient | None = None,
-    prior_bundle: PriorBundle | None = None,
+    kb_bundle: KBBundle | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
-    """partial prior path 실행."""
+    """partial KB path 실행."""
     if browser_session is not None:
         return await _run_with_browser(
-            task_run_id=task_run_id, step_type="partial_prior",
+            task_run_id=task_run_id, step_type="partial_kb",
             browser_session=browser_session, execution_store=execution_store,
-            task=task, llm=llm, prior_bundle=prior_bundle,
+            task=task, llm=llm, kb_bundle=kb_bundle,
         )
 
-    step = _make_step(task_run_id, "partial_prior")
-    execution_store.save_step_record(_finish_step(step, StepRecordStatus.FAILED, "prior 불충분으로 실행 실패"))
+    step = _make_step(task_run_id, "partial_kb")
+    execution_store.save_step_record(_finish_step(step, StepRecordStatus.FAILED, "KB 불충분으로 실행 실패"))
     return TaskRunStatus.FAILED, False, False, None
 
 
@@ -114,14 +114,14 @@ async def execute_fallback(
     browser_session: BrowserSession | None = None,
     task: str = "",
     llm: LLMClient | None = None,
-    prior_bundle: PriorBundle | None = None,
+    kb_bundle: KBBundle | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
     """fallback path 실행."""
     if browser_session is not None:
         return await _run_with_browser(
             task_run_id=task_run_id, step_type="fallback",
             browser_session=browser_session, execution_store=execution_store,
-            task=task, llm=llm, prior_bundle=prior_bundle,
+            task=task, llm=llm, kb_bundle=kb_bundle,
         )
 
     step = _make_step(task_run_id, "fallback")
@@ -159,7 +159,7 @@ async def _run_with_browser(
     execution_store: ExecutionStore,
     task: str = "",
     llm: LLMClient | None = None,
-    prior_bundle: PriorBundle | None = None,
+    kb_bundle: KBBundle | None = None,
 ) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome]:
     """브라우저를 실행하고 ExecutionOutcome을 TaskRunStatus로 매핑한다."""
     primary_page = browser_session.pages[0]
@@ -176,7 +176,7 @@ async def _run_with_browser(
             task=task or browser_session.plan.target_phrase or "complete the task",
             task_type=browser_session.plan.task_type,
             page=primary_page, observation=observation,
-            llm=llm, prior_bundle=prior_bundle,
+            llm=llm, kb_bundle=kb_bundle,
         )
     else:
         outcome = await execute_plan(
@@ -206,15 +206,15 @@ async def _execute_with_llm(
     page: Any,
     observation: PageObservation,
     llm: LLMClient,
-    prior_bundle: PriorBundle | None,
+    kb_bundle: KBBundle | None,
     max_steps: int = 50,
 ) -> ExecutionOutcome:
     """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
     t_start = time.time()
-    system = build_tool_use_system_prompt(prior_bundle)
-    has_prior = prior_bundle is not None
+    system = build_tool_use_system_prompt(kb_bundle)
+    has_kb = kb_bundle is not None
 
-    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm, prior_bundle=prior_bundle)
+    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm, kb_bundle=kb_bundle)
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
@@ -244,7 +244,7 @@ async def _execute_with_llm(
                 is_last_goal=(goal_idx == len(sub_goals) - 1),
                 task_notes=task_notes,
                 start_url=checkpoint_stack[0],
-                has_prior=has_prior,
+                has_kb=has_kb,
             )
             steps_used += used
 
@@ -376,7 +376,7 @@ async def _execute_with_llm(
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
                     start_url=checkpoint_stack[0],
-                    has_prior=has_prior,
+                    has_kb=has_kb,
                 )
                 steps_used += used
                 if result is not None and result.status != "SUB_GOAL_FAILED":
@@ -409,7 +409,7 @@ async def _try_sub_goal(
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
     start_url: str = "",
-    has_prior: bool = False,
+    has_kb: bool = False,
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
@@ -423,7 +423,7 @@ async def _try_sub_goal(
     current_obs = await observe_page(page)
     _action_history: list[str] = []
     _MAX_MESSAGES = 10
-    tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type, has_prior=has_prior)
+    tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type, has_kb=has_kb)
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:

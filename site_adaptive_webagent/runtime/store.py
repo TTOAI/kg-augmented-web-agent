@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from .enums import PriorConfidence, SiteOnboardingStatus, TaskRunStatus
+from .enums import KBConfidence, SiteOnboardingStatus, TaskRunStatus
 from .types import (
     ActionSchema,
     ApprovalEvent,
     FailurePattern,
+    KBBundle,
     PageType,
     PolicyRule,
-    PriorBundle,
     RecoveryRecord,
     SiteProfile,
     StepRecord,
@@ -20,8 +20,8 @@ from .types import (
 )
 
 
-class PriorStore:
-    """prior 테이블 조회 전용 store."""
+class KBStore:
+    """KB 테이블 조회 전용 store."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._conn = connection
@@ -32,16 +32,16 @@ class PriorStore:
             return
         self._conn.execute(
             "INSERT INTO site_profiles "
-            "(site_id, display_name, base_url, auth_type, onboarding_status, prior_confidence) "
+            "(site_id, display_name, base_url, auth_type, onboarding_status, kb_confidence) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (site_id, site_id, "", "none",
-             SiteOnboardingStatus.DRAFT, PriorConfidence.INSUFFICIENT),
+             SiteOnboardingStatus.DRAFT, KBConfidence.INSUFFICIENT),
         )
         self._conn.commit()
 
     def get_site_profile(self, site_id: str) -> SiteProfile | None:
         row = self._conn.execute(
-            "SELECT site_id, display_name, base_url, auth_type, onboarding_status, prior_confidence "
+            "SELECT site_id, display_name, base_url, auth_type, onboarding_status, kb_confidence "
             "FROM site_profiles WHERE site_id = ?",
             (site_id,),
         ).fetchone()
@@ -53,7 +53,7 @@ class PriorStore:
             base_url=row[2],
             auth_type=row[3],
             onboarding_status=SiteOnboardingStatus(row[4]),
-            prior_confidence=PriorConfidence(row[5]),
+            kb_confidence=KBConfidence(row[5]),
         )
 
     def get_page_types(self, site_id: str) -> list[PageType]:
@@ -153,12 +153,12 @@ class PriorStore:
             for row in rows
         ]
 
-    def get_prior_bundle(self, site_id: str, task_family: str) -> PriorBundle | None:
-        """site_id 기준 prior 전체를 묶어 반환한다. site_profile이 없으면 None."""
+    def get_kb_bundle(self, site_id: str, task_family: str) -> KBBundle | None:
+        """site_id 기준 KB 전체를 묶어 반환한다. site_profile이 없으면 None."""
         site_profile = self.get_site_profile(site_id)
         if site_profile is None:
             return None
-        return PriorBundle(
+        return KBBundle(
             site_profile=site_profile,
             page_types=self.get_page_types(site_id),
             action_schemas=self.get_action_schemas(site_id),
@@ -178,7 +178,7 @@ class ExecutionStore:
         self._conn.execute(
             "INSERT INTO task_runs "
             "(task_run_id, request_text, site_id, task_family, run_mode, status, "
-            "started_at, ended_at, prior_used, validator_used, recovery_used) "
+            "started_at, ended_at, kb_used, validator_used, recovery_used) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task_run.task_run_id,
@@ -189,7 +189,7 @@ class ExecutionStore:
                 task_run.status,
                 task_run.started_at,
                 task_run.ended_at,
-                int(task_run.prior_used),
+                int(task_run.kb_used),
                 int(task_run.validator_used),
                 int(task_run.recovery_used),
             ),

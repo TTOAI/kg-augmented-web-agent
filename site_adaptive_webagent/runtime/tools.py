@@ -290,7 +290,7 @@ def replan_tool() -> dict:
     }
 
 
-def tools_for_goal(*, is_last_goal: bool, task_type: str, has_prior: bool = False) -> list[dict]:
+def tools_for_goal(*, is_last_goal: bool, task_type: str, has_kb: bool = False) -> list[dict]:
     """sub-goal 위치와 task_type에 따라 제공할 tool 목록을 구성한다.
 
     중간 goal: browser + cognition + done
@@ -301,7 +301,7 @@ def tools_for_goal(*, is_last_goal: bool, task_type: str, has_prior: bool = Fals
         _click_tool(), _fill_tool(), _search_tool(), _goback_tool(),
         _observe_tool(), _remember_tool(), _recall_tool(), _done_tool(),
     ]
-    if has_prior:
+    if has_kb:
         tools.insert(4, _goto_tool())  # browser tools에 goto 추가
     if is_last_goal:
         if task_type == "RETRIEVE":

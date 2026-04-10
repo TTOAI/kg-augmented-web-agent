@@ -7,7 +7,7 @@ from typing import Any
 
 from site_adaptive_webagent.runtime.enums import (
     ApprovalEventStatus,
-    PriorConfidence,
+    KBConfidence,
     RecoveryResult,
     SiteOnboardingStatus,
     StepRecordStatus,
@@ -36,7 +36,7 @@ def make_site_profile(
     *,
     site_id: str = _SITE_ID,
     onboarding_status: SiteOnboardingStatus = SiteOnboardingStatus.ACTIVE,
-    prior_confidence: PriorConfidence = PriorConfidence.SUFFICIENT,
+    kb_confidence: KBConfidence = KBConfidence.SUFFICIENT,
 ) -> SiteProfile:
     return SiteProfile(
         site_id=site_id,
@@ -44,7 +44,7 @@ def make_site_profile(
         base_url=f"https://{site_id}.example.com",
         auth_type="session",
         onboarding_status=onboarding_status,
-        prior_confidence=prior_confidence,
+        kb_confidence=kb_confidence,
     )
 
 
@@ -130,7 +130,7 @@ def make_task_run(
         status=status,
         started_at="2025-01-01T00:00:00Z",
         ended_at="2025-01-01T00:00:00Z",
-        prior_used=True,
+        kb_used=True,
         validator_used=False,
         recovery_used=False,
     )

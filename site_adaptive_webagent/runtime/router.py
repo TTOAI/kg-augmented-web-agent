@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .enums import PriorConfidence, RouteKind, SiteOnboardingStatus
+from .enums import KBConfidence, RouteKind, SiteOnboardingStatus
 
 
 @dataclass(slots=True)
@@ -10,7 +10,7 @@ class RouteInput:
     """라우팅에 필요한 최소 입력."""
 
     site_onboarding_status: SiteOnboardingStatus
-    prior_confidence: PriorConfidence
+    kb_confidence: KBConfidence
     approval_required: bool
     action_schema_available: bool
     page_type_id: str = "unresolved"
@@ -47,7 +47,7 @@ class StrategyRouter:
             )
 
         if (
-            route_input.prior_confidence is PriorConfidence.SUFFICIENT
+            route_input.kb_confidence is KBConfidence.SUFFICIENT
             and route_input.action_schema_available
         ):
             return RouteDecision(
@@ -56,6 +56,6 @@ class StrategyRouter:
             )
 
         return RouteDecision(
-            route=RouteKind.PARTIAL_PRIOR,
-            reason="온보딩 사이트이지만 prior 또는 action schema가 충분하지 않습니다",
+            route=RouteKind.PARTIAL_KB,
+            reason="온보딩 사이트이지만 KB 또는 action schema가 충분하지 않습니다",
         )

@@ -15,7 +15,7 @@ from site_adaptive_webagent.runtime.llm import make_llm_client
 load_dotenv()  # .env 파일에서 LLM_PROVIDER / API 키를 로드한다
 from site_adaptive_webagent.runtime.orchestrator import RuntimeOrchestrator
 from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
-from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
+from site_adaptive_webagent.runtime.store import ExecutionStore, KBStore
 from site_adaptive_webagent.runtime.types import BrowserSession, RunContext, RunRequest
 
 # analyze_intent를 이 모듈에서도 참조 가능하도록 re-export
@@ -43,16 +43,16 @@ async def run_agent(  # noqa: PLR0913
 
     primary_site = sites[0] if sites else "unknown"
 
-    # 알려진 사이트면 Prior 시딩
+    # 알려진 사이트면 KB 시딩
     if primary_site == "gitlab" and start_urls:
-        from site_adaptive_webagent.runtime.seeds.gitlab import seed_gitlab_prior
+        from site_adaptive_webagent.runtime.seeds.gitlab import seed_gitlab_kb
         parsed = urlparse(start_urls[0])
         base_url = f"{parsed.scheme}://{parsed.netloc}"
-        seed_gitlab_prior(conn, base_url=base_url)
+        seed_gitlab_kb(conn, base_url=base_url)
 
     llm = make_llm_client()
     plan = analyze_intent(intent, llm=llm)
-    orchestrator = RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn), llm=llm)
+    orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
 
     task_family = plan.task_type.lower()
     page_type_id = _resolve_page_type(conn, primary_site, start_urls[0]) if start_urls else "unresolved"

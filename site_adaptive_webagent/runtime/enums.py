@@ -3,8 +3,8 @@ from __future__ import annotations
 from enum import StrEnum
 
 
-class PriorConfidence(StrEnum):
-    """라우터가 사용하는 prior confidence 분류."""
+class KBConfidence(StrEnum):
+    """라우터가 사용하는 KB confidence 분류."""
 
     SUFFICIENT = "sufficient"
     INSUFFICIENT = "insufficient"
@@ -23,7 +23,7 @@ class RouteKind(StrEnum):
     """문서 기준 runtime path."""
 
     FAST_PATH = "fast_path"
-    PARTIAL_PRIOR = "partial_prior"
+    PARTIAL_KB = "partial_kb"
     FALLBACK = "fallback"
     APPROVAL_FIRST = "approval_first"
 

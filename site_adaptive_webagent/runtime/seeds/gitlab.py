@@ -1,6 +1,6 @@
-"""GitLab Prior Seed 데이터.
+"""GitLab KB Seed 데이터.
 
-GitLab 사이트의 구조적 사전 지식을 SQLite에 주입한다.
+GitLab 사이트의 구조적 KB를 SQLite에 주입한다.
 """
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import json
 import sqlite3
 
 
-def seed_gitlab_prior(conn: sqlite3.Connection, *, base_url: str) -> None:
-    """GitLab Prior 데이터를 DB에 INSERT한다."""
+def seed_gitlab_kb(conn: sqlite3.Connection, *, base_url: str) -> None:
+    """GitLab KB 데이터를 DB에 INSERT한다."""
     cur = conn.cursor()
 
     # --- SiteProfile ---

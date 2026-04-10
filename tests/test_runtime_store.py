@@ -4,7 +4,7 @@ import sqlite3
 import unittest
 
 from site_adaptive_webagent.runtime.enums import (
-    PriorConfidence,
+    KBConfidence,
     RecoveryResult,
     SiteOnboardingStatus,
     StepRecordStatus,
@@ -12,7 +12,7 @@ from site_adaptive_webagent.runtime.enums import (
     ValidationResult,
 )
 from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
-from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
+from site_adaptive_webagent.runtime.store import ExecutionStore, KBStore
 from site_adaptive_webagent.runtime.types import (
     ActionSchema,
     ApprovalEvent,
@@ -42,11 +42,11 @@ from .fixtures import (
 )
 
 
-class PriorStoreTests(unittest.TestCase):
+class KBStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.connection = sqlite3.connect(":memory:")
         bootstrap_runtime_schema(self.connection)
-        self.store = PriorStore(self.connection)
+        self.store = KBStore(self.connection)
 
     def tearDown(self) -> None:
         self.connection.close()
@@ -60,7 +60,7 @@ class PriorStoreTests(unittest.TestCase):
                 profile.base_url,
                 profile.auth_type,
                 profile.onboarding_status,
-                profile.prior_confidence,
+                profile.kb_confidence,
             ),
         )
         self.connection.commit()
@@ -192,11 +192,11 @@ class PriorStoreTests(unittest.TestCase):
         results = self.store.get_page_types(profile.site_id)
         self.assertEqual(results, [page_type])
 
-    def test_get_prior_bundle_returns_none_when_site_not_found(self) -> None:
-        result = self.store.get_prior_bundle("nonexistent", "task_family")
+    def test_get_kb_bundle_returns_none_when_site_not_found(self) -> None:
+        result = self.store.get_kb_bundle("nonexistent", "task_family")
         self.assertIsNone(result)
 
-    def test_get_prior_bundle_assembles_all_prior_data(self) -> None:
+    def test_get_kb_bundle_assembles_all_kb_data(self) -> None:
         profile = make_site_profile()
         schema = make_action_schema(site_id=profile.site_id)
         rule = make_validator_rule(site_id=profile.site_id)
@@ -204,7 +204,7 @@ class PriorStoreTests(unittest.TestCase):
         self._insert_action_schema(schema)
         self._insert_validator_rule(rule)
 
-        bundle = self.store.get_prior_bundle(profile.site_id, rule.task_family)
+        bundle = self.store.get_kb_bundle(profile.site_id, rule.task_family)
         self.assertIsNotNone(bundle)
         assert bundle is not None
         self.assertEqual(bundle.site_profile, profile)
@@ -216,7 +216,7 @@ class ExecutionStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.connection = sqlite3.connect(":memory:")
         bootstrap_runtime_schema(self.connection)
-        self.prior_store = PriorStore(self.connection)
+        self.kb_store = KBStore(self.connection)
         self.store = ExecutionStore(self.connection)
         profile = make_site_profile()
         self.connection.execute(
@@ -227,7 +227,7 @@ class ExecutionStoreTests(unittest.TestCase):
                 profile.base_url,
                 profile.auth_type,
                 profile.onboarding_status,
-                profile.prior_confidence,
+                profile.kb_confidence,
             ),
         )
         rule = make_validator_rule(site_id=profile.site_id)

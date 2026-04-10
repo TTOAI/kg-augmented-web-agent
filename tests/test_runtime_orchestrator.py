@@ -6,7 +6,7 @@ import unittest
 
 from site_adaptive_webagent.runtime.enums import (
     ApprovalEventStatus,
-    PriorConfidence,
+    KBConfidence,
     RouteKind,
     SiteOnboardingStatus,
     TaskRunStatus,
@@ -14,9 +14,9 @@ from site_adaptive_webagent.runtime.enums import (
 from site_adaptive_webagent.runtime.orchestrator import RuntimeOrchestrator, _build_route_input
 from site_adaptive_webagent.runtime.router import RouteInput
 from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
-from site_adaptive_webagent.runtime.store import ExecutionStore, PriorStore
+from site_adaptive_webagent.runtime.store import ExecutionStore, KBStore
 from site_adaptive_webagent.runtime.intent import analyze_intent
-from site_adaptive_webagent.runtime.types import BrowserSession, PriorBundle, RunContext, RunRequest
+from site_adaptive_webagent.runtime.types import BrowserSession, KBBundle, RunContext, RunRequest
 from site_adaptive_webagent.runtime.router import RouteInput
 
 from .fixtures import (
@@ -42,7 +42,7 @@ def _seed_site(
     site_id: str = "gitlab",
     task_family: str = "dashboard_lookup",
     onboarding_status: SiteOnboardingStatus = SiteOnboardingStatus.ACTIVE,
-    prior_confidence: PriorConfidence = PriorConfidence.SUFFICIENT,
+    kb_confidence: KBConfidence = KBConfidence.SUFFICIENT,
     rule_type: str = "always_pass",
     policy_type: str = "allow",
     include_action_schema: bool = True,
@@ -52,12 +52,12 @@ def _seed_site(
     profile = make_site_profile(
         site_id=site_id,
         onboarding_status=onboarding_status,
-        prior_confidence=prior_confidence,
+        kb_confidence=kb_confidence,
     )
     conn.execute(
         "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?)",
         (profile.site_id, profile.display_name, profile.base_url, profile.auth_type,
-         profile.onboarding_status, profile.prior_confidence),
+         profile.onboarding_status, profile.kb_confidence),
     )
 
     if include_action_schema:
@@ -96,7 +96,7 @@ def _seed_site(
 
 
 def _make_orchestrator(conn: sqlite3.Connection) -> RuntimeOrchestrator:
-    return RuntimeOrchestrator(PriorStore(conn), ExecutionStore(conn))
+    return RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn))
 
 
 def _make_request(
@@ -115,7 +115,7 @@ def _make_request(
 class BuildRouteInputTests(unittest.TestCase):
     """_build_route_input 단위 테스트 (동기)."""
 
-    def test_returns_fallback_input_when_prior_bundle_is_none(self) -> None:
+    def test_returns_fallback_input_when_kb_bundle_is_none(self) -> None:
         context = RunContext(
             site_id="unknown",
             page_type_id="unresolved",
@@ -125,16 +125,16 @@ class BuildRouteInputTests(unittest.TestCase):
         route_input = _build_route_input(context, None)
 
         self.assertEqual(route_input.site_onboarding_status, SiteOnboardingStatus.DRAFT)
-        self.assertEqual(route_input.prior_confidence, PriorConfidence.INSUFFICIENT)
+        self.assertEqual(route_input.kb_confidence, KBConfidence.INSUFFICIENT)
         self.assertFalse(route_input.approval_required)
 
-    def test_maps_prior_bundle_fields_correctly(self) -> None:
+    def test_maps_kb_bundle_fields_correctly(self) -> None:
         profile = make_site_profile(
             onboarding_status=SiteOnboardingStatus.ACTIVE,
-            prior_confidence=PriorConfidence.SUFFICIENT,
+            kb_confidence=KBConfidence.SUFFICIENT,
         )
         schema = make_action_schema()
-        bundle = PriorBundle(
+        bundle = KBBundle(
             site_profile=profile,
             action_schemas=[schema],
         )
@@ -147,7 +147,7 @@ class BuildRouteInputTests(unittest.TestCase):
         route_input = _build_route_input(context, bundle)
 
         self.assertEqual(route_input.site_onboarding_status, SiteOnboardingStatus.ACTIVE)
-        self.assertEqual(route_input.prior_confidence, PriorConfidence.SUFFICIENT)
+        self.assertEqual(route_input.kb_confidence, KBConfidence.SUFFICIENT)
         self.assertFalse(route_input.approval_required)
         self.assertTrue(route_input.action_schema_available)
         self.assertEqual(route_input.page_type_id, "dashboard")
@@ -155,7 +155,7 @@ class BuildRouteInputTests(unittest.TestCase):
     def test_detects_approval_required_policy(self) -> None:
         profile = make_site_profile()
         policy = make_policy_rule(policy_type="approval_required")
-        bundle = PriorBundle(site_profile=profile, policy_rules=[policy])
+        bundle = KBBundle(site_profile=profile, policy_rules=[policy])
         context = RunContext(
             site_id=profile.site_id,
             page_type_id="dashboard",
@@ -171,7 +171,7 @@ class AcceptanceTests(unittest.IsolatedAsyncioTestCase):
     """핵심 분기 acceptance 시나리오 (비동기)."""
 
     async def test_fast_path_success(self) -> None:
-        """active site + 모든 prior + always_pass rule → VALIDATED."""
+        """active site + 모든 KB + always_pass rule → VALIDATED."""
         conn = _make_connection()
         _seed_site(conn, rule_type="always_pass")
         orchestrator = _make_orchestrator(conn)
@@ -255,8 +255,8 @@ class AcceptanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.route, RouteKind.FALLBACK)
         self.assertEqual(result.final_status, TaskRunStatus.HANDOFF)
 
-    async def test_partial_prior_when_action_schema_missing(self) -> None:
-        """action_schema 없는 active site → PARTIAL_PRIOR → FAILED."""
+    async def test_partial_kb_when_action_schema_missing(self) -> None:
+        """action_schema 없는 active site → PARTIAL_KB → FAILED."""
         conn = _make_connection()
         _seed_site(conn, include_action_schema=False)
         orchestrator = _make_orchestrator(conn)
@@ -264,7 +264,7 @@ class AcceptanceTests(unittest.IsolatedAsyncioTestCase):
 
         result = await orchestrator.run(request, context)
 
-        self.assertEqual(result.route, RouteKind.PARTIAL_PRIOR)
+        self.assertEqual(result.route, RouteKind.PARTIAL_KB)
         self.assertEqual(result.final_status, TaskRunStatus.FAILED)
 
     async def test_browser_session_retrieve_success(self) -> None:
