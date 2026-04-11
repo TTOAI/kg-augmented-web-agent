@@ -2,20 +2,14 @@ from __future__ import annotations
 
 import logging
 import time
-import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger("webarena_verified")
 
-from .browser import execute_plan, observe_page, try_click_target, try_fill_target, try_search
-from .enums import ApprovalEventStatus, RecoveryResult, StepRecordStatus, TaskRunStatus, ValidationResult
+from .browser import observe_page, try_click_target, try_fill_target, try_search
 from .llm import LLMClient, SubGoal, build_observation_message, build_plan, build_tool_use_system_prompt
 from .tools import format_assistant_tool_use, format_tool_result, replan_tool, tools_for_goal
-from .recovery import execute_recovery
-from .store import ExecutionStore
-from .types import ApprovalEvent, BrowserSession, ExecutionOutcome, FailurePattern, KBBundle, PageObservation, StepRecord, ValidatorRule
-from .validator import validate
+from .types import ExecutionOutcome, PageObservation
 
 _FAILURE_ACTION_TO_STATUS: dict[str, str] = {
     "not_found": "NOT_FOUND_ERROR",
@@ -25,196 +19,28 @@ _FAILURE_ACTION_TO_STATUS: dict[str, str] = {
     "unknown_error": "UNKNOWN_ERROR",
 }
 
-_TASK_TO_RUN_STATUS: dict[str, TaskRunStatus] = {
-    "SUCCESS": TaskRunStatus.VALIDATED,
-    "ACTION_NOT_ALLOWED_ERROR": TaskRunStatus.HANDOFF,
-    "PERMISSION_DENIED_ERROR": TaskRunStatus.HANDOFF,
-    "NOT_FOUND_ERROR": TaskRunStatus.FAILED,
-    "DATA_VALIDATION_ERROR": TaskRunStatus.FAILED,
-    "UNKNOWN_ERROR": TaskRunStatus.FAILED,
-}
-
 
 # ---------------------------------------------------------------------------
-# Path executors (public API)
-# ---------------------------------------------------------------------------
-
-async def execute_fast_path(
-    *,
-    task_run_id: str,
-    validator_rules: list[ValidatorRule],
-    failure_patterns: list[FailurePattern],
-    execution_store: ExecutionStore,
-    browser_session: BrowserSession | None = None,
-    task: str = "",
-    llm: LLMClient | None = None,
-    kb_bundle: KBBundle | None = None,
-) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
-    """fast path 실행."""
-    if browser_session is not None:
-        return await _run_with_browser(
-            task_run_id=task_run_id, step_type="fast_path",
-            browser_session=browser_session, execution_store=execution_store,
-            task=task, llm=llm, kb_bundle=kb_bundle,
-        )
-
-    step = _make_step(task_run_id, "fast_path")
-    result = validate(validator_rules)
-    validator_used = True
-    recovery_used = False
-
-    if result == ValidationResult.PASS:
-        execution_store.save_step_record(_finish_step(step, StepRecordStatus.SUCCEEDED, "validator pass"))
-        return TaskRunStatus.VALIDATED, validator_used, recovery_used, None
-
-    recovery_result = await execute_recovery(
-        task_run_id=task_run_id, failure_patterns=failure_patterns, execution_store=execution_store,
-    )
-    recovery_used = True
-
-    if recovery_result != RecoveryResult.SUCCESS:
-        execution_store.save_step_record(_finish_step(step, StepRecordStatus.FAILED, "recovery 실패"))
-        return TaskRunStatus.HANDOFF, validator_used, recovery_used, None
-
-    revalidation_result = validate(validator_rules)
-    if revalidation_result == ValidationResult.PASS:
-        execution_store.save_step_record(_finish_step(step, StepRecordStatus.SUCCEEDED, "재검증 pass"))
-        return TaskRunStatus.VALIDATED, validator_used, recovery_used, None
-
-    execution_store.save_step_record(_finish_step(step, StepRecordStatus.FAILED, "재검증 실패 → handoff"))
-    return TaskRunStatus.HANDOFF, validator_used, recovery_used, None
-
-
-async def execute_partial_kb(
-    *,
-    task_run_id: str,
-    execution_store: ExecutionStore,
-    browser_session: BrowserSession | None = None,
-    task: str = "",
-    llm: LLMClient | None = None,
-    kb_bundle: KBBundle | None = None,
-) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
-    """partial KB path 실행."""
-    if browser_session is not None:
-        return await _run_with_browser(
-            task_run_id=task_run_id, step_type="partial_kb",
-            browser_session=browser_session, execution_store=execution_store,
-            task=task, llm=llm, kb_bundle=kb_bundle,
-        )
-
-    step = _make_step(task_run_id, "partial_kb")
-    execution_store.save_step_record(_finish_step(step, StepRecordStatus.FAILED, "KB 불충분으로 실행 실패"))
-    return TaskRunStatus.FAILED, False, False, None
-
-
-async def execute_fallback(
-    *,
-    task_run_id: str,
-    execution_store: ExecutionStore,
-    browser_session: BrowserSession | None = None,
-    task: str = "",
-    llm: LLMClient | None = None,
-    kb_bundle: KBBundle | None = None,
-) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
-    """fallback path 실행."""
-    if browser_session is not None:
-        return await _run_with_browser(
-            task_run_id=task_run_id, step_type="fallback",
-            browser_session=browser_session, execution_store=execution_store,
-            task=task, llm=llm, kb_bundle=kb_bundle,
-        )
-
-    step = _make_step(task_run_id, "fallback")
-    execution_store.save_step_record(_finish_step(step, StepRecordStatus.SKIPPED, "site 미온보딩으로 handoff"))
-    return TaskRunStatus.HANDOFF, False, False, None
-
-
-async def execute_approval_first(
-    *,
-    task_run_id: str,
-    execution_store: ExecutionStore,
-) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome | None]:
-    """approval-first path stub 실행."""
-    event = ApprovalEvent(
-        approval_event_id=str(uuid.uuid4()),
-        task_run_id=task_run_id,
-        action_key="policy_required_action",
-        approval_status=ApprovalEventStatus.REQUESTED,
-        reason="policy rule이 사전 승인을 요구합니다",
-        recorded_at=datetime.now(timezone.utc).isoformat(),
-    )
-    execution_store.save_approval_event(event)
-    return TaskRunStatus.APPROVAL_WAIT, False, False, None
-
-
-# ---------------------------------------------------------------------------
-# Browser execution
-# ---------------------------------------------------------------------------
-
-async def _run_with_browser(
-    *,
-    task_run_id: str,
-    step_type: str,
-    browser_session: BrowserSession,
-    execution_store: ExecutionStore,
-    task: str = "",
-    llm: LLMClient | None = None,
-    kb_bundle: KBBundle | None = None,
-) -> tuple[TaskRunStatus, bool, bool, ExecutionOutcome]:
-    """브라우저를 실행하고 ExecutionOutcome을 TaskRunStatus로 매핑한다."""
-    primary_page = browser_session.pages[0]
-    observation = await observe_page(primary_page)
-
-    if browser_session.plan.action == "unsupported":
-        outcome = ExecutionOutcome(
-            task_type=browser_session.plan.task_type,
-            status="UNKNOWN_ERROR",
-            error_details="Unsupported intent",
-        )
-    elif llm is not None:
-        outcome = await _execute_with_llm(
-            task=task or browser_session.plan.target_phrase or "complete the task",
-            task_type=browser_session.plan.task_type,
-            page=primary_page, observation=observation,
-            llm=llm, kb_bundle=kb_bundle,
-        )
-    else:
-        outcome = await execute_plan(
-            plan=browser_session.plan, sites=browser_session.sites,
-            start_urls=browser_session.start_urls,
-            page=primary_page, observation=observation,
-        )
-
-    task_status = _TASK_TO_RUN_STATUS.get(outcome.status, TaskRunStatus.FAILED)
-    step_status = StepRecordStatus.SUCCEEDED if task_status == TaskRunStatus.VALIDATED else StepRecordStatus.FAILED
-    step = _make_step(task_run_id, step_type)
-    execution_store.save_step_record(_finish_step(step, step_status, outcome.status))
-    return task_status, False, False, outcome
-
-
-# ---------------------------------------------------------------------------
-# LLM execution loop
+# LLM execution loop (entry point)
 # ---------------------------------------------------------------------------
 
 _MAX_RETRIES_PER_GOAL = 8
 
 
-async def _execute_with_llm(
+async def execute_with_llm(
     *,
     task: str,
     task_type: str,
     page: Any,
     observation: PageObservation,
     llm: LLMClient,
-    kb_bundle: KBBundle | None,
     max_steps: int = 50,
 ) -> ExecutionOutcome:
     """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
     t_start = time.time()
-    system = build_tool_use_system_prompt(kb_bundle)
-    has_kb = kb_bundle is not None
+    system = build_tool_use_system_prompt()
 
-    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm, kb_bundle=kb_bundle)
+    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm)
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
@@ -244,7 +70,6 @@ async def _execute_with_llm(
                 is_last_goal=(goal_idx == len(sub_goals) - 1),
                 task_notes=task_notes,
                 start_url=checkpoint_stack[0],
-                has_kb=has_kb,
             )
             steps_used += used
 
@@ -376,7 +201,6 @@ async def _execute_with_llm(
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
                     start_url=checkpoint_stack[0],
-                    has_kb=has_kb,
                 )
                 steps_used += used
                 if result is not None and result.status != "SUB_GOAL_FAILED":
@@ -409,7 +233,6 @@ async def _try_sub_goal(
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
     start_url: str = "",
-    has_kb: bool = False,
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
@@ -423,7 +246,7 @@ async def _try_sub_goal(
     current_obs = await observe_page(page)
     _action_history: list[str] = []
     _MAX_MESSAGES = 10
-    tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type, has_kb=has_kb)
+    tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type)
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -780,13 +603,11 @@ async def _execute_browser_action(
     page: Any,
     current_obs: PageObservation,
 ) -> _ActionResult:
-    """click/fill/goto/goback 등 browser 액션 실행. _ActionResult를 반환한다."""
+    """click/fill/goback 등 browser 액션 실행. _ActionResult를 반환한다."""
     if action_type == "click":
         return await _execute_click(action, page, current_obs)
     if action_type == "fill":
         return await _execute_fill(action, page)
-    if action_type == "goto":
-        return await _execute_goto(action, page)
     if action_type == "goback":
         return await _execute_goback(page)
     return _ActionResult()
@@ -925,24 +746,6 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
     if await try_click_target(page, [target]):
         return _ActionResult(succeeded=True)
 
-    return _ActionResult(succeeded=False)
-
-
-async def _execute_goto(action: dict[str, Any], page: Any) -> _ActionResult:
-    """goto 액션: URL로 직접 이동한다."""
-    url = action.get("url", "")
-    logger.info("[LLM] goto  url=%r", url)
-    if url:
-        try:
-            # 상대 경로면 현재 origin 기준으로 이동
-            if url.startswith("/"):
-                from urllib.parse import urlparse
-                current = urlparse(page.url)
-                url = f"{current.scheme}://{current.netloc}{url}"
-            await page.goto(url)
-            return _ActionResult(succeeded=True)
-        except Exception:
-            pass
     return _ActionResult(succeeded=False)
 
 
@@ -1133,12 +936,6 @@ def _summarize_action_result(
             return f"fill '{target}': submitted. {delta}"
         return f"fill '{target}': submitted (no visible change)"
 
-    if action_type == "goto":
-        url = action.get("url", "")
-        if not succeeded:
-            return f"goto '{url}': navigation failed"
-        return f"goto: navigated to {current_obs.url}"
-
     if action_type == "goback":
         if not succeeded:
             return "goback: failed"
@@ -1222,31 +1019,3 @@ def _log_step_observation(
         logger.info("[LLM] step=%d  dropdown=%s", step + 1, obs.dropdown_options[:15])
     goal_desc = sub_goals[goal_index] if goal_index < len(sub_goals) else "ALL DONE"
     logger.info("[LLM] step=%d  goal=%d/%d %r", step + 1, goal_index + 1, len(sub_goals), goal_desc)
-
-
-# ---------------------------------------------------------------------------
-# Step record helpers
-# ---------------------------------------------------------------------------
-
-def _make_step(task_run_id: str, step_type: str) -> StepRecord:
-    return StepRecord(
-        step_record_id=str(uuid.uuid4()),
-        task_run_id=task_run_id,
-        step_index=0,
-        step_type=step_type,
-        status=StepRecordStatus.RUNNING,
-        pre_state_summary=f"{step_type} 시작",
-        post_state_summary="",
-    )
-
-
-def _finish_step(step: StepRecord, status: StepRecordStatus, summary: str) -> StepRecord:
-    return StepRecord(
-        step_record_id=step.step_record_id,
-        task_run_id=step.task_run_id,
-        step_index=step.step_index,
-        step_type=step.step_type,
-        status=status,
-        pre_state_summary=step.pre_state_summary,
-        post_state_summary=summary,
-    )

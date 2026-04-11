@@ -18,19 +18,6 @@ class AgentRunResult:
     error_details: str | None = None
 
     @classmethod
-    def not_implemented(
-        cls,
-        message: str = "site_adaptive_webagent/agent/core.py is not implemented yet",
-    ) -> "AgentRunResult":
-        """미구현 에이전트를 위한 안전한 기본 결과를 반환한다."""
-        return cls(
-            task_type="NAVIGATE",
-            status="UNKNOWN_ERROR",
-            retrieved_data=None,
-            error_details=message,
-        )
-
-    @classmethod
     def unknown_error(cls, message: str) -> "AgentRunResult":
         """벤치마크와 호환되는 예기치 않은 실패 결과를 반환한다."""
         return cls(

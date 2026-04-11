@@ -1,324 +1,49 @@
 from __future__ import annotations
 
 from dataclasses import fields
-import sqlite3
 import unittest
 
-from site_adaptive_webagent.runtime.enums import (
-    ApprovalEventStatus,
-    ApprovalState,
-    KBConfidence,
-    RecoveryResult,
-    RouteKind,
-    SiteOnboardingStatus,
-    StepRecordStatus,
-    TaskRunStatus,
-    ValidationResult,
-)
-from site_adaptive_webagent.runtime.router import RouteInput, StrategyRouter
-from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
 from site_adaptive_webagent.runtime.types import (
-    ActionSchema,
-    ApprovalEvent,
-    FailurePattern,
-    PageType,
-    PolicyRule,
-    KBBundle,
-    RecoveryRecord,
-    RunContext,
-    RunRequest,
-    SiteProfile,
-    StepRecord,
-    TaskRun,
-    ValidationRecord,
-    ValidatorRule,
+    BrowserSession,
+    ExecutionOutcome,
+    IntentPlan,
+    PageObservation,
 )
 
 
 class RuntimeContractTests(unittest.TestCase):
-    def test_run_request_has_documented_fields(self) -> None:
+    def test_intent_plan_has_documented_fields(self) -> None:
         self.assertEqual(
-            {field.name for field in fields(RunRequest)},
-            {"request_text", "task_family", "user_constraints", "risk_tolerance"},
+            {field.name for field in fields(IntentPlan)},
+            {"task_type", "action", "target_phrase", "target_terms", "explicit_url"},
         )
 
-    def test_run_context_has_documented_fields(self) -> None:
+    def test_page_observation_has_documented_fields(self) -> None:
         self.assertEqual(
-            {field.name for field in fields(RunContext)},
-            {"site_id", "page_type_id", "task_family", "state_summary", "approval_state"},
-        )
-
-    def test_kb_bundle_has_documented_fields(self) -> None:
-        self.assertEqual(
-            {field.name for field in fields(KBBundle)},
+            {field.name for field in fields(PageObservation)},
             {
-                "site_profile",
-                "page_types",
-                "action_schemas",
-                "validator_rules",
-                "policy_rules",
-                "failure_patterns",
+                "url",
+                "title",
+                "headings",
+                "text_lines",
+                "links",
+                "buttons",
+                "inputs",
+                "dropdown_options",
             },
         )
 
-    def test_kb_entities_have_documented_fields(self) -> None:
-        entity_fields = {
-            SiteProfile: {
-                "site_id",
-                "display_name",
-                "base_url",
-                "auth_type",
-                "onboarding_status",
-                "kb_confidence",
-            },
-            PageType: {
-                "page_type_id",
-                "site_id",
-                "page_key",
-                "display_name",
-                "description",
-                "url_patterns",
-                "structural_signals",
-            },
-            ActionSchema: {
-                "action_schema_id",
-                "site_id",
-                "action_key",
-                "display_name",
-                "description",
-                "source_page_key",
-                "target_page_key",
-                "preconditions",
-                "postconditions",
-                "locator_strategy",
-                "locator_value",
-            },
-            ValidatorRule: {
-                "validator_rule_id",
-                "site_id",
-                "task_family",
-                "rule_type",
-                "pass_criteria",
-            },
-            PolicyRule: {
-                "policy_rule_id",
-                "site_id",
-                "action_key",
-                "policy_type",
-                "reason",
-            },
-            FailurePattern: {
-                "failure_pattern_id",
-                "site_id",
-                "failure_type",
-                "detection_signal",
-                "recommended_recovery",
-            },
-        }
-
-        for entity_type, expected_fields in entity_fields.items():
-            with self.subTest(entity_type=entity_type.__name__):
-                self.assertEqual({field.name for field in fields(entity_type)}, expected_fields)
-
-    def test_execution_records_have_documented_fields(self) -> None:
-        entity_fields = {
-            TaskRun: {
-                "task_run_id",
-                "request_text",
-                "site_id",
-                "task_family",
-                "run_mode",
-                "status",
-                "started_at",
-                "ended_at",
-                "kb_used",
-                "validator_used",
-                "recovery_used",
-            },
-            StepRecord: {
-                "step_record_id",
-                "task_run_id",
-                "step_index",
-                "step_type",
-                "status",
-                "pre_state_summary",
-                "post_state_summary",
-            },
-            ValidationRecord: {
-                "validation_record_id",
-                "task_run_id",
-                "validator_rule_id",
-                "result",
-                "validated_at",
-            },
-            RecoveryRecord: {
-                "recovery_record_id",
-                "task_run_id",
-                "failure_pattern_id",
-                "recovery_action",
-                "recovery_result",
-                "recorded_at",
-            },
-            ApprovalEvent: {
-                "approval_event_id",
-                "task_run_id",
-                "action_key",
-                "approval_status",
-                "reason",
-                "recorded_at",
-            },
-        }
-
-        for entity_type, expected_fields in entity_fields.items():
-            with self.subTest(entity_type=entity_type.__name__):
-                self.assertEqual({field.name for field in fields(entity_type)}, expected_fields)
-
-    def test_documented_enums_match_expected_values(self) -> None:
-        self.assertEqual([member.value for member in KBConfidence], ["sufficient", "insufficient"])
-        self.assertEqual([member.value for member in ApprovalState], ["not_required", "requested", "approved", "rejected"])
+    def test_execution_outcome_has_documented_fields(self) -> None:
         self.assertEqual(
-            [member.value for member in TaskRunStatus],
-            ["pending", "running", "approval_wait", "validated", "failed", "handoff", "cancelled"],
+            {field.name for field in fields(ExecutionOutcome)},
+            {"task_type", "status", "retrieved_data", "error_details"},
         )
-        self.assertEqual([member.value for member in StepRecordStatus], ["pending", "running", "succeeded", "failed", "skipped"])
-        self.assertEqual([member.value for member in ValidationResult], ["pass", "fail", "partial"])
-        self.assertEqual([member.value for member in RecoveryResult], ["success", "failed", "handoff", "approval_wait"])
-        self.assertEqual([member.value for member in SiteOnboardingStatus], ["draft", "active", "stale", "disabled"])
-        self.assertEqual([member.value for member in ApprovalEventStatus], ["requested", "approved", "rejected"])
+
+    def test_browser_session_has_documented_fields(self) -> None:
         self.assertEqual(
-            [member.value for member in RouteKind],
-            ["fast_path", "partial_kb", "fallback", "approval_first"],
+            {field.name for field in fields(BrowserSession)},
+            {"pages", "sites", "start_urls", "plan"},
         )
-
-    def test_run_context_accepts_unresolved_page_type(self) -> None:
-        context = RunContext(
-            site_id="gitlab",
-            page_type_id="unresolved",
-            task_family="dashboard_lookup",
-            state_summary="unknown",
-        )
-
-        self.assertEqual(context.page_type_id, "unresolved")
-        self.assertEqual(context.approval_state, ApprovalState.NOT_REQUIRED)
-
-
-class RuntimeSchemaTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.connection = sqlite3.connect(":memory:")
-        bootstrap_runtime_schema(self.connection)
-
-    def tearDown(self) -> None:
-        self.connection.close()
-
-    def test_bootstrap_creates_kb_and_execution_tables(self) -> None:
-        tables = {
-            row[0]
-            for row in self.connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        }
-
-        self.assertTrue(
-            {
-                "site_profiles",
-                "page_types",
-                "action_schemas",
-                "validator_rules",
-                "policy_rules",
-                "failure_patterns",
-                "task_runs",
-                "step_records",
-                "validation_records",
-                "recovery_records",
-                "approval_events",
-            }.issubset(tables)
-        )
-
-    def test_workflow_hints_table_does_not_exist(self) -> None:
-        tables = {
-            row[0]
-            for row in self.connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        }
-        self.assertNotIn("workflow_hints", tables)
-
-    def test_task_run_child_tables_keep_foreign_keys(self) -> None:
-        child_tables = {
-            "step_records": {"task_runs"},
-            "validation_records": {"task_runs", "validator_rules"},
-            "recovery_records": {"task_runs", "failure_patterns"},
-            "approval_events": {"task_runs"},
-        }
-
-        for table_name, expected_refs in child_tables.items():
-            with self.subTest(table_name=table_name):
-                refs = {
-                    row[2]
-                    for row in self.connection.execute(f"PRAGMA foreign_key_list({table_name})")
-                }
-                self.assertEqual(refs, expected_refs)
-
-    def test_kb_and_execution_groups_are_separate(self) -> None:
-        kb_tables = {
-            "site_profiles",
-            "page_types",
-            "action_schemas",
-            "validator_rules",
-            "policy_rules",
-            "failure_patterns",
-        }
-        execution_tables = {
-            "task_runs",
-            "step_records",
-            "validation_records",
-            "recovery_records",
-            "approval_events",
-        }
-
-        tables = {
-            row[0]
-            for row in self.connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        }
-        self.assertTrue(kb_tables.issubset(tables))
-        self.assertTrue(execution_tables.issubset(tables))
-        self.assertTrue(kb_tables.isdisjoint(execution_tables))
-
-
-class StrategyRouterTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.router = StrategyRouter()
-
-    def _base_input(self, **overrides) -> RouteInput:
-        defaults = dict(
-            site_onboarding_status=SiteOnboardingStatus.ACTIVE,
-            kb_confidence=KBConfidence.SUFFICIENT,
-            approval_required=False,
-            action_schema_available=True,
-            page_type_id="dashboard",
-        )
-        defaults.update(overrides)
-        return RouteInput(**defaults)
-
-    def test_selects_fast_path_when_all_conditions_are_met(self) -> None:
-        decision = self.router.route(self._base_input())
-        self.assertEqual(decision.route, RouteKind.FAST_PATH)
-
-    def test_selects_partial_kb_when_action_schema_missing(self) -> None:
-        decision = self.router.route(self._base_input(action_schema_available=False))
-        self.assertEqual(decision.route, RouteKind.PARTIAL_KB)
-
-    def test_selects_partial_kb_when_confidence_is_insufficient(self) -> None:
-        decision = self.router.route(self._base_input(kb_confidence=KBConfidence.INSUFFICIENT))
-        self.assertEqual(decision.route, RouteKind.PARTIAL_KB)
-
-    def test_selects_fallback_when_page_type_is_unresolved(self) -> None:
-        decision = self.router.route(self._base_input(page_type_id="unresolved"))
-        self.assertEqual(decision.route, RouteKind.FALLBACK)
-
-    def test_selects_fallback_when_site_is_not_active(self) -> None:
-        decision = self.router.route(self._base_input(site_onboarding_status=SiteOnboardingStatus.DRAFT))
-        self.assertEqual(decision.route, RouteKind.FALLBACK)
-
-    def test_approval_first_overrides_other_conditions(self) -> None:
-        decision = self.router.route(self._base_input(approval_required=True))
-        self.assertEqual(decision.route, RouteKind.APPROVAL_FIRST)
 
 
 if __name__ == "__main__":

@@ -206,7 +206,6 @@ async def setup_storage_state(config_path: Path | None, task_output_dir: Path, a
             config=config,
             storage_state_file=auth_artifact_path,
         )
-        logger.info("storage state 저장 위치: %s", auth_artifact_path)
 
     if extra_headers or ui_login_sites:
         return auth_artifact_path
@@ -495,7 +494,7 @@ class WebArenaVerifiedAdapter:
         if auth_artifact_path is None:
             auth_artifact_path = await setup_storage_state(config_path, task_output_dir, agent_input)
 
-        result = AgentRunResult.not_implemented()
+        result = AgentRunResult.unknown_error("agent did not run")
 
         async with async_playwright() as playwright:
             browser: Browser | None = None
@@ -525,9 +524,6 @@ class WebArenaVerifiedAdapter:
                         await pages[0].goto(pages[0].url, wait_until="load")
                     except Exception:
                         pass
-            except NotImplementedError as e:
-                logger.warning("%s", e)
-                result = AgentRunResult.not_implemented(str(e))
             except Exception as e:
                 logger.exception("에이전트 실행 실패: %s", e)
                 result = AgentRunResult.unknown_error(str(e))

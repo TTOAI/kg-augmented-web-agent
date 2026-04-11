@@ -1,34 +1,14 @@
 """LLM 연결 테스트: prompt builder + FakeLLMClient 기반 executor 경로."""
 from __future__ import annotations
 
-import json
-import sqlite3
 import unittest
 
-from site_adaptive_webagent.runtime.enums import KBConfidence, SiteOnboardingStatus, TaskRunStatus
+from site_adaptive_webagent.runtime.executor import execute_with_llm
 from site_adaptive_webagent.runtime.intent import analyze_intent
 from site_adaptive_webagent.runtime.llm import classify_task_type, parse_llm_action
-from site_adaptive_webagent.runtime.orchestrator import RuntimeOrchestrator
-from site_adaptive_webagent.runtime.schema import bootstrap_runtime_schema
-from site_adaptive_webagent.runtime.store import ExecutionStore, KBStore
-from site_adaptive_webagent.runtime.types import (
-    BrowserSession,
-    PageObservation,
-    KBBundle,
-    RunContext,
-    RunRequest,
-)
+from site_adaptive_webagent.runtime.types import PageObservation
 
-from .fixtures import (
-    FakeLLMClient,
-    make_action_schema,
-    make_fake_page,
-    make_page_type,
-    make_site_profile,
-    make_validator_rule,
-    make_failure_pattern,
-    make_policy_rule,
-)
+from .fixtures import FakeLLMClient, make_fake_page
 
 
 # ---------------------------------------------------------------------------
@@ -62,40 +42,15 @@ class ParseLlmActionTests(unittest.TestCase):
 # Executor + LLM integration tests
 # ---------------------------------------------------------------------------
 
-def _make_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(":memory:")
-    bootstrap_runtime_schema(conn)
-    return conn
-
-
-def _seed_site(conn: sqlite3.Connection, *, site_id: str = "gitlab") -> None:
-    profile = make_site_profile(site_id=site_id)
-    conn.execute(
-        "INSERT INTO site_profiles VALUES (?, ?, ?, ?, ?, ?)",
-        (profile.site_id, profile.display_name, profile.base_url, profile.auth_type,
-         profile.onboarding_status, profile.kb_confidence),
+def _empty_observation(url: str = "https://example.com", title: str = "Home") -> PageObservation:
+    return PageObservation(
+        url=url,
+        title=title,
+        headings=[],
+        text_lines=[],
+        links=[],
+        buttons=[],
     )
-    schema = make_action_schema(site_id=site_id)
-    conn.execute(
-        "INSERT INTO action_schemas VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (schema.action_schema_id, schema.site_id, schema.action_key,
-         schema.display_name, schema.description, schema.source_page_key,
-         schema.target_page_key,
-         json.dumps(schema.preconditions), json.dumps(schema.postconditions),
-         schema.locator_strategy, schema.locator_value),
-    )
-    rule = make_validator_rule(site_id=site_id, rule_type="always_pass")
-    conn.execute(
-        "INSERT INTO validator_rules VALUES (?, ?, ?, ?, ?)",
-        (rule.validator_rule_id, rule.site_id, rule.task_family, rule.rule_type, rule.pass_criteria),
-    )
-    policy = make_policy_rule(site_id=site_id)
-    conn.execute(
-        "INSERT INTO policy_rules VALUES (?, ?, ?, ?, ?)",
-        (policy.policy_rule_id, policy.site_id, policy.action_key,
-         policy.policy_type, policy.reason),
-    )
-    conn.commit()
 
 
 class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
@@ -106,315 +61,68 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_llm_extract_returns_success(self) -> None:
         """LLM이 extract를 반환하면 SUCCESS + retrieved_data."""
-        conn = _make_connection()
-        _seed_site(conn)
-
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "extract", "value": "42", "label": "Todo Count"}'])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
         page = make_fake_page(
             url="https://example.com/dashboard",
             title_text="Dashboard",
             headings=["Todo Count: 42"],
         )
-        plan = analyze_intent("Find the todo count")
-        result = await orchestrator.run(
-            RunRequest(request_text="Find the todo count", task_family="retrieve"),
-            RunContext(site_id="gitlab", page_type_id="dashboard",
-                       task_family="retrieve", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["https://example.com"], plan=plan,
-            ),
+
+        outcome = await execute_with_llm(
+            task="Find the todo count",
+            task_type="RETRIEVE",
+            page=page,
+            observation=_empty_observation(url=page.url, title="Dashboard"),
+            llm=llm,
         )
 
-        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
-        assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "SUCCESS")
-        self.assertIn("42", result.execution_outcome.retrieved_data[0])
+        self.assertEqual(outcome.status, "SUCCESS")
+        assert outcome.retrieved_data is not None
+        self.assertIn("42", outcome.retrieved_data[0])
 
-    async def test_llm_not_found_triggers_retry(self) -> None:
-        """LLM이 not_found를 반환하면 sub-goal 실패 → retry → 최종 SUCCESS (v2)."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "not_found", "reasoning": "데이터가 없습니다"}'])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
+    async def test_llm_not_found_triggers_failure(self) -> None:
+        """LLM이 not_found를 반환하면 sub-goal 실패 → retry+replan 소진 → FAILED."""
+        # not_found 응답을 충분히 많이 넣어 retry + replan을 모두 소진시킨다
+        not_found_response = '{"action": "not_found", "reasoning": "데이터가 없습니다"}'
+        llm = FakeLLMClient(
+            [self.PLAN_RESPONSE]
+            + [not_found_response] * 30
+            + [self.PLAN_RESPONSE]
+            + [not_found_response] * 30
+        )
         page = make_fake_page(url="https://example.com", title_text="Home")
-        plan = analyze_intent("Find the nonexistent metric")
-        result = await orchestrator.run(
-            RunRequest(request_text="Find the nonexistent metric", task_family="retrieve"),
-            RunContext(site_id="gitlab", page_type_id="dashboard",
-                       task_family="retrieve", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["https://example.com"], plan=plan,
-            ),
+
+        outcome = await execute_with_llm(
+            task="Find the nonexistent metric",
+            task_type="RETRIEVE",
+            page=page,
+            observation=_empty_observation(),
+            llm=llm,
         )
 
-        # v2: failure action → sub-goal 실패 → retry+replan 소진 → FAIL
-        self.assertEqual(result.final_status, TaskRunStatus.FAILED)
-        assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
+        self.assertEqual(outcome.status, "NOT_FOUND_ERROR")
 
-    async def test_llm_click_then_extract(self) -> None:
-        """LLM이 click 후 extract를 반환하면 plan + 2회 호출되고 SUCCESS."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        llm = FakeLLMClient([
-            self.PLAN_RESPONSE,
-            '{"action": "click", "target": "Dashboard"}',
-            '{"action": "extract", "value": "7", "label": "Open Issues"}',
-        ])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
-        page = make_fake_page(
-            url="https://example.com",
-            title_text="Home",
-            links=["Dashboard"],
-        )
-        plan = analyze_intent("Find the open issue count")
-        result = await orchestrator.run(
-            RunRequest(request_text="Find the open issue count", task_family="retrieve"),
-            RunContext(site_id="gitlab", page_type_id="home",
-                       task_family="retrieve", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["https://example.com"], plan=plan,
-            ),
-        )
-
-        self.assertEqual(len(llm.calls), 3)  # plan + 2 action calls
-        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
-        assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "SUCCESS")
-
-    async def test_llm_called_with_system_prompt_containing_kb(self) -> None:
-        """LLM 호출 시 system prompt에 KB 정보가 포함된다."""
-        conn = _make_connection()
-        _seed_site(conn)
-
+    async def test_llm_called_with_system_prompt(self) -> None:
+        """LLM 호출 시 system prompt에 strategy가 포함된다 (KB 없음)."""
         llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "extract", "value": "done", "label": "result"}'])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
         page = make_fake_page(url="https://example.com", title_text="Home")
-        plan = analyze_intent("Find the todo count")
-        await orchestrator.run(
-            RunRequest(request_text="Find the todo count", task_family="retrieve"),
-            RunContext(site_id="gitlab", page_type_id="home",
-                       task_family="retrieve", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["https://example.com"], plan=plan,
-            ),
+
+        await execute_with_llm(
+            task="Find the todo count",
+            task_type="RETRIEVE",
+            page=page,
+            observation=_empty_observation(),
+            llm=llm,
         )
 
-        self.assertEqual(len(llm.calls), 2)  # plan + 1 action call
-        # calls[1] is the action call (calls[0] is plan)
+        # calls[0] = plan, calls[1] = action call
+        self.assertGreaterEqual(len(llm.calls), 2)
         system_prompt = llm.calls[1]["system"]
-        self.assertIn("gitlab", system_prompt)
+        self.assertIn("Strategy", system_prompt)
+        # KB layer 폐기 후 Site Knowledge 섹션이 들어가지 않음
+        self.assertNotIn("## Site Knowledge", system_prompt)
         user_message = llm.calls[1]["messages"][0]["content"]
         self.assertIn("Find the todo count", user_message)
-
-    async def test_llm_fill_then_extract(self) -> None:
-        """LLM이 fill 후 extract를 반환하면 plan + 2회 호출되고 SUCCESS."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        llm = FakeLLMClient([
-            self.PLAN_RESPONSE,
-            '{"action": "fill", "target": "Username", "value": "admin", "submit": false}',
-            '{"action": "extract", "value": "Welcome, admin", "label": "greeting"}',
-        ])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
-        page = make_fake_page(
-            url="https://example.com/login",
-            title_text="Login",
-            inputs=["Username"],
-        )
-        plan = analyze_intent("Find the greeting message")
-        result = await orchestrator.run(
-            RunRequest(request_text="Find the greeting message", task_family="retrieve"),
-            RunContext(site_id="gitlab", page_type_id="login",
-                       task_family="retrieve", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["https://example.com"], plan=plan,
-            ),
-        )
-
-        self.assertEqual(len(llm.calls), 3)  # plan + 2 action calls
-        # 세 번째 호출(두 번째 액션)에 대화 히스토리가 포함되어야 한다
-        # Tool Use: [user, assistant(tool_use), user(tool_result), user(obs)]
-        self.assertEqual(len(llm.calls[2]["messages"]), 4)
-        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
-
-    async def test_conversation_history_accumulates(self) -> None:
-        """매 스텝 이전 (user, assistant) 쌍이 누적된다."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        llm = FakeLLMClient([
-            self.PLAN_RESPONSE,
-            '{"action": "click", "target": "Issues"}',
-            '{"action": "click", "target": "Open"}',
-            '{"action": "extract", "value": "42", "label": "open count"}',
-        ])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
-        page = make_fake_page(
-            url="https://example.com",
-            title_text="Home",
-            links=["Issues", "Open"],
-        )
-        plan = analyze_intent("Find the open issue count")
-        await orchestrator.run(
-            RunRequest(request_text="Find the open issue count", task_family="retrieve"),
-            RunContext(site_id="gitlab", page_type_id="home",
-                       task_family="retrieve", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["https://example.com"], plan=plan,
-            ),
-        )
-
-        # calls[0] = plan, calls[1..3] = action steps
-        # Tool Use: user → assistant(tool_use) → user(tool_result) → user(obs) → ...
-        # 1번째 액션 호출: [user]
-        self.assertEqual(len(llm.calls[1]["messages"]), 1)
-        # 2번째 액션 호출: [user, assistant, tool_result, user]
-        self.assertEqual(len(llm.calls[2]["messages"]), 4)
-        # 3번째 액션 호출: [user, assistant, tool_result, user, assistant, tool_result, user]
-        self.assertEqual(len(llm.calls[3]["messages"]), 7)
-
-    async def test_llm_permission_denied_triggers_retry(self) -> None:
-        """LLM이 permission_denied를 반환하면 sub-goal 실패 → retry (v2)."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "permission_denied", "reasoning": "No admin role"}'])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
-        page = make_fake_page(url="http://localhost:8023/admin", title_text="Admin")
-        plan = analyze_intent("Open admin settings")
-        result = await orchestrator.run(
-            RunRequest(request_text="Open admin settings", task_family="navigate"),
-            RunContext(site_id="gitlab", page_type_id="unresolved",
-                       task_family="navigate", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["http://localhost:8023"], plan=plan,
-            ),
-        )
-
-        # v2: failure → sub-goal retry+replan 소진 → FAIL
-        assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
-
-    async def test_llm_action_not_allowed_triggers_retry(self) -> None:
-        """LLM이 action_not_allowed를 반환하면 sub-goal 실패 → retry (v2)."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "action_not_allowed", "reasoning": "Billing disabled"}'])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
-        page = make_fake_page(url="http://localhost:8023/", title_text="GitLab")
-        plan = analyze_intent("Navigate to billing page")
-        result = await orchestrator.run(
-            RunRequest(request_text="Navigate to billing page", task_family="navigate"),
-            RunContext(site_id="gitlab", page_type_id="unresolved",
-                       task_family="navigate", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["http://localhost:8023"], plan=plan,
-            ),
-        )
-
-        # v2: failure → sub-goal retry+replan 소진 → FAIL
-        assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "NOT_FOUND_ERROR")
-
-    async def test_llm_done_returns_navigate_success(self) -> None:
-        """LLM이 done을 반환하면 NAVIGATE SUCCESS."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "done"}'])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
-        page = make_fake_page(
-            url="http://localhost:8023/dashboard/todos",
-            title_text="Todos",
-        )
-        plan = analyze_intent("Open my todos page")
-        result = await orchestrator.run(
-            RunRequest(request_text="Open my todos page", task_family="navigate"),
-            RunContext(site_id="gitlab", page_type_id="unresolved",
-                       task_family="navigate", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["http://localhost:8023"], plan=plan,
-            ),
-        )
-
-        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
-        assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "SUCCESS")
-
-    async def test_llm_done_returns_mutate_success(self) -> None:
-        """LLM이 done을 반환하면 MUTATE SUCCESS."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        llm = FakeLLMClient([self.PLAN_RESPONSE, '{"action": "done"}'])
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=llm)
-
-        page = make_fake_page(url="http://localhost:8023/", title_text="GitLab")
-        plan = analyze_intent("Click submit button")
-        result = await orchestrator.run(
-            RunRequest(request_text="Click submit button", task_family="mutate"),
-            RunContext(site_id="gitlab", page_type_id="unresolved",
-                       task_family="mutate", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["http://localhost:8023"], plan=plan,
-            ),
-        )
-
-        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
-        assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "SUCCESS")
-
-    async def test_llm_none_falls_back_to_rule_based(self) -> None:
-        """llm=None이면 기존 규칙 기반 경로를 사용한다."""
-        conn = _make_connection()
-        _seed_site(conn)
-
-        orchestrator = RuntimeOrchestrator(KBStore(conn), ExecutionStore(conn), llm=None)
-
-        page = make_fake_page(
-            url="https://example.com/dashboard",
-            title_text="Dashboard",
-            headings=["Todo Count: 5"],
-        )
-        plan = analyze_intent("Find the todo count")
-        result = await orchestrator.run(
-            RunRequest(request_text="Find the todo count", task_family="retrieve"),
-            RunContext(site_id="gitlab", page_type_id="dashboard",
-                       task_family="retrieve", state_summary=""),
-            browser_session=BrowserSession(
-                pages=[page], sites=["gitlab"],
-                start_urls=["https://example.com"], plan=plan,
-            ),
-        )
-
-        self.assertEqual(result.final_status, TaskRunStatus.VALIDATED)
-        assert result.execution_outcome is not None
-        self.assertEqual(result.execution_outcome.status, "SUCCESS")
 
 
 # ---------------------------------------------------------------------------
@@ -453,16 +161,13 @@ class ClassifyTaskTypeTests(unittest.TestCase):
         self.assertIn("Get the RSS feed token", llm.calls[0]["messages"][0]["content"])
 
     def test_analyze_intent_uses_llm_when_provided(self) -> None:
-        """analyze_intent에 llm을 주면 키워드 분류를 무시하고 LLM 결과를 사용한다."""
-        from site_adaptive_webagent.runtime.intent import analyze_intent
-        # "Go to" → 키워드로는 NAVIGATE지만 LLM은 MUTATE 반환
+        """analyze_intent에 llm을 주면 LLM 결과로 task_type을 결정한다."""
         llm = FakeLLMClient('{"task_type": "MUTATE"}')
         plan = analyze_intent("Go to the settings", llm=llm)
         self.assertEqual(plan.task_type, "MUTATE")
 
-    def test_analyze_intent_keyword_fallback_without_llm(self) -> None:
-        """llm 없으면 기존 키워드 분류를 사용한다."""
-        from site_adaptive_webagent.runtime.intent import analyze_intent
+    def test_analyze_intent_default_navigate_without_llm(self) -> None:
+        """llm 없으면 NAVIGATE 기본값을 사용한다."""
         plan = analyze_intent("Go to my todos page")
         self.assertEqual(plan.task_type, "NAVIGATE")
 
@@ -500,6 +205,15 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertNotIn("extract", names)
         self.assertIn("not_found", names)
         self.assertIn("done", names)
+
+    def test_baseline_excludes_goto_tool(self) -> None:
+        """lab 005 baseline은 goto tool을 제공하지 않는다."""
+        from site_adaptive_webagent.runtime.tools import tools_for_goal
+        for is_last in (False, True):
+            for task_type in ("RETRIEVE", "NAVIGATE", "MUTATE"):
+                tools = tools_for_goal(is_last_goal=is_last, task_type=task_type)
+                names = {t["name"] for t in tools}
+                self.assertNotIn("goto", names)
 
 
 class ToolUseMessageTests(unittest.TestCase):
@@ -572,22 +286,18 @@ class ToolUseSystemPromptTests(unittest.TestCase):
 
     def test_contains_strategy_not_actions(self) -> None:
         from site_adaptive_webagent.runtime.llm import build_tool_use_system_prompt
-        prompt = build_tool_use_system_prompt(None)
+        prompt = build_tool_use_system_prompt()
         self.assertIn("## Strategy", prompt)
         self.assertNotIn("## Actions", prompt)
         self.assertIn("remember", prompt)
 
-    def test_includes_kb_bundle(self) -> None:
+    def test_does_not_inject_kb(self) -> None:
+        """lab 005 baseline은 system prompt에 Site Knowledge 섹션을 박지 않는다."""
         from site_adaptive_webagent.runtime.llm import build_tool_use_system_prompt
-        bundle = KBBundle(
-            site_profile=make_site_profile(),
-            page_types=[make_page_type()],
-            action_schemas=[make_action_schema()],
-            validator_rules=[], policy_rules=[], failure_patterns=[],
-        )
-        prompt = build_tool_use_system_prompt(bundle)
-        self.assertIn("gitlab", prompt)
-        self.assertIn("## Site Knowledge", prompt)
+        prompt = build_tool_use_system_prompt()
+        self.assertNotIn("## Site Knowledge", prompt)
+        self.assertNotIn("Page:", prompt)
+        self.assertNotIn("Action:", prompt)
 
 
 class ObservationMessageTests(unittest.TestCase):
