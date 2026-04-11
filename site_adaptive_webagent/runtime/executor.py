@@ -155,7 +155,17 @@ async def execute_with_llm(
                 f"Page title: {obs.title}\n"
                 f"Visible text (first 10): {obs.text_lines[:10]}\n"
                 f"Links (first 10): {obs.links[:10]}\n"
-                f"Cross-check your answer against the remembered facts above. Include ALL matching items."
+                "\n"
+                "Verification before extracting:\n"
+                "1. Identify the exact format the task asks for "
+                "(e.g. an ID is a unique identifier, a count is a number of items, "
+                "an email contains @, a URL starts with http).\n"
+                "2. From the notes and visible info, select ONLY values that match that format. "
+                "Do not confuse one field type with another "
+                "(e.g. a count vs an ID, a name vs an ID).\n"
+                "3. If the task asks for multiple items (plural form, 'or', 'all', 'each'), "
+                "include ALL matching values.\n"
+                "4. If you are uncertain a value matches the requested format, exclude it."
             )
             extract_response = llm.complete_with_tools(
                 system=system,
