@@ -290,12 +290,19 @@ async def _try_sub_goal(
         logger.info("[LLM] step=%d  action=%s  thought=%r",
                     step + 1, action_name, (thought or "")[:200])
 
+        # --- Auto-accumulate optional memo from any action tool ---
+        memo_text = (args.get("memo") or "").strip()
+        if memo_text and task_notes is not None:
+            task_notes.append(memo_text)
+            logger.info("[LLM] step=%d  memo=%r", step + 1, memo_text)
+
         # --- Terminal actions ---
         if action_name == "done":
-            # done 검증: LLM에게 현재 상태와 목표를 대조시킴
+            # done 검증: LLM에게 현재 상태와 목표를 대조시킴 (task_notes 함께 검토)
             done_reason = args.get("reason", "")
             verified = _verify_done(
-                goal=sub_goal.goal, reason=done_reason, current_obs=current_obs, llm=llm,
+                goal=sub_goal.goal, reason=done_reason, current_obs=current_obs,
+                llm=llm, task_notes=task_notes,
             )
             if verified:
                 logger.info("[LLM] sub-goal done (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
@@ -948,8 +955,18 @@ def _summarize_action_result(
 # LLM helpers
 # ---------------------------------------------------------------------------
 
-def _verify_done(*, goal: str, reason: str, current_obs: PageObservation, llm: LLMClient) -> str | bool:
-    """LLM에게 현재 상태와 목표를 대조하여 done 검증을 요청한다.
+def _verify_done(
+    *,
+    goal: str,
+    reason: str,
+    current_obs: PageObservation,
+    llm: LLMClient,
+    task_notes: list[str] | None = None,
+) -> str | bool:
+    """LLM에게 현재 상태 + 누적된 task notes를 대조하여 done 검증을 요청한다.
+
+    task_notes가 비어 있지 않으면, 메모에 *아직 행동되지 않은 정보*가 있는지 확인하고
+    있으면 done을 거부한다.
 
     Returns:
         True — 목표 달성 확인
@@ -960,9 +977,19 @@ def _verify_done(*, goal: str, reason: str, current_obs: PageObservation, llm: L
     params = parse_qs(parsed_url.query)
     params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
 
+    notes_section = ""
+    if task_notes:
+        notes_section = (
+            "\n\nNotes accumulated during this task:\n"
+            + "\n".join(f"- {n}" for n in task_notes)
+        )
+
     system = (
         "You verify whether a sub-goal has been achieved given the current page state. "
         "The agent claims the goal is done. Check if the claim matches the actual page state. "
+        "If notes are provided and they mention information the agent has gathered but not "
+        "yet acted upon (e.g. multiple items to extract, additional pages to visit, secondary "
+        "fields to record), reject the done so the agent can finish the remaining work. "
         'Respond ONLY with JSON: {"achieved": true} or {"achieved": false, "reason": "..."}'
     )
     user_msg = (
@@ -972,7 +999,8 @@ def _verify_done(*, goal: str, reason: str, current_obs: PageObservation, llm: L
         f"  URL: {current_obs.url}\n"
         f"  URL parameters: {params_str}\n"
         f"  Page title: {current_obs.title}\n"
-        f"  Visible text (first 5): {current_obs.text_lines[:5]}\n"
+        f"  Visible text (first 5): {current_obs.text_lines[:5]}"
+        f"{notes_section}"
     )
     try:
         from .llm import parse_llm_action

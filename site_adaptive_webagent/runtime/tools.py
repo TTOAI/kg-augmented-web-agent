@@ -33,6 +33,17 @@ class LLMToolResponse:
 # Tool definitions (Anthropic format)
 # ---------------------------------------------------------------------------
 
+# Generic optional memo field — accumulated into task_notes and reviewed before done
+_MEMO_FIELD = {
+    "type": "string",
+    "description": (
+        "Optional: a one-phrase note of what you observed or concluded in this step. "
+        "Use it when the task requires gathering multiple pieces of information across "
+        "pages — notes are accumulated and reviewed before done."
+    ),
+}
+
+
 def _click_tool() -> dict:
     return {
         "name": "click",
@@ -56,6 +67,7 @@ def _click_tool() -> dict:
                     "enum": ["button", "link"],
                     "description": "Narrow matching to button or link when both exist",
                 },
+                "memo": _MEMO_FIELD,
             },
             "required": ["target"],
         },
@@ -84,6 +96,7 @@ def _fill_tool() -> dict:
                     "type": "boolean",
                     "description": "Press Enter after typing (default false)",
                 },
+                "memo": _MEMO_FIELD,
             },
             "required": ["target", "value"],
         },
@@ -106,6 +119,7 @@ def _search_tool() -> dict:
                     "type": "string",
                     "description": "What to search or filter for",
                 },
+                "memo": _MEMO_FIELD,
             },
             "required": ["query"],
         },
@@ -118,7 +132,9 @@ def _goback_tool() -> dict:
         "description": "Navigate back to the previous page in browser history.",
         "input_schema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "memo": _MEMO_FIELD,
+            },
         },
     }
 
@@ -137,6 +153,7 @@ def _observe_tool() -> dict:
                     "type": "string",
                     "description": "Case-insensitive filter keyword",
                 },
+                "memo": _MEMO_FIELD,
             },
             "required": ["keyword"],
         },

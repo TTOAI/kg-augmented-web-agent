@@ -215,6 +215,96 @@ class ToolDefinitionTests(unittest.TestCase):
                 names = {t["name"] for t in tools}
                 self.assertNotIn("goto", names)
 
+    def test_action_tools_have_optional_memo_field(self) -> None:
+        """5 action tools (click/fill/search/goback/observe)에 memo field가 있다."""
+        from site_adaptive_webagent.runtime.tools import (
+            _click_tool, _fill_tool, _search_tool, _goback_tool, _observe_tool,
+        )
+        for tool_fn in (_click_tool, _fill_tool, _search_tool, _goback_tool, _observe_tool):
+            tool = tool_fn()
+            with self.subTest(tool=tool["name"]):
+                props = tool["input_schema"]["properties"]
+                self.assertIn("memo", props)
+                self.assertEqual(props["memo"]["type"], "string")
+                # memo는 required가 아니어야 함
+                self.assertNotIn("memo", tool["input_schema"].get("required", []))
+
+    def test_cognitive_tools_do_not_have_memo_field(self) -> None:
+        """done / remember / recall / extract 등은 자체 메커니즘이 있어 memo가 없다."""
+        from site_adaptive_webagent.runtime.tools import (
+            _done_tool, _remember_tool, _recall_tool, _extract_tool, _not_found_tool,
+        )
+        for tool_fn in (_done_tool, _remember_tool, _recall_tool, _extract_tool, _not_found_tool):
+            tool = tool_fn()
+            with self.subTest(tool=tool["name"]):
+                props = tool["input_schema"]["properties"]
+                self.assertNotIn("memo", props)
+
+
+class VerifyDoneTests(unittest.IsolatedAsyncioTestCase):
+    """_verify_done이 task_notes를 활용해 done을 거부할 수 있는지 검증."""
+
+    def test_verify_done_accepts_when_no_notes(self) -> None:
+        from site_adaptive_webagent.runtime.executor import _verify_done
+        llm = FakeLLMClient('{"achieved": true}')
+        obs = PageObservation(
+            url="https://example.com/done",
+            title="Done", headings=[], text_lines=[], links=[], buttons=[],
+        )
+        result = _verify_done(
+            goal="Reach done page",
+            reason="URL is /done",
+            current_obs=obs,
+            llm=llm,
+            task_notes=None,
+        )
+        self.assertTrue(result)
+
+    def test_verify_done_passes_notes_to_llm(self) -> None:
+        """task_notes가 LLM 호출의 user_msg에 포함된다."""
+        from site_adaptive_webagent.runtime.executor import _verify_done
+        llm = FakeLLMClient('{"achieved": true}')
+        obs = PageObservation(
+            url="https://example.com/projects/empathy-prompts",
+            title="empathy-prompts", headings=[], text_lines=[], links=[], buttons=[],
+        )
+        notes = [
+            "empathy-prompts ID = 183",
+            "millennials-to-snake-people ID = 187 still needs to be visited",
+        ]
+        _verify_done(
+            goal="Determine project IDs of top-starred projects",
+            reason="found ID 183",
+            current_obs=obs,
+            llm=llm,
+            task_notes=notes,
+        )
+        # LLM이 호출됐고 user_msg에 notes가 포함됨
+        self.assertEqual(len(llm.calls), 1)
+        user_msg = llm.calls[0]["messages"][0]["content"]
+        self.assertIn("Notes accumulated during this task", user_msg)
+        self.assertIn("empathy-prompts ID = 183", user_msg)
+        self.assertIn("millennials-to-snake-people ID = 187", user_msg)
+        # system prompt에 notes 거부 조건 안내가 있음
+        system = llm.calls[0]["system"]
+        self.assertIn("not yet acted upon", system)
+
+    def test_verify_done_rejects_when_llm_returns_false(self) -> None:
+        from site_adaptive_webagent.runtime.executor import _verify_done
+        llm = FakeLLMClient('{"achieved": false, "reason": "second item not yet recorded"}')
+        obs = PageObservation(
+            url="https://example.com",
+            title="Page", headings=[], text_lines=[], links=[], buttons=[],
+        )
+        result = _verify_done(
+            goal="Get all IDs",
+            reason="got one ID",
+            current_obs=obs,
+            llm=llm,
+            task_notes=["second project ID 187 still pending"],
+        )
+        self.assertEqual(result, "second item not yet recorded")
+
 
 class ToolUseMessageTests(unittest.TestCase):
     """Tool Use 메시지 포맷 헬퍼 테스트."""
