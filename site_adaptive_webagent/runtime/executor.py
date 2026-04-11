@@ -163,9 +163,14 @@ async def execute_with_llm(
                 "2. From the notes and visible info, select ONLY values that match that format. "
                 "Do not confuse one field type with another "
                 "(e.g. a count vs an ID, a name vs an ID).\n"
-                "3. If the task asks for multiple items (plural form, 'or', 'all', 'each'), "
-                "include ALL matching values.\n"
-                "4. If you are uncertain a value matches the requested format, exclude it."
+                "3. Determine whether the task is singular or plural:\n"
+                "   - Singular markers: definite article 'the', no plural 's', single answer expected\n"
+                "   - Plural markers: 's', '(s)', 'or', 'all', 'each', 'list', 'IDs', 'names'\n"
+                "4. Inclusion policy depends on plurality:\n"
+                "   - If SINGULAR and uncertain about a value, exclude it (be conservative)\n"
+                "   - If PLURAL and a value of the correct format is mentioned anywhere in your\n"
+                "     notes or your prior reasoning, INCLUDE it (be inclusive — better to return\n"
+                "     a candidate than to omit it). Re-read the notes carefully for all matches."
             )
             extract_response = llm.complete_with_tools(
                 system=system,
