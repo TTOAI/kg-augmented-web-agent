@@ -86,7 +86,11 @@ async def collect_site_kg(
                 widgets = await _collect_widgets(
                     page, pn.page_key, site_id, max_widgets_per_page, seen_widget_keys,
                 )
-                widgets = await _observe_widget_effects(page, widgets, page_url)
+                widgets = await _observe_widget_effects(
+                    page, widgets, page_url,
+                    site_id=site_id, page_key=pn.page_key,
+                    seen_widget_keys=seen_widget_keys,
+                )
                 all_widgets.extend(widgets)
                 logger.info("Page '%s': %d widgets", pn.page_key, len(widgets))
 
@@ -369,71 +373,186 @@ async def _generate_widget_key(element: Any, locator: str) -> str:
 # Widget 행동 관찰
 # ---------------------------------------------------------------------------
 
+_DROPDOWN_OPTION_SELECTORS = (
+    ".dropdown-item:visible",
+    "[role='option']:visible",
+    "[role='menuitem']:visible",
+    "[role='tab']:visible",
+    ".dropdown-menu li a:visible",
+)
+
+
 async def _observe_widget_effects(
     page: Any,
     widgets: list[WidgetNode],
     page_url: str,
+    site_id: str = "",
+    page_key: str = "",
+    seen_widget_keys: set[str] | None = None,
+    max_interaction_depth: int = 3,
 ) -> list[WidgetNode]:
-    """각 widget을 클릭해보고 side_effects를 기록한다."""
+    """각 widget을 클릭해보고 side_effects를 기록한다 (최대 3단계 재귀)."""
+    if seen_widget_keys is None:
+        seen_widget_keys = {w.widget_key for w in widgets}
+    child_widgets: list[WidgetNode] = []
+
     for widget in widgets:
-        try:
-            before_url = page.url
-            locator = page.locator(widget.locator_value).first
+        children = await _observe_single_widget(
+            page=page,
+            widget=widget,
+            page_url=page_url,
+            site_id=site_id,
+            page_key=page_key,
+            seen_widget_keys=seen_widget_keys,
+            depth=0,
+            max_depth=max_interaction_depth,
+        )
+        child_widgets.extend(children)
 
-            if not await locator.is_visible():
-                widget.visibility_condition = "not visible by default"
-                continue
+    return widgets + child_widgets
 
-            # DOM snapshot before
-            before_elements = await _count_interactive_elements(page)
 
-            await locator.click(timeout=3000)
-            await page.wait_for_timeout(500)
+async def _observe_single_widget(
+    *,
+    page: Any,
+    widget: WidgetNode,
+    page_url: str,
+    site_id: str,
+    page_key: str,
+    seen_widget_keys: set[str],
+    depth: int,
+    max_depth: int,
+) -> list[WidgetNode]:
+    """단일 widget 클릭 관찰 + 하위 옵션 재귀 (3단계)."""
+    discovered: list[WidgetNode] = []
 
-            after_url = page.url
-            effects: list[str] = []
+    try:
+        locator = page.locator(widget.locator_value).first
+        if not await locator.is_visible():
+            widget.visibility_condition = "not visible by default"
+            return discovered
 
-            # URL path 변화
-            if _normalize_path(after_url) != _normalize_path(before_url):
-                effects.append(f"navigates to {_normalize_path(after_url)}")
-            else:
-                # URL query parameter 변화
-                param_diff = _diff_query_params(before_url, after_url)
-                if param_diff:
-                    effects.append(f"URL gains {param_diff}")
+        before_url = page.url
+        before_options = await _get_dropdown_options(page)
 
-                # DOM 변화 (새 interactive element 출현)
-                after_elements = await _count_interactive_elements(page)
-                new_count = after_elements - before_elements
-                if new_count > 0:
-                    effects.append(f"reveals {new_count} new interactive elements")
+        await locator.click(timeout=3000)
+        await page.wait_for_timeout(500)
 
-                # dropdown/modal 출현
-                try:
-                    dropdown_count = await page.locator(
-                        ".dropdown-menu:visible, [role='listbox']:visible, "
-                        "[role='menu']:visible, .modal:visible"
-                    ).count()
-                    if dropdown_count > 0:
-                        effects.append("opens dropdown or modal")
-                except Exception:
-                    pass
+        after_url = page.url
+        effects: list[str] = []
 
-            if effects:
-                widget.side_effects = effects
+        # URL 변화 감지
+        if _normalize_path(after_url) != _normalize_path(before_url):
+            effects.append(f"navigates to {_normalize_path(after_url)}")
+        else:
+            param_diff = _diff_query_params(before_url, after_url)
+            if param_diff:
+                effects.append(f"URL gains {param_diff}")
 
-            # 원래 상태로 복원
-            await page.goto(page_url, timeout=5000)
-            await page.wait_for_timeout(300)
+        # 새 dropdown 옵션 감지
+        after_options = await _get_dropdown_options(page)
+        new_options = after_options - before_options
 
-        except Exception:
+        if new_options:
+            effects.append(f"opens dropdown ({len(new_options)} options)")
+
+            # 재귀: 각 새 옵션을 별도 WidgetNode로 등록 + 클릭 관찰
+            if depth < max_depth - 1:
+                for opt_text in list(new_options)[:10]:  # 최대 10 옵션
+                    opt_locator = _make_option_locator(opt_text)
+                    opt_key = f"{page_key}__{_slugify(opt_text)}"
+                    if opt_key in seen_widget_keys:
+                        continue
+                    seen_widget_keys.add(opt_key)
+
+                    child = WidgetNode(
+                        widget_node_id=str(uuid.uuid4()),
+                        site_id=site_id,
+                        page_key=page_key,
+                        widget_key=opt_key,
+                        locator_strategy="css",
+                        locator_value=opt_locator,
+                        visibility_condition=f"after {widget.widget_key} click",
+                    )
+
+                    # 옵션 클릭 → side_effect 관찰 (재귀)
+                    grandchildren = await _observe_single_widget(
+                        page=page,
+                        widget=child,
+                        page_url=page_url,
+                        site_id=site_id,
+                        page_key=page_key,
+                        seen_widget_keys=seen_widget_keys,
+                        depth=depth + 1,
+                        max_depth=max_depth,
+                    )
+                    discovered.append(child)
+                    discovered.extend(grandchildren)
+
+                    # 옵션 클릭 후 parent dropdown 재열기 (다음 옵션을 위해)
+                    try:
+                        await page.goto(page_url, timeout=5000)
+                        await page.wait_for_timeout(300)
+                        parent_loc = page.locator(widget.locator_value).first
+                        if await parent_loc.is_visible():
+                            await parent_loc.click(timeout=3000)
+                            await page.wait_for_timeout(300)
+                    except Exception:
+                        pass
+        else:
+            # dropdown 안 열림 — DOM 변화 체크
+            after_elements = await _count_interactive_elements(page)
+            before_elements = await _count_interactive_elements(page)  # 대략적
             try:
-                await page.goto(page_url, timeout=5000)
-                await page.wait_for_timeout(300)
+                dropdown_count = await page.locator(
+                    ".dropdown-menu:visible, [role='listbox']:visible, "
+                    "[role='menu']:visible, .modal:visible"
+                ).count()
+                if dropdown_count > 0:
+                    effects.append("opens dropdown or modal")
             except Exception:
                 pass
 
-    return widgets
+        if effects:
+            widget.side_effects = effects
+
+        # 복원
+        await page.goto(page_url, timeout=5000)
+        await page.wait_for_timeout(300)
+
+    except Exception:
+        try:
+            await page.goto(page_url, timeout=5000)
+            await page.wait_for_timeout(300)
+        except Exception:
+            pass
+
+    return discovered
+
+
+async def _get_dropdown_options(page: Any) -> set[str]:
+    """현재 보이는 dropdown 옵션의 텍스트 집합."""
+    options: set[str] = set()
+    for selector in _DROPDOWN_OPTION_SELECTORS:
+        try:
+            elements = await page.locator(selector).all()
+            for el in elements[:20]:
+                try:
+                    text = (await el.inner_text()).strip()
+                    if text and len(text) < 50:
+                        options.add(text)
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return options
+
+
+def _make_option_locator(option_text: str) -> str:
+    """dropdown 옵션의 CSS selector 생성."""
+    escaped = _escape_css(option_text)
+    # 가장 범용적: visible dropdown item with text match
+    return f".dropdown-item:has-text('{escaped}'), [role='option']:has-text('{escaped}'), [role='menuitem']:has-text('{escaped}')"
 
 
 async def _count_interactive_elements(page: Any) -> int:
