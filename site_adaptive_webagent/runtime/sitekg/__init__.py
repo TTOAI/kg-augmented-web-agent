@@ -19,6 +19,7 @@ KG에 박지 않는 것 (DOM에서 직접 가져오거나 LLM이 추론):
 """
 
 from .page_matcher import match_page_node
+from .retrieval import build_kg_context
 from .seed_loader import SeedValidationError, load as load_seed
 from .types import (
     InteractionEdge,
@@ -35,6 +36,7 @@ __all__ = [
     "SeedValidationError",
     "SiteKG",
     "WidgetNode",
+    "build_kg_context",
     "load_seed",
     "match_page_node",
 ]

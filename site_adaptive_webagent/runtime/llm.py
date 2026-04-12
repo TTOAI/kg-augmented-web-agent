@@ -245,7 +245,7 @@ class SubGoal:
         return f"{self.goal} [{self.goal_type}]"
 
 
-def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -> list[SubGoal]:
+def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient, kg_context: str = "") -> list[SubGoal]:
     """태스크를 2~5개 sub-goal로 분해한다. LLM 1회 호출."""
     system = (
         "You are a web task planner. Break down a web automation task into 2-5 sub-goals.\n"
@@ -278,6 +278,8 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
         lines.append(f"Buttons: {observation.buttons[:10]}")
     if observation.inputs:
         lines.append(f"Input fields: {observation.inputs[:10]}")
+    if kg_context:
+        lines.append(f"\nSite knowledge:\n{kg_context}")
 
     messages = [{"role": "user", "content": "\n".join(lines)}]
     response = llm.complete(system=system, messages=messages)
@@ -341,6 +343,7 @@ def build_observation_message(
     sub_goals: list[SubGoal] | None = None,
     current_goal_index: int = 0,
     start_url: str = "",
+    kg_widgets: list[Any] | None = None,
 ) -> str:
     """페이지 상태를 마크다운 섹션으로 구조화한다 (Tool Use용)."""
     from urllib.parse import urlparse, parse_qs
@@ -399,5 +402,16 @@ def build_observation_message(
         elements.append("**Input fields:**\n" + "\n".join(f"- {i}" for i in observation.inputs[:10]))
     if elements:
         sections.append("## Interactive Elements\n" + "\n\n".join(elements))
+
+    if kg_widgets:
+        kg_lines = []
+        for w in kg_widgets:
+            line = f"● {w.widget_key} [{w.locator_strategy}: {w.locator_value}]"
+            if w.side_effects:
+                line += f" → {', '.join(w.side_effects)}"
+            if w.visibility_condition:
+                line += f" [visible if: {w.visibility_condition}]"
+            kg_lines.append(line)
+        sections.append("## KG Registered Widgets\n" + "\n".join(kg_lines))
 
     return "\n\n".join(sections)

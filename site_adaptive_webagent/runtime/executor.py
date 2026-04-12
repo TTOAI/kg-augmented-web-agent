@@ -11,6 +11,14 @@ from .llm import LLMClient, SubGoal, build_observation_message, build_plan, buil
 from .tools import format_assistant_tool_use, format_tool_result, replan_tool, tools_for_goal
 from .types import ExecutionOutcome, PageObservation
 
+# SiteKG는 선택적 의존 — None이면 baseline (조건 A)
+try:
+    from .sitekg.types import SiteKG
+    from .sitekg.retrieval import build_kg_context
+    from .sitekg.page_matcher import match_page_node
+except ImportError:
+    SiteKG = None  # type: ignore[assignment,misc]
+
 _FAILURE_ACTION_TO_STATUS: dict[str, str] = {
     "not_found": "NOT_FOUND_ERROR",
     "permission_denied": "PERMISSION_DENIED_ERROR",
@@ -34,13 +42,16 @@ async def execute_with_llm(
     page: Any,
     observation: PageObservation,
     llm: LLMClient,
+    sitekg: Any = None,
     max_steps: int = 50,
 ) -> ExecutionOutcome:
     """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
     t_start = time.time()
-    system = build_tool_use_system_prompt()
+    kg_ctx = build_kg_context(page.url, sitekg) if sitekg else ""
+    system = build_tool_use_system_prompt() + kg_ctx
 
-    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm)
+    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm,
+                           kg_context=kg_ctx)
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
@@ -70,6 +81,7 @@ async def execute_with_llm(
                 is_last_goal=(goal_idx == len(sub_goals) - 1),
                 task_notes=task_notes,
                 start_url=checkpoint_stack[0],
+                sitekg=sitekg,
             )
             steps_used += used
 
@@ -248,6 +260,7 @@ async def _try_sub_goal(
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
     start_url: str = "",
+    sitekg: Any = None,
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
@@ -261,6 +274,7 @@ async def _try_sub_goal(
     current_obs = await observe_page(page)
     _action_history: list[str] = []
     _MAX_MESSAGES = 10
+    _prev_url = current_obs.url  # KG context 동적 갱신용
     tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type)
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
@@ -286,12 +300,26 @@ async def _try_sub_goal(
             )
 
     for step in range(step_budget):
+        # URL 변경 시 KG context 동적 갱신
+        if sitekg and current_obs.url != _prev_url:
+            kg_ctx = build_kg_context(current_obs.url, sitekg)
+            system = build_tool_use_system_prompt() + kg_ctx
+            _prev_url = current_obs.url
+
         _log_step_observation(step, current_obs, sub_goals, goal_index)
+
+        # KG widgets 추출 (현재 page에 매칭되는 것만)
+        kg_widgets = None
+        if sitekg:
+            page_result = match_page_node(current_obs.url, sitekg)
+            if not isinstance(page_result, str):
+                kg_widgets = sitekg.get_widgets_for_page(page_result.page_key)
 
         user_msg = build_observation_message(
             task=task, observation=current_obs, last_action_feedback=last_action_feedback,
             sub_goals=sub_goals, current_goal_index=goal_index,
             start_url=start_url,
+            kg_widgets=kg_widgets,
         )
         messages.append({"role": "user", "content": user_msg})
         if len(messages) > _MAX_MESSAGES:
