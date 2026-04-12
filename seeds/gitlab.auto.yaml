@@ -1,0 +1,227 @@
+site_id: gitlab
+base_url: http://localhost:8023
+page_nodes:
+- page_key: root
+  url_patterns:
+  - /
+- page_key: dashboard_milestones
+  url_patterns:
+  - /dashboard/milestones
+- page_key: dashboard_snippets
+  url_patterns:
+  - /dashboard/snippets
+- page_key: dashboard_activity
+  url_patterns:
+  - /dashboard/activity
+- page_key: dashboard_projects
+  url_patterns:
+  - /dashboard/projects
+- page_key: dashboard_groups
+  url_patterns:
+  - /dashboard/groups
+- page_key: search
+  url_patterns:
+  - /search
+- page_key: projects_new
+  url_patterns:
+  - /projects/new
+- page_key: groups_new
+  url_patterns:
+  - /groups/new
+- page_key: __snippets_new
+  url_patterns:
+  - /-/snippets/new
+- page_key: dashboard_issues
+  url_patterns:
+  - /dashboard/issues
+- page_key: dashboard_merge_requests
+  url_patterns:
+  - /dashboard/merge_requests
+- page_key: dashboard_todos
+  url_patterns:
+  - /dashboard/todos
+- page_key: help
+  url_patterns:
+  - /help
+- page_key: byteblaze
+  url_patterns:
+  - /byteblaze
+widget_nodes:
+- widget_key: search
+  page_key: root
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: input_placeholder_filter_by_name
+  page_key: root
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: toggle_project_select
+  page_key: dashboard_milestones
+  locator_strategy: css
+  locator_value: button[aria-label='Toggle project select']
+- widget_key: search
+  page_key: dashboard_milestones
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: search_title
+  page_key: dashboard_milestones
+  locator_strategy: css
+  locator_value: '#search_title'
+- widget_key: search
+  page_key: dashboard_snippets
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: search
+  page_key: dashboard_activity
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: search
+  page_key: dashboard_projects
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: input_placeholder_filter_by_name
+  page_key: dashboard_projects
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: last_created
+  page_key: dashboard_groups
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+- widget_key: search
+  page_key: dashboard_groups
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: input_placeholder_search_by_name
+  page_key: dashboard_groups
+  locator_strategy: css
+  locator_value: input[placeholder='Search by name']
+- widget_key: search
+  page_key: search
+  locator_strategy: css
+  locator_value: '[data-testid=''search-button'']'
+- widget_key: search_for_projects_issues_etc
+  page_key: search
+  locator_strategy: css
+  locator_value: '#dashboard_search'
+- widget_key: search
+  page_key: projects_new
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: search
+  page_key: groups_new
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: add_another_file_1_10
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: '[data-testid=''add_button'']'
+- widget_key: create_snippet
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: '[data-testid=''snippet-submit-btn'']'
+- widget_key: search
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: snippet_title
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: '#snippet-title'
+- widget_key: bvid_13
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: '#__BVID__13'
+- widget_key: input_placeholder_give_your_file_a_name_
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: input[placeholder='Give your file a name to add code highlighting,
+    e.g. example.rb for Ruby']
+- widget_key: bvid_112
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: '#__BVID__112'
+- widget_key: bvid_115
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: '#__BVID__115'
+- widget_key: bvid_118
+  page_key: __snippets_new
+  locator_strategy: css
+  locator_value: '#__BVID__118'
+- widget_key: toggle_project_select
+  page_key: dashboard_issues
+  locator_strategy: css
+  locator_value: button[aria-label='Toggle project select']
+- widget_key: created_date
+  page_key: dashboard_issues
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+- widget_key: search
+  page_key: dashboard_issues
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: input_placeholder_search_or_filter_resul
+  page_key: dashboard_issues
+  locator_strategy: css
+  locator_value: input[placeholder='Search or filter results...']
+- widget_key: toggle_project_select
+  page_key: dashboard_merge_requests
+  locator_strategy: css
+  locator_value: button[aria-label='Toggle project select']
+- widget_key: created_date
+  page_key: dashboard_merge_requests
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+- widget_key: search
+  page_key: dashboard_merge_requests
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: input_placeholder_search_or_filter_resul
+  page_key: dashboard_merge_requests
+  locator_strategy: css
+  locator_value: input[placeholder='Search or filter results...']
+- widget_key: search
+  page_key: dashboard_todos
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: search
+  page_key: help
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: copy_user_id
+  page_key: byteblaze
+  locator_strategy: css
+  locator_value: button[aria-label='Copy user ID']
+- widget_key: search
+  page_key: byteblaze
+  locator_strategy: css
+  locator_value: '#search'
+navigation_edges:
+- source_page_key: root
+  target_page_key: dashboard_milestones
+- source_page_key: root
+  target_page_key: dashboard_snippets
+- source_page_key: root
+  target_page_key: dashboard_activity
+- source_page_key: root
+  target_page_key: dashboard_projects
+- source_page_key: root
+  target_page_key: dashboard_groups
+- source_page_key: root
+  target_page_key: search
+- source_page_key: root
+  target_page_key: projects_new
+- source_page_key: root
+  target_page_key: groups_new
+- source_page_key: root
+  target_page_key: __snippets_new
+- source_page_key: root
+  target_page_key: dashboard_issues
+- source_page_key: root
+  target_page_key: dashboard_merge_requests
+- source_page_key: root
+  target_page_key: dashboard_todos
+- source_page_key: root
+  target_page_key: help
+- source_page_key: root
+  target_page_key: byteblaze
