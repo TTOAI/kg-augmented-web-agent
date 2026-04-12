@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from site_adaptive_webagent.runtime.sitekg.retrieval import build_kg_context, _bfs_reachable
+from site_adaptive_webagent.runtime.sitekg.retrieval import build_kg_context, _bfs_flat
 from site_adaptive_webagent.runtime.sitekg.types import (
     NavigationEdge, PageNode, SiteKG, WidgetNode,
 )
@@ -82,27 +82,38 @@ class BuildKgContextTests(unittest.TestCase):
         self.assertNotIn("explore", result_0hop)
 
 
-class BfsReachableTests(unittest.TestCase):
+class BfsFlatTests(unittest.TestCase):
     def setUp(self) -> None:
         self.sitekg = _make_sitekg()
 
     def test_includes_start(self) -> None:
-        result = _bfs_reachable("dashboard", self.sitekg, max_hops=2)
+        result = _bfs_flat("dashboard", self.sitekg, max_hops=2)
         self.assertEqual(result["dashboard"], 0)
 
-    def test_direct_neighbors(self) -> None:
-        result = _bfs_reachable("dashboard", self.sitekg, max_hops=1)
+    def test_page_to_widget_1_hop(self) -> None:
+        """page → widget (contains) = 1 hop."""
+        result = _bfs_flat("dashboard", self.sitekg, max_hops=1)
+        self.assertIn("search", result)  # dashboard의 widget
+        self.assertEqual(result["search"], 1)
+
+    def test_page_to_page_via_nav(self) -> None:
+        result = _bfs_flat("dashboard", self.sitekg, max_hops=1)
         self.assertIn("issues", result)
         self.assertEqual(result["issues"], 1)
 
     def test_hop_limit(self) -> None:
-        result = _bfs_reachable("issues", self.sitekg, max_hops=0)
+        result = _bfs_flat("issues", self.sitekg, max_hops=0)
         self.assertEqual(len(result), 1)  # only issues itself
 
     def test_bidirectional(self) -> None:
-        # issues → dashboard (reverse edge) should work
-        result = _bfs_reachable("issues", self.sitekg, max_hops=1)
+        result = _bfs_flat("issues", self.sitekg, max_hops=1)
         self.assertIn("dashboard", result)
+
+    def test_widget_to_page_contains(self) -> None:
+        """widget → page (contains) = 1 hop."""
+        result = _bfs_flat("search", self.sitekg, max_hops=1)
+        self.assertIn("dashboard", result)
+        self.assertEqual(result["dashboard"], 1)
 
 
 if __name__ == "__main__":
