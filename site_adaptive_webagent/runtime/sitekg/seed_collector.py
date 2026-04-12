@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -32,18 +33,27 @@ _INTERACTIVE_SELECTORS = (
 
 _SKIP_PATTERNS = ("/users/sign_in", "/users/sign_out", "/admin", "/-/profile")
 
+# 동적 ID 패턴 (false positive 방지)
+_DYNAMIC_ID_PATTERNS = re.compile(
+    r"__BVID__\d+|ember\d+|react-|_[a-f0-9]{8,}|[a-f0-9]{12,}"
+)
+
 
 async def collect_site_kg(
     base_url: str,
     site_id: str,
     *,
     auth_storage_state: str | None = None,
-    max_pages: int = 20,
+    extra_start_urls: list[str] | None = None,
+    max_pages: int = 50,
     max_widgets_per_page: int = 15,
-    max_depth: int = 4,
+    max_depth: int = 5,
     headed: bool = False,
 ) -> SiteKG:
-    """Playwright로 사이트를 자동 순회하여 SiteKG를 생성한다."""
+    """Playwright로 사이트를 자동 순회하여 SiteKG를 생성한다.
+
+    extra_start_urls: BFS 시작점 추가. 사이트의 주요 진입점을 알면 깊은 페이지까지 탐색 가능.
+    """
     from playwright.async_api import async_playwright
 
     async with async_playwright() as pw:
@@ -58,16 +68,24 @@ async def collect_site_kg(
             # Step 1: BFS page traversal
             page_nodes, nav_edges, page_urls = await _bfs_pages(
                 page, base_url, site_id, max_pages, max_depth,
+                extra_start_urls=extra_start_urls or [],
             )
             logger.info("Collected %d pages, %d navigation edges", len(page_nodes), len(nav_edges))
 
             # Step 2+3: widget 수집 + 행동 관찰
             all_widgets: list[WidgetNode] = []
+            seen_widget_keys: set[str] = set()
             for pn in page_nodes:
                 page_url = page_urls.get(pn.page_key, base_url)
-                await page.goto(page_url)
-                await page.wait_for_timeout(500)
-                widgets = await _collect_widgets(page, pn.page_key, site_id, max_widgets_per_page)
+                try:
+                    await page.goto(page_url, timeout=10000)
+                    await page.wait_for_timeout(500)
+                except Exception:
+                    logger.warning("Failed to navigate to %s, skipping widgets", page_url)
+                    continue
+                widgets = await _collect_widgets(
+                    page, pn.page_key, site_id, max_widgets_per_page, seen_widget_keys,
+                )
                 widgets = await _observe_widget_effects(page, widgets, page_url)
                 all_widgets.extend(widgets)
                 logger.info("Page '%s': %d widgets", pn.page_key, len(widgets))
@@ -78,7 +96,7 @@ async def collect_site_kg(
                 page_nodes=page_nodes,
                 widget_nodes=all_widgets,
                 navigation_edges=nav_edges,
-                interaction_edges=[],  # M0: interaction edges는 side_effects에서 간접 표현
+                interaction_edges=[],
             )
         finally:
             await context.close()
@@ -148,13 +166,19 @@ async def _bfs_pages(
     site_id: str,
     max_pages: int,
     max_depth: int,
+    *,
+    extra_start_urls: list[str] | None = None,
 ) -> tuple[list[PageNode], list[NavigationEdge], dict[str, str]]:
     """BFS link 순회 → PageNode + NavigationEdge."""
     base_host = urlparse(base_url).netloc
     visited: dict[str, PageNode] = {}  # normalized_path → PageNode
     page_urls: dict[str, str] = {}  # page_key → full URL
     nav_edges: list[NavigationEdge] = []
-    queue: list[tuple[str, int, str | None]] = [(base_url, 0, None)]  # (url, depth, source_page_key)
+
+    # BFS queue: (url, depth, source_page_key)
+    queue: list[tuple[str, int, str | None]] = [(base_url, 0, None)]
+    for extra_url in (extra_start_urls or []):
+        queue.append((extra_url, 0, None))  # extra URLs도 depth 0에서 시작
 
     while queue and len(visited) < max_pages:
         url, depth, source_pk = queue.pop(0)
@@ -163,10 +187,12 @@ async def _bfs_pages(
 
         norm_path = _normalize_path(url)
         if norm_path in visited:
-            # edge만 추가 (이미 방문한 페이지)
-            if source_pk and source_pk != visited[norm_path].page_key:
+            if source_pk:
                 target_pk = visited[norm_path].page_key
-                if not any(e.source_page_key == source_pk and e.target_page_key == target_pk for e in nav_edges):
+                if source_pk != target_pk and not any(
+                    e.source_page_key == source_pk and e.target_page_key == target_pk
+                    for e in nav_edges
+                ):
                     nav_edges.append(NavigationEdge(
                         edge_id=str(uuid.uuid4()), site_id=site_id,
                         source_page_key=source_pk, target_page_key=target_pk,
@@ -183,9 +209,13 @@ async def _bfs_pages(
             continue
 
         actual_path = _normalize_path(page.url)
-        page_key = _path_to_page_key(actual_path)
         if actual_path in visited:
             continue
+
+        page_key = _path_to_page_key(actual_path)
+        # page_key 중복 방지
+        if page_key in page_urls:
+            page_key = f"{page_key}_{len(visited)}"
 
         pn = PageNode(
             page_node_id=str(uuid.uuid4()),
@@ -205,10 +235,15 @@ async def _bfs_pages(
         # 현재 페이지의 내부 links 수집
         try:
             hrefs: list[str] = await page.evaluate("""() => {
+                const seen = new Set();
                 return Array.from(document.querySelectorAll('a[href]'))
                     .map(a => a.href)
-                    .filter(Boolean)
-                    .slice(0, 50)
+                    .filter(h => {
+                        if (!h || seen.has(h)) return false;
+                        seen.add(h);
+                        return true;
+                    })
+                    .slice(0, 80)
             }""")
         except Exception:
             hrefs = []
@@ -216,8 +251,10 @@ async def _bfs_pages(
         for href in hrefs:
             parsed = urlparse(href)
             if parsed.netloc and parsed.netloc != base_host:
-                continue  # 외부 링크 skip
+                continue
             full_url = urljoin(base_url, parsed.path)
+            if parsed.query:
+                full_url += f"?{parsed.query}"
             queue.append((full_url, depth + 1, page_key))
 
     return list(visited.values()), nav_edges, page_urls
@@ -232,6 +269,7 @@ async def _collect_widgets(
     page_key: str,
     site_id: str,
     max_widgets: int,
+    seen_widget_keys: set[str],
 ) -> list[WidgetNode]:
     """페이지에서 interactive element를 수집하여 WidgetNode로 변환."""
     widgets: list[WidgetNode] = []
@@ -253,11 +291,17 @@ async def _collect_widgets(
                 seen_locators.add(locator)
 
                 widget_key = await _generate_widget_key(el, locator)
+                # global unique widget_key — page prefix 추가
+                full_key = f"{page_key}__{widget_key}"
+                if full_key in seen_widget_keys:
+                    full_key = f"{full_key}_{len(widgets)}"
+                seen_widget_keys.add(full_key)
+
                 widgets.append(WidgetNode(
                     widget_node_id=str(uuid.uuid4()),
                     site_id=site_id,
                     page_key=page_key,
-                    widget_key=widget_key,
+                    widget_key=full_key,
                     locator_strategy="css",
                     locator_value=locator,
                 ))
@@ -292,12 +336,15 @@ async def _generate_locator(element: Any) -> str:
 
     # name + tag
     name = await element.get_attribute("name")
-    if name:
+    if name and not _looks_dynamic(name):
         return f"{tag}[name='{_escape_css(name)}']"
 
     # role + text (fallback)
     role = await element.get_attribute("role")
-    text = (await element.inner_text() or "").strip()[:30]
+    try:
+        text = (await element.inner_text()).strip()[:30]
+    except Exception:
+        text = ""
     if role and text:
         return f"[role='{role}']:has-text('{_escape_css(text)}')"
 
@@ -309,7 +356,10 @@ async def _generate_widget_key(element: Any, locator: str) -> str:
     aria = await element.get_attribute("aria-label")
     if aria:
         return _slugify(aria)
-    text = (await element.inner_text() or "").strip()[:30]
+    try:
+        text = (await element.inner_text()).strip()[:30]
+    except Exception:
+        text = ""
     if text:
         return _slugify(text)
     return _slugify(locator)[:40]
@@ -334,28 +384,49 @@ async def _observe_widget_effects(
                 widget.visibility_condition = "not visible by default"
                 continue
 
+            # DOM snapshot before
+            before_elements = await _count_interactive_elements(page)
+
             await locator.click(timeout=3000)
             await page.wait_for_timeout(500)
 
             after_url = page.url
             effects: list[str] = []
 
-            # URL 변화 감지
+            # URL path 변화
             if _normalize_path(after_url) != _normalize_path(before_url):
                 effects.append(f"navigates to {_normalize_path(after_url)}")
             else:
+                # URL query parameter 변화
                 param_diff = _diff_query_params(before_url, after_url)
                 if param_diff:
                     effects.append(f"URL gains {param_diff}")
 
-            widget.side_effects = effects
+                # DOM 변화 (새 interactive element 출현)
+                after_elements = await _count_interactive_elements(page)
+                new_count = after_elements - before_elements
+                if new_count > 0:
+                    effects.append(f"reveals {new_count} new interactive elements")
+
+                # dropdown/modal 출현
+                try:
+                    dropdown_count = await page.locator(
+                        ".dropdown-menu:visible, [role='listbox']:visible, "
+                        "[role='menu']:visible, .modal:visible"
+                    ).count()
+                    if dropdown_count > 0:
+                        effects.append("opens dropdown or modal")
+                except Exception:
+                    pass
+
+            if effects:
+                widget.side_effects = effects
 
             # 원래 상태로 복원
             await page.goto(page_url, timeout=5000)
             await page.wait_for_timeout(300)
 
         except Exception:
-            # 클릭 실패 시 복원만 시도
             try:
                 await page.goto(page_url, timeout=5000)
                 await page.wait_for_timeout(300)
@@ -363,6 +434,18 @@ async def _observe_widget_effects(
                 pass
 
     return widgets
+
+
+async def _count_interactive_elements(page: Any) -> int:
+    """현재 페이지의 보이는 interactive element 수."""
+    try:
+        return await page.evaluate("""() => {
+            return document.querySelectorAll(
+                'button, input, select, [role="button"], [role="tab"], [role="menuitem"]'
+            ).length
+        }""")
+    except Exception:
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -379,15 +462,17 @@ def _normalize_path(url: str) -> str:
 
 
 def _path_to_page_key(path: str) -> str:
-    """URL path를 page_key로 변환. 읽기 쉬운 형태."""
+    """URL path를 page_key로 변환."""
     clean = path.split("?")[0].strip("/")
     if not clean:
         return "root"
-    return clean.replace("/", "_").replace("-", "_").replace(".", "_")[:60]
+    return _slugify(clean)[:60]
 
 
 def _looks_dynamic(value: str) -> bool:
     """ID가 동적으로 생성된 것처럼 보이는지."""
+    if _DYNAMIC_ID_PATTERNS.search(value):
+        return True
     if len(value) > 20:
         return True
     digit_ratio = sum(c.isdigit() for c in value) / max(len(value), 1)
@@ -401,7 +486,6 @@ def _escape_css(value: str) -> str:
 
 def _slugify(text: str) -> str:
     """텍스트를 snake_case widget_key로 변환."""
-    import re
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", text.lower()).strip("_")
     return slug[:40] or "widget"
 

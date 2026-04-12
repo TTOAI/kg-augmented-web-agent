@@ -41,7 +41,7 @@ class PathToPageKeyTests(unittest.TestCase):
         self.assertEqual(_path_to_page_key("/dashboard"), "dashboard")
 
     def test_nested(self) -> None:
-        self.assertEqual(_path_to_page_key("/ns/project/-/issues"), "ns_project___issues")
+        self.assertEqual(_path_to_page_key("/ns/project/-/issues"), "ns_project_issues")
 
     def test_root(self) -> None:
         self.assertEqual(_path_to_page_key("/"), "root")

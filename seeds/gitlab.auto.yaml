@@ -4,6 +4,21 @@ page_nodes:
 - page_key: root
   url_patterns:
   - /
+- page_key: explore
+  url_patterns:
+  - /explore
+- page_key: byteblaze_empathy_prompts
+  url_patterns:
+  - /byteblaze/empathy-prompts
+- page_key: a11yproject_a11yproject_com_issues
+  url_patterns:
+  - /a11yproject/a11yproject.com/-/issues
+- page_key: users_byteblaze_projects
+  url_patterns:
+  - /users/byteblaze/projects
+- page_key: byteblaze_empathy_prompts_merge_requests
+  url_patterns:
+  - /byteblaze/empathy-prompts/-/merge_requests
 - page_key: dashboard_milestones
   url_patterns:
   - /dashboard/milestones
@@ -28,15 +43,18 @@ page_nodes:
 - page_key: groups_new
   url_patterns:
   - /groups/new
-- page_key: __snippets_new
+- page_key: snippets_new
   url_patterns:
   - /-/snippets/new
 - page_key: dashboard_issues
   url_patterns:
-  - /dashboard/issues
+  - /dashboard/issues?assignee_username=byteblaze
 - page_key: dashboard_merge_requests
   url_patterns:
-  - /dashboard/merge_requests
+  - /dashboard/merge_requests?assignee_username=byteblaze
+- page_key: dashboard_merge_requests_17
+  url_patterns:
+  - /dashboard/merge_requests?reviewer_username=byteblaze
 - page_key: dashboard_todos
   url_patterns:
   - /dashboard/todos
@@ -46,156 +64,959 @@ page_nodes:
 - page_key: byteblaze
   url_patterns:
   - /byteblaze
+- page_key: dashboard_projects_starred
+  url_patterns:
+  - /dashboard/projects/starred
+- page_key: explore_projects_topics
+  url_patterns:
+  - /explore/projects/topics
+- page_key: root_23
+  url_patterns:
+  - /?sort=latest_activity_desc
+- page_key: root_24
+  url_patterns:
+  - /?sort=created_desc
+- page_key: root_25
+  url_patterns:
+  - /?sort=name_asc
+- page_key: root_26
+  url_patterns:
+  - /?sort=name_desc
+- page_key: root_27
+  url_patterns:
+  - /?sort=stars_desc
+- page_key: root_28
+  url_patterns:
+  - /?sort=latest_activity_asc
+- page_key: root_29
+  url_patterns:
+  - /?sort=created_asc
+- page_key: root_30
+  url_patterns:
+  - /?archived=true&sort=name_asc
+- page_key: root_31
+  url_patterns:
+  - /?archived=only&sort=name_asc
+- page_key: root_32
+  url_patterns:
+  - /?personal=true&sort=name_asc
+- page_key: byteblaze_a11y_syntax_highlighting
+  url_patterns:
+  - /byteblaze/a11y-syntax-highlighting
+- page_key: byteblaze_a11y_syntax_highlighting_starr
+  url_patterns:
+  - /byteblaze/a11y-syntax-highlighting/-/starrers
+- page_key: byteblaze_a11y_syntax_highlighting_forks
+  url_patterns:
+  - /byteblaze/a11y-syntax-highlighting/-/forks
+- page_key: byteblaze_a11y_syntax_highlighting_merge
+  url_patterns:
+  - /byteblaze/a11y-syntax-highlighting/-/merge_requests
+- page_key: byteblaze_a11y_syntax_highlighting_issue
+  url_patterns:
+  - /byteblaze/a11y-syntax-highlighting/-/issues
+- page_key: byteblaze_a11y_webring_club
+  url_patterns:
+  - /byteblaze/a11y-webring.club
+- page_key: byteblaze_a11y_webring_club_starrers
+  url_patterns:
+  - /byteblaze/a11y-webring.club/-/starrers
+- page_key: byteblaze_a11y_webring_club_forks
+  url_patterns:
+  - /byteblaze/a11y-webring.club/-/forks
+- page_key: byteblaze_a11y_webring_club_merge_reques
+  url_patterns:
+  - /byteblaze/a11y-webring.club/-/merge_requests
+- page_key: byteblaze_a11y_webring_club_issues
+  url_patterns:
+  - /byteblaze/a11y-webring.club/-/issues
+- page_key: a11yproject_a11yproject_com
+  url_patterns:
+  - /a11yproject/a11yproject.com
+- page_key: a11yproject_a11yproject_com_starrers
+  url_patterns:
+  - /a11yproject/a11yproject.com/-/starrers
+- page_key: a11yproject_a11yproject_com_forks
+  url_patterns:
+  - /a11yproject/a11yproject.com/-/forks
+- page_key: a11yproject_a11yproject_com_merge_reques
+  url_patterns:
+  - /a11yproject/a11yproject.com/-/merge_requests
+- page_key: byteblaze_accessible_html_content_patter
+  url_patterns:
+  - /byteblaze/accessible-html-content-patterns
+- page_key: byteblaze_accessible_html_content_patter_48
+  url_patterns:
+  - /byteblaze/accessible-html-content-patterns/-/starrers
+- page_key: byteblaze_accessible_html_content_patter_49
+  url_patterns:
+  - /byteblaze/accessible-html-content-patterns/-/forks
 widget_nodes:
-- widget_key: search
+- widget_key: root__search
   page_key: root
   locator_strategy: css
   locator_value: '#search'
-- widget_key: input_placeholder_filter_by_name
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root__input_placeholder_filter_by_name
   page_key: root
   locator_strategy: css
   locator_value: input[placeholder='Filter by name']
-- widget_key: toggle_project_select
+- widget_key: explore__any
+  page_key: explore
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: explore__search
+  page_key: explore
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: explore__input_placeholder_filter_by_name
+  page_key: explore
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: byteblaze_empathy_prompts__dismiss
+  page_key: byteblaze_empathy_prompts
+  locator_strategy: css
+  locator_value: button[aria-label='Dismiss']
+- widget_key: byteblaze_empathy_prompts__copy_project_id
+  page_key: byteblaze_empathy_prompts
+  locator_strategy: css
+  locator_value: button[aria-label='Copy project ID']
+- widget_key: byteblaze_empathy_prompts__toggle_commit_description
+  page_key: byteblaze_empathy_prompts
+  locator_strategy: css
+  locator_value: button[aria-label='Toggle commit description']
+- widget_key: byteblaze_empathy_prompts__copy_commit_sha
+  page_key: byteblaze_empathy_prompts
+  locator_strategy: css
+  locator_value: '#clipboard-button-2'
+- widget_key: byteblaze_empathy_prompts__download
+  page_key: byteblaze_empathy_prompts
+  locator_strategy: css
+  locator_value: button[aria-label='Download']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_empathy_prompts__search
+  page_key: byteblaze_empathy_prompts
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_empathy_prompts__collapse_sidebar
+  page_key: byteblaze_empathy_prompts
+  locator_strategy: css
+  locator_value: '[role=''button'']:has-text(''Collapse sidebar'')'
+- widget_key: byteblaze_empathy_prompts__don_t_show_again
+  page_key: byteblaze_empathy_prompts
+  locator_strategy: css
+  locator_value: '[role=''button'']:has-text(''Don\''t show again'')'
+  visibility_condition: not visible by default
+- widget_key: a11yproject_a11yproject_com_issues__export_as_csv
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: button[aria-label='Export as CSV']
+  side_effects:
+  - reveals 2 new interactive elements
+  - opens dropdown or modal
+- widget_key: a11yproject_a11yproject_com_issues__search
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: '[data-testid=''search-button'']'
+  side_effects:
+  - navigates to /a11yproject/a11yproject.com/-/issues?sort=created_asc&state=opened&first_page_size=20
+- widget_key: a11yproject_a11yproject_com_issues__sort_direction_ascending
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: 'button[aria-label=''Sort direction: Ascending'']'
+  side_effects:
+  - navigates to /a11yproject/a11yproject.com/-/issues?sort=created_date&state=opened&first_page_size=20
+- widget_key: a11yproject_a11yproject_com_issues__prev
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: '[data-testid=''prevButton'']'
+  visibility_condition: not visible by default
+- widget_key: a11yproject_a11yproject_com_issues__next
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: '[data-testid=''nextButton'']'
+  visibility_condition: not visible by default
+- widget_key: a11yproject_a11yproject_com_issues__search_5
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 1 new interactive elements
+- widget_key: a11yproject_a11yproject_com_issues__search_or_filter_results
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: '[data-testid=''filtered-search-term-input'']'
+  side_effects:
+  - reveals 11 new interactive elements
+  - opens dropdown or modal
+- widget_key: a11yproject_a11yproject_com_issues__open_40
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''Open
+
+    40'')'
+- widget_key: a11yproject_a11yproject_com_issues__closed_570
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''Closed
+
+    570'')'
+- widget_key: a11yproject_a11yproject_com_issues__all_610
+  page_key: a11yproject_a11yproject_com_issues
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''All
+
+    610'')'
+- widget_key: users_byteblaze_projects__copy_user_id
+  page_key: users_byteblaze_projects
+  locator_strategy: css
+  locator_value: button[aria-label='Copy user ID']
+- widget_key: users_byteblaze_projects__search
+  page_key: users_byteblaze_projects
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: byteblaze_empathy_prompts_merge_requests__export_as_csv
+  page_key: byteblaze_empathy_prompts_merge_requests
+  locator_strategy: css
+  locator_value: button[aria-label='Export as CSV']
+  side_effects:
+  - reveals 2 new interactive elements
+  - opens dropdown or modal
+- widget_key: byteblaze_empathy_prompts_merge_requests__created_date
+  page_key: byteblaze_empathy_prompts_merge_requests
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_empathy_prompts_merge_requests__search
+  page_key: byteblaze_empathy_prompts_merge_requests
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_empathy_prompts_merge_requests__input_placeholder_search_or_filter_resul
+  page_key: byteblaze_empathy_prompts_merge_requests
+  locator_strategy: css
+  locator_value: input[placeholder='Search or filter results...']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_milestones__toggle_project_select
   page_key: dashboard_milestones
   locator_strategy: css
   locator_value: button[aria-label='Toggle project select']
-- widget_key: search
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_milestones__search
   page_key: dashboard_milestones
   locator_strategy: css
   locator_value: '#search'
-- widget_key: search_title
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_milestones__search_title
   page_key: dashboard_milestones
   locator_strategy: css
   locator_value: '#search_title'
-- widget_key: search
+- widget_key: dashboard_snippets__search
   page_key: dashboard_snippets
   locator_strategy: css
   locator_value: '#search'
-- widget_key: search
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_activity__search
   page_key: dashboard_activity
   locator_strategy: css
   locator_value: '#search'
-- widget_key: search
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_projects__search
   page_key: dashboard_projects
   locator_strategy: css
   locator_value: '#search'
-- widget_key: input_placeholder_filter_by_name
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_projects__input_placeholder_filter_by_name
   page_key: dashboard_projects
   locator_strategy: css
   locator_value: input[placeholder='Filter by name']
-- widget_key: last_created
+- widget_key: dashboard_groups__last_created
   page_key: dashboard_groups
   locator_strategy: css
   locator_value: '[data-testid=''base-dropdown-toggle'']'
-- widget_key: search
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_groups__search
   page_key: dashboard_groups
   locator_strategy: css
   locator_value: '#search'
-- widget_key: input_placeholder_search_by_name
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_groups__input_placeholder_search_by_name
   page_key: dashboard_groups
   locator_strategy: css
   locator_value: input[placeholder='Search by name']
-- widget_key: search
+- widget_key: search__search
   page_key: search
   locator_strategy: css
   locator_value: '[data-testid=''search-button'']'
-- widget_key: search_for_projects_issues_etc
+- widget_key: search__search_for_projects_issues_etc
   page_key: search
   locator_strategy: css
   locator_value: '#dashboard_search'
-- widget_key: search
+- widget_key: projects_new__search
   page_key: projects_new
   locator_strategy: css
   locator_value: '#search'
-- widget_key: search
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: groups_new__search
   page_key: groups_new
   locator_strategy: css
   locator_value: '#search'
-- widget_key: add_another_file_1_10
-  page_key: __snippets_new
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: snippets_new__add_another_file_1_10
+  page_key: snippets_new
   locator_strategy: css
   locator_value: '[data-testid=''add_button'']'
-- widget_key: create_snippet
-  page_key: __snippets_new
+  side_effects:
+  - reveals 3 new interactive elements
+- widget_key: snippets_new__create_snippet
+  page_key: snippets_new
   locator_strategy: css
   locator_value: '[data-testid=''snippet-submit-btn'']'
-- widget_key: search
-  page_key: __snippets_new
+- widget_key: snippets_new__search
+  page_key: snippets_new
   locator_strategy: css
   locator_value: '#search'
-- widget_key: snippet_title
-  page_key: __snippets_new
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: snippets_new__snippet_title
+  page_key: snippets_new
   locator_strategy: css
   locator_value: '#snippet-title'
-- widget_key: bvid_13
-  page_key: __snippets_new
+- widget_key: snippets_new__input_placeholder_optionally_add_a_descr
+  page_key: snippets_new
   locator_strategy: css
-  locator_value: '#__BVID__13'
-- widget_key: input_placeholder_give_your_file_a_name_
-  page_key: __snippets_new
+  locator_value: input[placeholder='Optionally add a description about what your snippet
+    does or how to use it…']
+- widget_key: snippets_new__input_placeholder_give_your_file_a_name_
+  page_key: snippets_new
   locator_strategy: css
   locator_value: input[placeholder='Give your file a name to add code highlighting,
     e.g. example.rb for Ruby']
-- widget_key: bvid_112
-  page_key: __snippets_new
-  locator_strategy: css
-  locator_value: '#__BVID__112'
-- widget_key: bvid_115
-  page_key: __snippets_new
-  locator_strategy: css
-  locator_value: '#__BVID__115'
-- widget_key: bvid_118
-  page_key: __snippets_new
-  locator_strategy: css
-  locator_value: '#__BVID__118'
-- widget_key: toggle_project_select
+- widget_key: dashboard_issues__toggle_project_select
   page_key: dashboard_issues
   locator_strategy: css
   locator_value: button[aria-label='Toggle project select']
-- widget_key: created_date
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_issues__priority
   page_key: dashboard_issues
   locator_strategy: css
   locator_value: '[data-testid=''base-dropdown-toggle'']'
-- widget_key: search
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_issues__search
   page_key: dashboard_issues
   locator_strategy: css
   locator_value: '#search'
-- widget_key: input_placeholder_search_or_filter_resul
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_issues__assignee_byte_blaze
   page_key: dashboard_issues
   locator_strategy: css
-  locator_value: input[placeholder='Search or filter results...']
-- widget_key: toggle_project_select
+  locator_value: '[role=''button'']:has-text(''Assignee
+
+    =
+
+    Byte Blaze'')'
+- widget_key: dashboard_merge_requests__toggle_project_select
   page_key: dashboard_merge_requests
   locator_strategy: css
   locator_value: button[aria-label='Toggle project select']
-- widget_key: created_date
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_merge_requests__created_date
   page_key: dashboard_merge_requests
   locator_strategy: css
   locator_value: '[data-testid=''base-dropdown-toggle'']'
-- widget_key: search
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_merge_requests__search
   page_key: dashboard_merge_requests
   locator_strategy: css
   locator_value: '#search'
-- widget_key: input_placeholder_search_or_filter_resul
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_merge_requests__assignee_byte_blaze
   page_key: dashboard_merge_requests
   locator_strategy: css
-  locator_value: input[placeholder='Search or filter results...']
-- widget_key: search
+  locator_value: '[role=''button'']:has-text(''Assignee
+
+    =
+
+    Byte Blaze'')'
+- widget_key: dashboard_merge_requests_17__toggle_project_select
+  page_key: dashboard_merge_requests_17
+  locator_strategy: css
+  locator_value: button[aria-label='Toggle project select']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_merge_requests_17__created_date
+  page_key: dashboard_merge_requests_17
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: dashboard_merge_requests_17__search
+  page_key: dashboard_merge_requests_17
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_merge_requests_17__reviewer_byte_blaze
+  page_key: dashboard_merge_requests_17
+  locator_strategy: css
+  locator_value: '[role=''button'']:has-text(''Reviewer
+
+    =
+
+    Byte Blaze'')'
+- widget_key: dashboard_todos__search
   page_key: dashboard_todos
   locator_strategy: css
   locator_value: '#search'
-- widget_key: search
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: help__search
   page_key: help
   locator_strategy: css
   locator_value: '#search'
-- widget_key: copy_user_id
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: byteblaze__copy_user_id
   page_key: byteblaze
   locator_strategy: css
   locator_value: button[aria-label='Copy user ID']
-- widget_key: search
+- widget_key: byteblaze__search
   page_key: byteblaze
   locator_strategy: css
   locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_projects_starred__search
+  page_key: dashboard_projects_starred
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: dashboard_projects_starred__input_placeholder_filter_by_name
+  page_key: dashboard_projects_starred
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: explore_projects_topics__search
+  page_key: explore_projects_topics
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: explore_projects_topics__input_placeholder_filter_by_name
+  page_key: explore_projects_topics
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_23__search
+  page_key: root_23
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_23__input_placeholder_filter_by_name
+  page_key: root_23
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_24__search
+  page_key: root_24
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_24__input_placeholder_filter_by_name
+  page_key: root_24
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_25__search
+  page_key: root_25
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_25__input_placeholder_filter_by_name
+  page_key: root_25
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_26__search
+  page_key: root_26
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_26__input_placeholder_filter_by_name
+  page_key: root_26
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_27__search
+  page_key: root_27
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_27__input_placeholder_filter_by_name
+  page_key: root_27
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_28__search
+  page_key: root_28
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_28__input_placeholder_filter_by_name
+  page_key: root_28
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_29__search
+  page_key: root_29
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_29__input_placeholder_filter_by_name
+  page_key: root_29
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_30__search
+  page_key: root_30
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_30__input_placeholder_filter_by_name
+  page_key: root_30
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: root_31__search
+  page_key: root_31
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_32__search
+  page_key: root_32
+  locator_strategy: css
+  locator_value: '#search'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: root_32__input_placeholder_filter_by_name
+  page_key: root_32
+  locator_strategy: css
+  locator_value: input[placeholder='Filter by name']
+- widget_key: byteblaze_a11y_syntax_highlighting__dismiss
+  page_key: byteblaze_a11y_syntax_highlighting
+  locator_strategy: css
+  locator_value: button[aria-label='Dismiss']
+- widget_key: byteblaze_a11y_syntax_highlighting__copy_project_id
+  page_key: byteblaze_a11y_syntax_highlighting
+  locator_strategy: css
+  locator_value: button[aria-label='Copy project ID']
+- widget_key: byteblaze_a11y_syntax_highlighting__copy_commit_sha
+  page_key: byteblaze_a11y_syntax_highlighting
+  locator_strategy: css
+  locator_value: '#clipboard-button-2'
+- widget_key: byteblaze_a11y_syntax_highlighting__download
+  page_key: byteblaze_a11y_syntax_highlighting
+  locator_strategy: css
+  locator_value: button[aria-label='Download']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_syntax_highlighting__search
+  page_key: byteblaze_a11y_syntax_highlighting
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_syntax_highlighting__unverified
+  page_key: byteblaze_a11y_syntax_highlighting
+  locator_strategy: css
+  locator_value: '[role=''button'']:has-text(''Unverified'')'
+- widget_key: byteblaze_a11y_syntax_highlighting_starr__submit_search
+  page_key: byteblaze_a11y_syntax_highlighting_starr
+  locator_strategy: css
+  locator_value: button[aria-label='Submit search']
+  side_effects:
+  - navigates to /byteblaze/a11y-syntax-highlighting/-/starrers?search=
+- widget_key: byteblaze_a11y_syntax_highlighting_starr__name
+  page_key: byteblaze_a11y_syntax_highlighting_starr
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_syntax_highlighting_starr__search
+  page_key: byteblaze_a11y_syntax_highlighting_starr
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_syntax_highlighting_forks__created_date
+  page_key: byteblaze_a11y_syntax_highlighting_forks
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_syntax_highlighting_forks__search
+  page_key: byteblaze_a11y_syntax_highlighting_forks
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_syntax_highlighting_forks__filter_projects
+  page_key: byteblaze_a11y_syntax_highlighting_forks
+  locator_strategy: css
+  locator_value: '#filter_projects'
+- widget_key: byteblaze_a11y_syntax_highlighting_merge__export_as_csv
+  page_key: byteblaze_a11y_syntax_highlighting_merge
+  locator_strategy: css
+  locator_value: button[aria-label='Export as CSV']
+  side_effects:
+  - reveals 2 new interactive elements
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_syntax_highlighting_merge__created_date
+  page_key: byteblaze_a11y_syntax_highlighting_merge
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_syntax_highlighting_merge__search
+  page_key: byteblaze_a11y_syntax_highlighting_merge
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_syntax_highlighting_merge__input_placeholder_search_or_filter_resul
+  page_key: byteblaze_a11y_syntax_highlighting_merge
+  locator_strategy: css
+  locator_value: input[placeholder='Search or filter results...']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_syntax_highlighting_issue__export_as_csv
+  page_key: byteblaze_a11y_syntax_highlighting_issue
+  locator_strategy: css
+  locator_value: button[aria-label='Export as CSV']
+  side_effects:
+  - reveals 2 new interactive elements
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_syntax_highlighting_issue__search
+  page_key: byteblaze_a11y_syntax_highlighting_issue
+  locator_strategy: css
+  locator_value: '[data-testid=''search-button'']'
+  side_effects:
+  - navigates to /byteblaze/a11y-syntax-highlighting/-/issues?sort=created_date&state=opened&first_page_size=20
+- widget_key: byteblaze_a11y_syntax_highlighting_issue__sort_direction_descending
+  page_key: byteblaze_a11y_syntax_highlighting_issue
+  locator_strategy: css
+  locator_value: 'button[aria-label=''Sort direction: Descending'']'
+  side_effects:
+  - navigates to /byteblaze/a11y-syntax-highlighting/-/issues?sort=created_asc&state=opened&first_page_size=20
+- widget_key: byteblaze_a11y_syntax_highlighting_issue__search_3
+  page_key: byteblaze_a11y_syntax_highlighting_issue
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_syntax_highlighting_issue__search_or_filter_results
+  page_key: byteblaze_a11y_syntax_highlighting_issue
+  locator_strategy: css
+  locator_value: '[data-testid=''filtered-search-term-input'']'
+  side_effects:
+  - reveals 9 new interactive elements
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_syntax_highlighting_issue__open_1
+  page_key: byteblaze_a11y_syntax_highlighting_issue
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''Open
+
+    1'')'
+- widget_key: byteblaze_a11y_syntax_highlighting_issue__closed_1
+  page_key: byteblaze_a11y_syntax_highlighting_issue
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''Closed
+
+    1'')'
+- widget_key: byteblaze_a11y_syntax_highlighting_issue__all_2
+  page_key: byteblaze_a11y_syntax_highlighting_issue
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''All
+
+    2'')'
+- widget_key: byteblaze_a11y_webring_club__copy_project_id
+  page_key: byteblaze_a11y_webring_club
+  locator_strategy: css
+  locator_value: button[aria-label='Copy project ID']
+- widget_key: byteblaze_a11y_webring_club__copy_commit_sha
+  page_key: byteblaze_a11y_webring_club
+  locator_strategy: css
+  locator_value: '#clipboard-button-2'
+- widget_key: byteblaze_a11y_webring_club__download
+  page_key: byteblaze_a11y_webring_club
+  locator_strategy: css
+  locator_value: button[aria-label='Download']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_webring_club__search
+  page_key: byteblaze_a11y_webring_club
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_webring_club__unverified
+  page_key: byteblaze_a11y_webring_club
+  locator_strategy: css
+  locator_value: '[role=''button'']:has-text(''Unverified'')'
+  side_effects:
+  - reveals 2 new interactive elements
+- widget_key: byteblaze_a11y_webring_club_starrers__submit_search
+  page_key: byteblaze_a11y_webring_club_starrers
+  locator_strategy: css
+  locator_value: button[aria-label='Submit search']
+  side_effects:
+  - navigates to /byteblaze/a11y-webring.club/-/starrers?search=
+- widget_key: byteblaze_a11y_webring_club_starrers__name
+  page_key: byteblaze_a11y_webring_club_starrers
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_webring_club_starrers__search
+  page_key: byteblaze_a11y_webring_club_starrers
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_webring_club_forks__created_date
+  page_key: byteblaze_a11y_webring_club_forks
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_webring_club_forks__search
+  page_key: byteblaze_a11y_webring_club_forks
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_webring_club_forks__filter_projects
+  page_key: byteblaze_a11y_webring_club_forks
+  locator_strategy: css
+  locator_value: '#filter_projects'
+- widget_key: byteblaze_a11y_webring_club_merge_reques__export_as_csv
+  page_key: byteblaze_a11y_webring_club_merge_reques
+  locator_strategy: css
+  locator_value: button[aria-label='Export as CSV']
+  side_effects:
+  - reveals 2 new interactive elements
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_webring_club_merge_reques__created_date
+  page_key: byteblaze_a11y_webring_club_merge_reques
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_webring_club_merge_reques__search
+  page_key: byteblaze_a11y_webring_club_merge_reques
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_webring_club_merge_reques__input_placeholder_search_or_filter_resul
+  page_key: byteblaze_a11y_webring_club_merge_reques
+  locator_strategy: css
+  locator_value: input[placeholder='Search or filter results...']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_webring_club_issues__export_as_csv
+  page_key: byteblaze_a11y_webring_club_issues
+  locator_strategy: css
+  locator_value: button[aria-label='Export as CSV']
+  side_effects:
+  - reveals 2 new interactive elements
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_webring_club_issues__search
+  page_key: byteblaze_a11y_webring_club_issues
+  locator_strategy: css
+  locator_value: '[data-testid=''search-button'']'
+  side_effects:
+  - navigates to /byteblaze/a11y-webring.club/-/issues?sort=created_asc&state=opened&first_page_size=20
+- widget_key: byteblaze_a11y_webring_club_issues__sort_direction_ascending
+  page_key: byteblaze_a11y_webring_club_issues
+  locator_strategy: css
+  locator_value: 'button[aria-label=''Sort direction: Ascending'']'
+  side_effects:
+  - navigates to /byteblaze/a11y-webring.club/-/issues?sort=created_date&state=opened&first_page_size=20
+- widget_key: byteblaze_a11y_webring_club_issues__search_3
+  page_key: byteblaze_a11y_webring_club_issues
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_a11y_webring_club_issues__search_or_filter_results
+  page_key: byteblaze_a11y_webring_club_issues
+  locator_strategy: css
+  locator_value: '[data-testid=''filtered-search-term-input'']'
+  side_effects:
+  - reveals 9 new interactive elements
+  - opens dropdown or modal
+- widget_key: byteblaze_a11y_webring_club_issues__open_4
+  page_key: byteblaze_a11y_webring_club_issues
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''Open
+
+    4'')'
+- widget_key: byteblaze_a11y_webring_club_issues__closed_6
+  page_key: byteblaze_a11y_webring_club_issues
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''Closed
+
+    6'')'
+- widget_key: byteblaze_a11y_webring_club_issues__all_10
+  page_key: byteblaze_a11y_webring_club_issues
+  locator_strategy: css
+  locator_value: '[role=''tab'']:has-text(''All
+
+    10'')'
+- widget_key: a11yproject_a11yproject_com__copy_project_id
+  page_key: a11yproject_a11yproject_com
+  locator_strategy: css
+  locator_value: button[aria-label='Copy project ID']
+- widget_key: a11yproject_a11yproject_com__toggle_commit_description
+  page_key: a11yproject_a11yproject_com
+  locator_strategy: css
+  locator_value: button[aria-label='Toggle commit description']
+- widget_key: a11yproject_a11yproject_com__copy_commit_sha
+  page_key: a11yproject_a11yproject_com
+  locator_strategy: css
+  locator_value: '#clipboard-button-2'
+- widget_key: a11yproject_a11yproject_com__download
+  page_key: a11yproject_a11yproject_com
+  locator_strategy: css
+  locator_value: button[aria-label='Download']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: a11yproject_a11yproject_com__search
+  page_key: a11yproject_a11yproject_com
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: a11yproject_a11yproject_com__unverified
+  page_key: a11yproject_a11yproject_com
+  locator_strategy: css
+  locator_value: '[role=''button'']:has-text(''Unverified'')'
+- widget_key: a11yproject_a11yproject_com_starrers__submit_search
+  page_key: a11yproject_a11yproject_com_starrers
+  locator_strategy: css
+  locator_value: button[aria-label='Submit search']
+  side_effects:
+  - navigates to /a11yproject/a11yproject.com/-/starrers?search=
+- widget_key: a11yproject_a11yproject_com_starrers__name
+  page_key: a11yproject_a11yproject_com_starrers
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: a11yproject_a11yproject_com_starrers__search
+  page_key: a11yproject_a11yproject_com_starrers
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: a11yproject_a11yproject_com_forks__created_date
+  page_key: a11yproject_a11yproject_com_forks
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: a11yproject_a11yproject_com_forks__search
+  page_key: a11yproject_a11yproject_com_forks
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: a11yproject_a11yproject_com_forks__filter_projects
+  page_key: a11yproject_a11yproject_com_forks
+  locator_strategy: css
+  locator_value: '#filter_projects'
+- widget_key: a11yproject_a11yproject_com_merge_reques__export_as_csv
+  page_key: a11yproject_a11yproject_com_merge_reques
+  locator_strategy: css
+  locator_value: button[aria-label='Export as CSV']
+  side_effects:
+  - reveals 2 new interactive elements
+  - opens dropdown or modal
+- widget_key: a11yproject_a11yproject_com_merge_reques__created_date
+  page_key: a11yproject_a11yproject_com_merge_reques
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: a11yproject_a11yproject_com_merge_reques__search
+  page_key: a11yproject_a11yproject_com_merge_reques
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: a11yproject_a11yproject_com_merge_reques__input_placeholder_search_or_filter_resul
+  page_key: a11yproject_a11yproject_com_merge_reques
+  locator_strategy: css
+  locator_value: input[placeholder='Search or filter results...']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_accessible_html_content_patter__dismiss
+  page_key: byteblaze_accessible_html_content_patter
+  locator_strategy: css
+  locator_value: button[aria-label='Dismiss']
+- widget_key: byteblaze_accessible_html_content_patter__copy_project_id
+  page_key: byteblaze_accessible_html_content_patter
+  locator_strategy: css
+  locator_value: button[aria-label='Copy project ID']
+- widget_key: byteblaze_accessible_html_content_patter__toggle_commit_description
+  page_key: byteblaze_accessible_html_content_patter
+  locator_strategy: css
+  locator_value: button[aria-label='Toggle commit description']
+- widget_key: byteblaze_accessible_html_content_patter__copy_commit_sha
+  page_key: byteblaze_accessible_html_content_patter
+  locator_strategy: css
+  locator_value: '#clipboard-button-2'
+- widget_key: byteblaze_accessible_html_content_patter__download
+  page_key: byteblaze_accessible_html_content_patter
+  locator_strategy: css
+  locator_value: button[aria-label='Download']
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_accessible_html_content_patter__search
+  page_key: byteblaze_accessible_html_content_patter
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_accessible_html_content_patter__unverified
+  page_key: byteblaze_accessible_html_content_patter
+  locator_strategy: css
+  locator_value: '[role=''button'']:has-text(''Unverified'')'
+- widget_key: byteblaze_accessible_html_content_patter_48__submit_search
+  page_key: byteblaze_accessible_html_content_patter_48
+  locator_strategy: css
+  locator_value: button[aria-label='Submit search']
+  side_effects:
+  - navigates to /byteblaze/accessible-html-content-patterns/-/starrers?search=
+- widget_key: byteblaze_accessible_html_content_patter_48__name
+  page_key: byteblaze_accessible_html_content_patter_48
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_accessible_html_content_patter_48__search
+  page_key: byteblaze_accessible_html_content_patter_48
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_accessible_html_content_patter_49__created_date
+  page_key: byteblaze_accessible_html_content_patter_49
+  locator_strategy: css
+  locator_value: '[data-testid=''base-dropdown-toggle'']'
+  side_effects:
+  - opens dropdown or modal
+- widget_key: byteblaze_accessible_html_content_patter_49__search
+  page_key: byteblaze_accessible_html_content_patter_49
+  locator_strategy: css
+  locator_value: '#search'
+- widget_key: byteblaze_accessible_html_content_patter_49__filter_projects
+  page_key: byteblaze_accessible_html_content_patter_49
+  locator_strategy: css
+  locator_value: '#filter_projects'
 navigation_edges:
 - source_page_key: root
   target_page_key: dashboard_milestones
@@ -214,14 +1035,78 @@ navigation_edges:
 - source_page_key: root
   target_page_key: groups_new
 - source_page_key: root
-  target_page_key: __snippets_new
+  target_page_key: snippets_new
 - source_page_key: root
   target_page_key: dashboard_issues
 - source_page_key: root
   target_page_key: dashboard_merge_requests
+- source_page_key: root
+  target_page_key: dashboard_merge_requests_17
 - source_page_key: root
   target_page_key: dashboard_todos
 - source_page_key: root
   target_page_key: help
 - source_page_key: root
   target_page_key: byteblaze
+- source_page_key: root
+  target_page_key: dashboard_projects_starred
+- source_page_key: root
+  target_page_key: explore
+- source_page_key: root
+  target_page_key: explore_projects_topics
+- source_page_key: root
+  target_page_key: root_23
+- source_page_key: root
+  target_page_key: root_24
+- source_page_key: root
+  target_page_key: root_25
+- source_page_key: root
+  target_page_key: root_26
+- source_page_key: root
+  target_page_key: root_27
+- source_page_key: root
+  target_page_key: root_28
+- source_page_key: root
+  target_page_key: root_29
+- source_page_key: root
+  target_page_key: root_30
+- source_page_key: root
+  target_page_key: root_31
+- source_page_key: root
+  target_page_key: root_32
+- source_page_key: root
+  target_page_key: byteblaze_a11y_syntax_highlighting
+- source_page_key: root
+  target_page_key: byteblaze_a11y_syntax_highlighting_starr
+- source_page_key: root
+  target_page_key: byteblaze_a11y_syntax_highlighting_forks
+- source_page_key: root
+  target_page_key: byteblaze_a11y_syntax_highlighting_merge
+- source_page_key: root
+  target_page_key: byteblaze_a11y_syntax_highlighting_issue
+- source_page_key: root
+  target_page_key: byteblaze_a11y_webring_club
+- source_page_key: root
+  target_page_key: byteblaze_a11y_webring_club_starrers
+- source_page_key: root
+  target_page_key: byteblaze_a11y_webring_club_forks
+- source_page_key: root
+  target_page_key: byteblaze_a11y_webring_club_merge_reques
+- source_page_key: root
+  target_page_key: byteblaze_a11y_webring_club_issues
+- source_page_key: root
+  target_page_key: a11yproject_a11yproject_com
+- source_page_key: root
+  target_page_key: a11yproject_a11yproject_com_starrers
+- source_page_key: root
+  target_page_key: a11yproject_a11yproject_com_forks
+- source_page_key: root
+  target_page_key: a11yproject_a11yproject_com_merge_reques
+- source_page_key: root
+  target_page_key: a11yproject_a11yproject_com_issues
+- source_page_key: root
+  target_page_key: byteblaze_accessible_html_content_patter
+- source_page_key: root
+  target_page_key: byteblaze_accessible_html_content_patter_48
+- source_page_key: root
+  target_page_key: byteblaze_accessible_html_content_patter_49
