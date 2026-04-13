@@ -17,19 +17,34 @@ from .page_matcher import match_page_node
 from .types import SiteKG, WidgetNode
 
 
-def build_kg_context(current_url: str, sitekg: SiteKG, *, max_hops: int = 2) -> str:
-    """현재 URL에서 N hop 이내의 노드 정보를 KG context 문자열로 포맷."""
+def build_kg_context(
+    current_url: str, sitekg: SiteKG, *, max_hops: int = 2,
+    anchor_widget_key: str | None = None,
+) -> str:
+    """현재 URL에서 N hop 이내의 노드 정보를 KG context 문자열로 포맷.
+
+    anchor_widget_key가 주어지고 widget이 존재하면 widget을 anchor로,
+    그렇지 않으면 current page를 anchor로 BFS 수행.
+    """
     page_result = match_page_node(current_url, sitekg)
     if isinstance(page_result, str):  # "UNRESOLVED"
         return ""
 
     current_page_key = page_result.page_key
+    widget_keys_set = {w.widget_key for w in sitekg.widget_nodes}
+
+    if anchor_widget_key and anchor_widget_key in widget_keys_set:
+        anchor = anchor_widget_key
+        anchor_label = f"widget:{anchor_widget_key}"
+    else:
+        anchor = current_page_key
+        anchor_label = f"page:{current_page_key}"
 
     # flat graph BFS — page + widget 모두 노드로
-    reachable = _bfs_flat(current_page_key, sitekg, max_hops)
+    reachable = _bfs_flat(anchor, sitekg, max_hops)
 
     sections: list[str] = []
-    sections.append(f"\n## KG Context (current: {current_page_key}, {max_hops} hop)")
+    sections.append(f"\n## KG Context (anchor: {anchor_label}, {max_hops} hop)")
 
     # 현재 page의 widgets (0-1 hop)
     current_widgets = [

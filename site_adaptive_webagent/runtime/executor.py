@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
+
+_KG_ANCHOR_MODE = os.getenv("KG_ANCHOR_MODE", "page").strip().lower()
 
 logger = logging.getLogger("webarena_verified")
 
@@ -18,6 +21,28 @@ try:
     from .sitekg.page_matcher import match_page_node
 except ImportError:
     SiteKG = None  # type: ignore[assignment,misc]
+
+def _resolve_widget_key(target: str, sitekg: Any, current_url: str) -> str | None:
+    """클릭 target 문자열을 KG widget_key로 매칭. 매치 없으면 None."""
+    if not sitekg or not target:
+        return None
+    try:
+        page_result = match_page_node(current_url, sitekg)
+        if isinstance(page_result, str):
+            return None
+        page_widgets = sitekg.get_widgets_for_page(page_result.page_key)
+        target_lower = target.lower().strip()
+        target_norm = target_lower.replace(" ", "_")
+        for w in page_widgets:
+            wk_lower = w.widget_key.lower()
+            if target_norm in wk_lower or wk_lower in target_norm:
+                return w.widget_key
+            if target_lower and target_lower in (w.locator_value or "").lower():
+                return w.widget_key
+    except Exception:
+        return None
+    return None
+
 
 _FAILURE_ACTION_TO_STATUS: dict[str, str] = {
     "not_found": "NOT_FOUND_ERROR",
@@ -275,6 +300,11 @@ async def _try_sub_goal(
     _action_history: list[str] = []
     _MAX_MESSAGES = 10
     _prev_url = current_obs.url  # KG context 동적 갱신용
+    _last_anchor_widget: str | None = None  # widget anchor 모드용
+    _kg_context_dirty = False  # widget anchor 갱신 시 system 재생성 필요
+    _last_click_widget: Any = None  # verifier에 전달할 마지막 click widget (KG 매칭된 WidgetNode)
+    _last_click_prev_url: str = ""  # 마지막 click 직전 URL
+    _sub_goal_start_url = current_obs.url  # 현재 sub-goal 진입 시점 URL (navigation hard check용)
     tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type)
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
@@ -300,11 +330,13 @@ async def _try_sub_goal(
             )
 
     for step in range(step_budget):
-        # URL 변경 시 KG context 동적 갱신
-        if sitekg and current_obs.url != _prev_url:
-            kg_ctx = build_kg_context(current_obs.url, sitekg)
+        # URL 변경 또는 widget anchor 변경 시 KG context 동적 갱신
+        if sitekg and (current_obs.url != _prev_url or _kg_context_dirty):
+            anchor_kw = _last_anchor_widget if _KG_ANCHOR_MODE == "widget" else None
+            kg_ctx = build_kg_context(current_obs.url, sitekg, anchor_widget_key=anchor_kw)
             system = build_tool_use_system_prompt() + kg_ctx
             _prev_url = current_obs.url
+            _kg_context_dirty = False
 
         _log_step_observation(step, current_obs, sub_goals, goal_index)
 
@@ -346,8 +378,12 @@ async def _try_sub_goal(
             verified = _verify_done(
                 goal=sub_goal.goal, reason=done_reason, current_obs=current_obs,
                 llm=llm, task_notes=task_notes,
+                last_click_widget=_last_click_widget,
+                last_click_prev_url=_last_click_prev_url,
+                sub_goal_type=sub_goal.goal_type,
+                sub_goal_start_url=_sub_goal_start_url,
             )
-            if verified:
+            if verified is True:
                 logger.info("[LLM] sub-goal done (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
                 return None, step + 1
             logger.info("[LLM] sub-goal done REJECTED: %s", verified)
@@ -453,6 +489,22 @@ async def _try_sub_goal(
         logger.info("[LLM] step=%d  result=%s", step + 1, feedback)
         messages.append(format_tool_result(tool_id, feedback))
         last_action_feedback = feedback
+
+        # click 성공 시 KG 매칭된 widget 기록 (verifier + widget anchor 둘 다 사용)
+        if action_name == "click" and action_result.succeeded and sitekg:
+            matched_key = _resolve_widget_key(action_dict.get("target", ""), sitekg, prev_state.url)
+            if matched_key:
+                # verifier용: WidgetNode 객체 저장
+                for w in sitekg.widget_nodes:
+                    if w.widget_key == matched_key:
+                        _last_click_widget = w
+                        _last_click_prev_url = prev_state.url
+                        break
+                # widget anchor 모드: anchor 업데이트
+                if _KG_ANCHOR_MODE == "widget" and matched_key != _last_anchor_widget:
+                    _last_anchor_widget = matched_key
+                    _kg_context_dirty = True
+                    logger.info("[LLM] step=%d  kg_anchor=widget:%s", step + 1, matched_key)
 
     # step_budget 소진 → done 선언 없이 끝남 = 실패
     return ExecutionOutcome(
@@ -596,7 +648,7 @@ def _replan(
                 result = []
                 for g in new_goals:
                     if isinstance(g, dict):
-                        result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "cognition"))))
+                        result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "action"))))
                     else:
                         result.append(SubGoal(str(g)))
                 return result
@@ -1005,11 +1057,15 @@ def _verify_done(
     current_obs: PageObservation,
     llm: LLMClient,
     task_notes: list[str] | None = None,
+    last_click_widget: Any = None,
+    last_click_prev_url: str = "",
+    sub_goal_type: str = "",
+    sub_goal_start_url: str = "",
 ) -> str | bool:
-    """LLM에게 현재 상태 + 누적된 task notes를 대조하여 done 검증을 요청한다.
+    """LLM에게 현재 상태 + 누적된 task notes + KG 예상 효과를 대조하여 done 검증을 요청한다.
 
-    task_notes가 비어 있지 않으면, 메모에 *아직 행동되지 않은 정보*가 있는지 확인하고
-    있으면 done을 거부한다.
+    last_click_widget이 주어지면 그 widget의 KG side_effects와 실제 URL 변화를 비교하여
+    검증 증거로 제공한다.
 
     Returns:
         True — 목표 달성 확인
@@ -1020,6 +1076,10 @@ def _verify_done(
     params = parse_qs(parsed_url.query)
     params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
 
+    # Hard rule: navigation sub-goal인데 URL 변화 없으면 바로 거부
+    if sub_goal_type == "navigation" and sub_goal_start_url and sub_goal_start_url == current_obs.url:
+        return "navigation sub-goal requires URL change, but URL is unchanged from sub-goal start"
+
     notes_section = ""
     if task_notes:
         notes_section = (
@@ -1027,12 +1087,38 @@ def _verify_done(
             + "\n".join(f"- {n}" for n in task_notes)
         )
 
+    # KG 기반 증거 섹션: hard rule 결과만 요약 (expected 문자열 raw 노출 X — snapshot drift 방지)
+    kg_evidence = ""
+    if last_click_widget is not None:
+        expected = last_click_widget.side_effects or []
+        url_actually_changed = (last_click_prev_url != current_obs.url)
+        expects_navigation = any("navigates to" in e or "URL gains" in e for e in expected)
+        expects_url_unchanged = any("URL unchanged" in e or "click registered" in e for e in expected)
+
+        if expects_navigation and not url_actually_changed:
+            kg_summary = (
+                "URL did NOT change after the last click, but KG expected a navigation. "
+                "A commit action (e.g., Enter, external click) may still be required."
+            )
+        elif expects_url_unchanged and url_actually_changed:
+            kg_summary = (
+                "URL changed after the last click, but KG expected no URL change. "
+                "The click may have triggered unintended navigation."
+            )
+        else:
+            kg_summary = "URL behavior after the last click is consistent with KG expectations."
+
+        kg_evidence = f"\n\nKG evidence (summary): {kg_summary}"
+
     system = (
-        "You verify whether a sub-goal has been achieved given the current page state. "
-        "The agent claims the goal is done. Check if the claim matches the actual page state. "
-        "If notes are provided and they mention information the agent has gathered but not "
-        "yet acted upon (e.g. multiple items to extract, additional pages to visit, secondary "
-        "fields to record), reject the done so the agent can finish the remaining work. "
+        "You verify whether a sub-goal has been achieved.\n"
+        "Decide PRIMARILY based on HARD EVIDENCE: current URL, URL parameters, page title.\n"
+        "- If URL/params already satisfy the goal's target state (e.g., contain the keywords or "
+        "filter values implied by the goal), APPROVE.\n"
+        "- KG evidence summary and accumulated notes are BACKGROUND CONTEXT. Do NOT reject based "
+        "on them alone when hard evidence already matches the goal.\n"
+        "- Reject only when hard evidence clearly shows the goal is NOT yet achieved (wrong page, "
+        "missing required URL parameter, etc.).\n"
         'Respond ONLY with JSON: {"achieved": true} or {"achieved": false, "reason": "..."}'
     )
     user_msg = (
@@ -1043,6 +1129,7 @@ def _verify_done(
         f"  URL parameters: {params_str}\n"
         f"  Page title: {current_obs.title}\n"
         f"  Visible text (first 5): {current_obs.text_lines[:5]}"
+        f"{kg_evidence}"
         f"{notes_section}"
     )
     try:

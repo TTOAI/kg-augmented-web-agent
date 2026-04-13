@@ -276,8 +276,8 @@ def replan_tool() -> dict:
                             "goal": {"type": "string", "description": "Short sentence describing the objective"},
                             "type": {
                                 "type": "string",
-                                "enum": ["navigation", "action", "cognition"],
-                                "description": "navigation=move to page, action=change state, cognition=read/analyze",
+                                "enum": ["navigation", "action"],
+                                "description": "navigation=reach target page/URL, action=change state or read/extract",
                             },
                         },
                         "required": ["goal", "type"],

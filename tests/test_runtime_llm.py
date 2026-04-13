@@ -285,9 +285,10 @@ class VerifyDoneTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Notes accumulated during this task", user_msg)
         self.assertIn("empathy-prompts ID = 183", user_msg)
         self.assertIn("millennials-to-snake-people ID = 187", user_msg)
-        # system prompt에 notes 거부 조건 안내가 있음
+        # system prompt는 hard evidence 우선 + notes는 background context로 안내
         system = llm.calls[0]["system"]
-        self.assertIn("not yet acted upon", system)
+        self.assertIn("HARD EVIDENCE", system)
+        self.assertIn("BACKGROUND CONTEXT", system)
 
     def test_verify_done_rejects_when_llm_returns_false(self) -> None:
         from site_adaptive_webagent.runtime.executor import _verify_done

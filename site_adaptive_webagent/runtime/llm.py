@@ -237,9 +237,9 @@ class SubGoal:
     """sub-goal과 유형 정보."""
     __slots__ = ("goal", "goal_type")
 
-    def __init__(self, goal: str, goal_type: str = "cognition"):
+    def __init__(self, goal: str, goal_type: str = "action"):
         self.goal = goal
-        self.goal_type = goal_type  # "navigation", "action", "cognition"
+        self.goal_type = goal_type  # "navigation" | "action"
 
     def __repr__(self) -> str:
         return f"{self.goal} [{self.goal_type}]"
@@ -252,10 +252,9 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient, k
         "Each sub-goal should be a concrete, verifiable objective — not a specific UI action.\n"
         "Good: 'Apply the status filter'  Bad: 'Click the dropdown'\n"
         "Consider the current page state when planning.\n"
-        "For each sub-goal, classify its type:\n"
-        '  "navigation" — move to a different page (open, navigate, go to)\n'
-        '  "action" — change page state (filter, apply, sort, submit, post)\n'
-        '  "cognition" — analyze or read information (determine, identify, find, check)\n'
+        "For each sub-goal, classify its type (only two types):\n"
+        '  "navigation" — reach a target page or URL state (open, navigate, go to, arrive at)\n'
+        '  "action" — change page state or read/extract info (filter, apply, sort, submit, post, extract, read)\n'
         "\n"
         "IMPORTANT: For NAVIGATE tasks, the LAST sub-goal MUST be type 'navigation'.\n"
         "The final goal should be to arrive at the target page with the correct URL.\n"
@@ -263,7 +262,7 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient, k
         "'Navigate to the filtered page' (navigation), not 'Apply filter' (action).\n"
         "This ensures the page URL reflects the final state.\n"
         "\n"
-        'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action|cognition"}, ...]}\n'
+        'Respond ONLY with JSON: {"sub_goals": [{"goal": "...", "type": "navigation|action"}, ...]}\n'
         "Keep each sub-goal to one short sentence."
     )
     lines = [
@@ -289,7 +288,7 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient, k
         result = []
         for g in sub_goals:
             if isinstance(g, dict):
-                result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "cognition"))))
+                result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "action"))))
             else:
                 result.append(SubGoal(str(g)))
         return result if result else [SubGoal(task)]
