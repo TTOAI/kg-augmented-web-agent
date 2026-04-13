@@ -441,20 +441,28 @@ async def _observe_single_widget(
         after_url = page.url
         effects: list[str] = []
 
-        # URL 변화 감지
+        # URL 변화 감지 (모든 widget click의 URL 변화 여부 명시)
+        url_changed = False
         if _normalize_path(after_url) != _normalize_path(before_url):
             effects.append(f"navigates to {_normalize_path(after_url)}")
+            url_changed = True
         else:
             param_diff = _diff_query_params(before_url, after_url)
             if param_diff:
                 effects.append(f"URL gains {param_diff}")
+                url_changed = True
 
         # 새 dropdown 옵션 감지
         after_options = await _get_dropdown_options(page)
         new_options = after_options - before_options
 
         if new_options:
-            effects.append(f"opens dropdown ({len(new_options)} options)")
+            if url_changed:
+                effects.append(f"opens dropdown ({len(new_options)} options)")
+            else:
+                effects.append(
+                    f"opens dropdown ({len(new_options)} options); URL unchanged"
+                )
 
             # 재귀: 각 새 옵션을 별도 WidgetNode로 등록 + 클릭 관찰
             if depth < max_depth - 1:
@@ -503,15 +511,24 @@ async def _observe_single_widget(
             # dropdown 안 열림 — DOM 변화 체크
             after_elements = await _count_interactive_elements(page)
             before_elements = await _count_interactive_elements(page)  # 대략적
+            opened_modal = False
             try:
                 dropdown_count = await page.locator(
                     ".dropdown-menu:visible, [role='listbox']:visible, "
                     "[role='menu']:visible, .modal:visible"
                 ).count()
                 if dropdown_count > 0:
-                    effects.append("opens dropdown or modal")
+                    if url_changed:
+                        effects.append("opens dropdown or modal")
+                    else:
+                        effects.append("opens dropdown or modal; URL unchanged")
+                    opened_modal = True
             except Exception:
                 pass
+
+            # click 등록되지만 URL/dropdown/modal 모두 변화 없음 → 명시적 fact로 기록
+            if not url_changed and not opened_modal:
+                effects.append("click registered; URL unchanged (commit may be required)")
 
         if effects:
             widget.side_effects = effects
