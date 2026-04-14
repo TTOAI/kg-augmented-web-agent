@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 
 /output/
+/output_master_compare/
 .codex/
 /docs/archive/
 /docs/weekly_reports/
@@ -13,3 +14,10 @@ __pycache__/
 /config.json
 /config/webarena_verified.json
 .env
+
+# 측정 스크립트 및 임시 파일
+/run_*.sh
+/test_deferred_commit.py
+/collect_gitlab_seed.py
+/seeds/.gitlab_auth_state.json
+/seeds/*.bak_*
