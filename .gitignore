@@ -7,6 +7,7 @@ __pycache__/
 .codex/
 /docs/archive/
 /docs/weekly_reports/
+/docs/research_proposal/
 /playwright-report/
 /test-results/
 /config.json

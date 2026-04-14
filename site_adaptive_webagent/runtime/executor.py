@@ -341,8 +341,10 @@ async def _try_sub_goal(
         _log_step_observation(step, current_obs, sub_goals, goal_index)
 
         # KG widgets 추출 (현재 page에 매칭되는 것만)
+        # RETRIEVE task는 observation에 KG widgets 미주입 — LLM이 KG 텍스트에 현혹되어
+        # 조기 종료(예: 169의 plural 추출 실패)하던 패턴 회피
         kg_widgets = None
-        if sitekg:
+        if sitekg and task_type != "RETRIEVE":
             page_result = match_page_node(current_obs.url, sitekg)
             if not isinstance(page_result, str):
                 kg_widgets = sitekg.get_widgets_for_page(page_result.page_key)
@@ -373,6 +375,14 @@ async def _try_sub_goal(
 
         # --- Terminal actions ---
         if action_name == "done":
+            # 마지막 sub-goal done 시 pending network request(예: graphql) 완료 대기
+            # → race condition(network event가 evaluator에 response_status=-1로 기록) 방지
+            if is_last_goal:
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=2000)
+                    current_obs = await observe_page(page)
+                except Exception:
+                    pass
             # done 검증: LLM에게 현재 상태와 목표를 대조시킴 (task_notes 함께 검토)
             done_reason = args.get("reason", "")
             verified = _verify_done(
@@ -382,6 +392,7 @@ async def _try_sub_goal(
                 last_click_prev_url=_last_click_prev_url,
                 sub_goal_type=sub_goal.goal_type,
                 sub_goal_start_url=_sub_goal_start_url,
+                is_last_goal=is_last_goal,
             )
             if verified is True:
                 logger.info("[LLM] sub-goal done (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
@@ -1061,6 +1072,7 @@ def _verify_done(
     last_click_prev_url: str = "",
     sub_goal_type: str = "",
     sub_goal_start_url: str = "",
+    is_last_goal: bool = False,
 ) -> str | bool:
     """LLM에게 현재 상태 + 누적된 task notes + KG 예상 효과를 대조하여 done 검증을 요청한다.
 
@@ -1076,9 +1088,12 @@ def _verify_done(
     params = parse_qs(parsed_url.query)
     params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
 
-    # Hard rule: navigation sub-goal인데 URL 변화 없으면 바로 거부
-    if sub_goal_type == "navigation" and sub_goal_start_url and sub_goal_start_url == current_obs.url:
-        return "navigation sub-goal requires URL change, but URL is unchanged from sub-goal start"
+    # Hard rule: 마지막 sub-goal이 [navigation]이고 그 sub-goal 내에서 URL 진전이 없으면 거부.
+    # 마지막이 [action/cognition]이거나 중간 [navigation]이면 적용 X (이전 sub-goal에서
+    # 이미 도달한 상태를 유지하는 경우 false reject 방지).
+    if (is_last_goal and sub_goal_type == "navigation"
+            and sub_goal_start_url and sub_goal_start_url == current_obs.url):
+        return "final navigation sub-goal requires URL change within the sub-goal"
 
     notes_section = ""
     if task_notes:
