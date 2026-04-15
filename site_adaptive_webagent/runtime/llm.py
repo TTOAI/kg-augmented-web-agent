@@ -43,12 +43,20 @@ class LLMClient(Protocol):
 # ---------------------------------------------------------------------------
 
 class AnthropicLLMClient:
-    """Claude API를 사용하는 LLMClient 구현."""
+    """Claude API를 사용하는 LLMClient 구현.
 
-    def __init__(self, model: str = "claude-sonnet-4-6") -> None:
+    temperature: None이면 API 호출에 전달하지 않음 (provider default 사용).
+    재현성 있는 실험을 위해 env var LLM_TEMPERATURE로 보통 0을 지정한다.
+    """
+
+    def __init__(self, model: str = "claude-sonnet-4-6", temperature: float | None = None) -> None:
         import anthropic  # lazy import — 패키지 미설치 시 런타임 오류만 발생
         self._client = anthropic.Anthropic()
         self._model = model
+        self._temperature = temperature
+
+    def _extra_kwargs(self) -> dict[str, Any]:
+        return {"temperature": self._temperature} if self._temperature is not None else {}
 
     def complete(self, *, system: str, messages: list[dict[str, str]]) -> str:
         response = self._client.messages.create(
@@ -56,6 +64,7 @@ class AnthropicLLMClient:
             max_tokens=1024,
             system=system,
             messages=messages,
+            **self._extra_kwargs(),
         )
         return response.content[0].text
 
@@ -68,6 +77,7 @@ class AnthropicLLMClient:
             system=system,
             messages=messages,
             tools=tools,
+            **self._extra_kwargs(),
         )
         thought = None
         tool_calls: list[ToolCall] = []
@@ -80,12 +90,20 @@ class AnthropicLLMClient:
 
 
 class OpenAILLMClient:
-    """OpenAI API를 사용하는 LLMClient 구현."""
+    """OpenAI API를 사용하는 LLMClient 구현.
 
-    def __init__(self, model: str = "gpt-4o") -> None:
+    temperature: None이면 API 호출에 전달하지 않음 (provider default 사용).
+    재현성 있는 실험을 위해 env var LLM_TEMPERATURE로 보통 0을 지정한다.
+    """
+
+    def __init__(self, model: str = "gpt-4o", temperature: float | None = None) -> None:
         import openai  # lazy import
         self._client = openai.OpenAI()
         self._model = model
+        self._temperature = temperature
+
+    def _extra_kwargs(self) -> dict[str, Any]:
+        return {"temperature": self._temperature} if self._temperature is not None else {}
 
     def complete(self, *, system: str, messages: list[dict[str, str]]) -> str:
         all_messages = [{"role": "system", "content": system}, *messages]
@@ -93,6 +111,7 @@ class OpenAILLMClient:
             model=self._model,
             messages=all_messages,  # type: ignore[arg-type]
             max_completion_tokens=1024,
+            **self._extra_kwargs(),
         )
         return response.choices[0].message.content or ""
 
@@ -120,6 +139,7 @@ class OpenAILLMClient:
             tools=oai_tools,  # type: ignore[arg-type]
             max_completion_tokens=1024,
             parallel_tool_calls=False,  # 1턴 1 tool call 강제
+            **self._extra_kwargs(),
         )
         choice = response.choices[0]
         thought = choice.message.content
@@ -191,22 +211,40 @@ def _to_openai_messages(msg: dict) -> list[dict]:
 # Factory
 # ---------------------------------------------------------------------------
 
+def _read_temperature_env() -> float | None:
+    """env var LLM_TEMPERATURE를 float로 파싱. 없거나 빈 값이면 None (provider default 사용)."""
+    raw = os.getenv("LLM_TEMPERATURE", "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def make_llm_client() -> LLMClient | None:
     """LLM_PROVIDER 환경변수로 구현체를 선택한다.
 
     API 키가 없으면 None을 반환한다 (rule-based 폴백으로 동작).
+
+    환경 변수:
+        LLM_PROVIDER: 'anthropic'(기본) 또는 'openai'
+        ANTHROPIC_MODEL / OPENAI_MODEL: 모델 이름
+        LLM_TEMPERATURE: 숫자 (예 '0')를 넣으면 모든 호출에 temperature 고정.
+            비워두면 provider 기본값 (보통 1.0) — **실험 재현성이 필요하면 '0'으로 설정**.
     """
     provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+    temperature = _read_temperature_env()
     if provider == "openai":
         if not os.getenv("OPENAI_API_KEY"):
             return None
         model = os.getenv("OPENAI_MODEL", "gpt-4o")
-        return OpenAILLMClient(model=model)
+        return OpenAILLMClient(model=model, temperature=temperature)
     # anthropic (기본값)
     if not os.getenv("ANTHROPIC_API_KEY"):
         return None
     model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-    return AnthropicLLMClient(model=model)
+    return AnthropicLLMClient(model=model, temperature=temperature)
 
 
 # ---------------------------------------------------------------------------
@@ -216,20 +254,52 @@ def make_llm_client() -> LLMClient | None:
 def classify_task_type(intent: str, llm: LLMClient) -> str:
     """LLM을 사용해 intent를 RETRIEVE / NAVIGATE / MUTATE 중 하나로 분류한다.
 
-    파싱 실패 또는 알 수 없는 값이면 NAVIGATE를 반환한다.
+    파싱 실패 또는 알 수 없는 값이면 NAVIGATE를 반환한다. (LLM_TEMPERATURE=0 권장)
+
+    분류 규칙 (정확도가 실험 성공률 전체에 영향):
+      RETRIEVE — 페이지에서 데이터를 읽어 답으로 반환해야 하는 경우.
+      NAVIGATE — 특정 페이지/URL에 도달하는 것이 목표. 사이드 이펙트 없음.
+      MUTATE — 사용자/저장소/사이트 상태를 변경(생성/수정/삭제/설정).
     """
     system = (
-        "Classify the user intent as exactly one of: RETRIEVE, NAVIGATE, MUTATE.\n"
-        "RETRIEVE: extract or read data from a page (find, get, how many, what is).\n"
-        "NAVIGATE: go to a specific page (open, go to, navigate, visit).\n"
-        "MUTATE: submit, post, fill, click to change state (post, create, edit, submit).\n"
-        'Respond ONLY with JSON: {"task_type": "RETRIEVE"|"NAVIGATE"|"MUTATE"}'
+        "Classify the user intent as EXACTLY one of: RETRIEVE, NAVIGATE, MUTATE.\n"
+        "\n"
+        "RETRIEVE — extract or read data from a page to answer a question.\n"
+        "  Verbs: find, get, how many, what is, list, tell me, show (a count/value),\n"
+        "  which, who is, count, return.\n"
+        "\n"
+        "NAVIGATE — reach a specific page or URL state without changing site state.\n"
+        "  Verbs: go to, open, navigate to, visit, browse to, show (a page/view).\n"
+        "\n"
+        "MUTATE — change user/site/repo state (create, update, or delete data).\n"
+        "  Verbs: create, add, post, comment, submit, delete, remove, rename,\n"
+        "  change, update, set, edit, modify, assign, merge, close, reopen,\n"
+        "  fork, star, unstar, follow, unfollow, approve, upvote, downvote, upload.\n"
+        "\n"
+        "Disambiguation tips:\n"
+        "- If the intent has a URL embedded as DATA to be entered (e.g. 'set homepage\n"
+        "  URL to https://...'), the intent is MUTATE, not NAVIGATE.\n"
+        "- 'Show me my open issues' with no mutation verb → NAVIGATE.\n"
+        "- 'Show the count of open issues' → RETRIEVE (a number is requested).\n"
+        "- A question word ('how many', 'what is') signals RETRIEVE even if phrasing\n"
+        "  superficially resembles navigation.\n"
+        "\n"
+        'Respond ONLY with JSON: {"task_type": "RETRIEVE" | "NAVIGATE" | "MUTATE"}'
     )
     messages = [{"role": "user", "content": f"Intent: {intent}"}]
     response = llm.complete(system=system, messages=messages)
     parsed = parse_llm_action(response)
-    task_type = str(parsed.get("task_type", "NAVIGATE")).upper()
-    return task_type if task_type in ("RETRIEVE", "NAVIGATE", "MUTATE") else "NAVIGATE"
+    raw = parsed.get("task_type", "")
+    task_type = str(raw).upper()
+    if task_type in ("RETRIEVE", "NAVIGATE", "MUTATE"):
+        return task_type
+    # Fallback path (malformed response / missing key) — log so misclassification rate is monitorable.
+    import logging
+    logging.getLogger("webarena_verified").warning(
+        "[classify_task_type] malformed response (raw=%r, parsed_keys=%s) → fallback NAVIGATE",
+        raw, list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__,
+    )
+    return "NAVIGATE"
 
 
 
@@ -286,9 +356,18 @@ def build_plan(*, task: str, task_type: str, observation: Any, llm: LLMClient) -
         result = []
         for g in sub_goals:
             if isinstance(g, dict):
-                result.append(SubGoal(str(g.get("goal", "")), str(g.get("type", "action"))))
+                goal_text = str(g.get("goal", "")).strip()
+                goal_type = str(g.get("type", "action"))
+                # 스키마 외의 값은 default "action"으로 정규화 — hard rule이 "navigation" 정확 매칭에 의존하므로
+                # 오탈자/다른 레이블이 실수로 hard rule을 우회하지 않게 한다.
+                if goal_type not in ("navigation", "action"):
+                    goal_type = "action"
+                if goal_text:
+                    result.append(SubGoal(goal_text, goal_type))
             else:
-                result.append(SubGoal(str(g)))
+                text = str(g).strip()
+                if text:
+                    result.append(SubGoal(text))
         return result if result else [SubGoal(task)]
     return [SubGoal(task)]
 
@@ -298,7 +377,9 @@ def parse_llm_action(response_text: str) -> dict[str, Any]:
     """LLM 응답 텍스트에서 JSON action을 파싱한다.
 
     ```json ... ``` 마크다운 펜스를 자동으로 제거한다.
-    파싱 실패 시 {"action": "not_found"} 폴백을 반환한다.
+    파싱 실패 시 {"action": "parse_error", ...} 폴백을 반환한다.
+    (참고: 이 함수는 classify_task_type / build_plan의 JSON 파싱 유틸이며, action 키는
+    현재 호출자가 무시한다. 'parse_error'는 과거의 'not_found' 관용을 대체하는 중립 레이블이다.)
     """
     text = response_text.strip()
     # 마크다운 코드 펜스 제거
@@ -308,7 +389,7 @@ def parse_llm_action(response_text: str) -> dict[str, Any]:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return {"action": "not_found", "reasoning": f"LLM 응답 파싱 실패: {text[:100]}"}
+        return {"action": "parse_error", "reasoning": f"LLM 응답 파싱 실패: {text[:100]}"}
 
 
 # ---------------------------------------------------------------------------
@@ -326,8 +407,20 @@ def build_tool_use_system_prompt() -> str:
         "2. Click before typing. Reveal dropdown options first, then decide.",
         "3. After selecting options, submit to commit. Check URL parameters to confirm.",
         "4. Never repeat a failed action. Use goback to return to a known page and try a different path.",
-        "6. Use the remember tool to save important facts (IDs, counts, names).",
-        "7. Before extract or done, use recall to verify completeness.",
+        "5. Use the remember tool to save important facts (IDs, counts, names).",
+        "6. Before extract or done, use recall to verify completeness.",
+        "",
+        "## Error-state outcomes",
+        "Some tasks have an error state as the correct outcome. When you have sufficient evidence",
+        "for one of the following, call declare_error with the matching status instead of",
+        "continuing to search indefinitely:",
+        "- NOT_FOUND_ERROR: the target entity or resource does not exist after a thorough search.",
+        "- ACTION_NOT_ALLOWED_ERROR: the platform does not support the requested action in this state.",
+        "- PERMISSION_DENIED_ERROR: the current user lacks permission to perform the action.",
+        "- DATA_VALIDATION_ERROR: required input is missing or invalid.",
+        "- UNKNOWN_ERROR: an unexpected failure that does not match the other categories.",
+        "A correctly declared error is a valid task outcome. Do not force a SUCCESS path when evidence",
+        "points to a definitive error state. Investigate sufficiently first — do not declare error prematurely.",
     ]
     return "\n".join(lines)
 
@@ -358,8 +451,21 @@ def build_observation_message(
             f"## Current Objective ({current_goal_index + 1}/{len(sub_goals)})\n{current_goal}\n"
             "When achieved, call the done tool."
         )
-        if not is_last:
-            sections.append("Use only action tools (click, fill, search, goback, done). Do not use extract or failure tools.")
+        # Tool-availability 안내는 두 context(last/non-last) 모두에 제공해 일관성 유지.
+        if is_last:
+            sections.append(
+                "This is the final sub-goal. Available tools: click, fill, search, goback, "
+                "observe, remember, recall, done, declare_error (extract is also available if "
+                "this is a RETRIEVE task). declare_error is a valid final outcome when evidence "
+                "points to a definitive error state."
+            )
+        else:
+            sections.append(
+                "Available tools for this sub-goal: click, fill, search, goback, observe, "
+                "remember, recall, done, declare_error. Do not call extract on non-final "
+                "sub-goals. declare_error is permitted when evidence for a definitive error "
+                "state is clear, even on a non-final sub-goal."
+            )
 
     if last_action_feedback:
         sections.append(f"## Last Action Result\n{last_action_feedback}")

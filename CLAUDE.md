@@ -59,9 +59,17 @@ webarena-verified eval-tasks \
   --config config/webarena_verified.json
 ```
 
-## Architecture
+## Branch status
 
-The project is structured around a benchmark execution pipeline:
+- `main`: V2.5 baseline
+- `baseline/clean`: V2.5 baseline (pinned for measurement)
+- `feature/kg-v2`: KG redesign in progress (current branch)
+
+KG design discussion and decisions are accumulated as numbered documents in `docs/kg_design/` (01~06). Baseline code stays untouched; the KG module will live alongside it.
+
+## Architecture (current branch: V2.5 baseline)
+
+Benchmark execution pipeline:
 
 ```
 webarena-verified CLI → run_webarena_verified.py
@@ -73,17 +81,19 @@ webarena-verified CLI → run_webarena_verified.py
                     AgentRunResult (agent/types.py)
 ```
 
-### Two distinct layers
+### Agent layer (`site_adaptive_webagent/agent/`)
 
-**Agent layer** (`site_adaptive_webagent/agent/`): The web agent policy.
-- `core.py` — the full baseline agent: `run_agent()` → `analyze_intent()` → `execute_plan()`. Takes a natural-language `intent` and Playwright `pages`, returns `AgentRunResult`. Intent is classified into one of three `TaskType`s (RETRIEVE / NAVIGATE / MUTATE), then dispatched to the corresponding shallow Playwright execution path.
-- `types.py` — `AgentRunResult` and its `TaskType`/`TaskStatus` literals. This is the benchmark contract: the adapter writes it as `agent_response.json`.
+- `core.py` — `run_agent()` entrypoint: `analyze_intent()` → `build_plan()` → sub-goal loop with tool-use LLM → `_verify_done()`.
+- `types.py` — `AgentRunResult` and its `TaskType`/`TaskStatus` literals. This is the benchmark contract written as `agent_response.json`.
 
-**Runtime layer** (`site_adaptive_webagent/runtime/`): Site-adaptive knowledge base (KB) and execution routing.
-- `types.py` — dataclasses for `SiteProfile`, `PageType`, `ActionSchema`, `ValidatorRule`, `PolicyRule`, `FailurePattern`, `KBBundle`, and execution records (`TaskRun`, `StepRecord`, etc.). `PageType` and `ActionSchema` form the site graph (nodes and edges). `ActionSchema.source_page_key → target_page_key` makes transitions explicit.
-- `enums.py` — all enum values (`RouteKind`, `TaskRunStatus`, `KBConfidence`, etc.).
-- `schema.py` — SQLite DDL for two groups: *KB store* (site knowledge) and *execution memory* (run history). Initialized via `bootstrap_runtime_schema(connection)`.
-- `router.py` — `StrategyRouter.route()` implements a deterministic decision table: `FAST_PATH` (all conditions met) → `PARTIAL_KB` (active site, but KB/task mismatch) → `FALLBACK` (site not active or page type unresolved) → `APPROVAL_FIRST` (policy requires it, overrides everything).
+### Runtime layer (`site_adaptive_webagent/runtime/`)
+
+- `types.py` — `IntentPlan`, `PageObservation`, `ExecutionOutcome`, `SubGoal` dataclasses + `TaskType`/`TaskStatus` literals.
+- `browser.py` — Playwright observation helpers (`observe_page`, `try_click_target`, `try_fill_target`, `try_search`).
+- `executor.py` — sub-goal orchestration loop + `_verify_done` (hard rule + LLM judge).
+- `llm.py` — `LLMClient` + `build_plan` + `build_observation_message` + `build_tool_use_system_prompt`.
+- `tools.py` — tool schemas for LLM tool-use (click/fill/goto/goback/search/done).
+- `intent.py` — rule-based intent analysis (TaskType classification + target phrase extraction).
 
 ### Benchmark adapter (`benchmarks/webarena_verified/`)
 
@@ -92,6 +102,10 @@ webarena-verified CLI → run_webarena_verified.py
 ### Output contract
 
 Each task run produces `output/<task_id>/agent_response.json` (task_type, status, retrieved_data, error_details) and `output/<task_id>/network.har`. Re-running backs up the existing directory to `<task_id>_bkp_N`.
+
+## KG layer (planned, not yet implemented)
+
+Will be added under `site_adaptive_webagent/kg/` with 4 integration hooks into the baseline agent loop. Design details: `docs/kg_design/05_implementation_architecture.md`. Schema + trust decisions: `docs/kg_design/02_open_questions.md`. Site-specific config skeleton: `config/sites/gitlab/`.
 
 ## Commit format
 

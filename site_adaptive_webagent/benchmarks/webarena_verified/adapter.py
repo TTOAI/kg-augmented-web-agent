@@ -70,7 +70,7 @@ def validate_exported_tasks_file(tasks_file: Path) -> list[AgentInput]:
         raise FileNotFoundError(f"tasks 파일을 찾을 수 없습니다: {tasks_file}")
 
     try:
-        tasks_data = json.loads(tasks_file.read_text())
+        tasks_data = json.loads(tasks_file.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"tasks 파일에 잘못된 JSON이 들어 있습니다: {exc.msg}") from exc
 
@@ -86,7 +86,7 @@ def validate_agent_response_file(task_output_dir: Path) -> dict[str, Any]:
     if not agent_response_path.exists():
         raise FileNotFoundError(f"agent response 파일이 없습니다: {agent_response_path}")
 
-    payload = json.loads(agent_response_path.read_text())
+    payload = json.loads(agent_response_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("agent_response.json은 JSON 객체여야 합니다")
 
@@ -142,7 +142,8 @@ def setup_task_logging(*, logger: logging.Logger, task_output_dir: Path) -> None
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
 
-    file_handler = logging.FileHandler(log_file, mode="w")
+    # UTF-8 고정: Korean/intent 내 유니코드가 로그 파일에서 깨지지 않도록.
+    file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
 
@@ -266,6 +267,33 @@ async def open_start_pages(context: BrowserContext, start_urls: list[str]) -> li
     return pages
 
 
+def _maybe_load_kg_context(sites: list[str]) -> Any:
+    """SITEKG_ENABLED=1이면 config/sites/<site>/에서 KGContext를 로드.
+
+    Baseline 측정(env 미설정)에선 None 반환 → run_agent가 baseline 경로로 동작.
+    KG 측정(SITEKG_ENABLED=1)에선 첫 site의 KG를 로드.
+    로드 실패(설정 디렉토리 없음 등)는 로그만 남기고 None 반환(이중 안전).
+    """
+    import os
+    if os.getenv("SITEKG_ENABLED") != "1":
+        return None
+    if not sites:
+        return None
+    try:
+        from site_adaptive_webagent.agent.kg_integration import load_kg_context
+        site = sites[0]
+        ctx = load_kg_context(site)
+        if ctx is None:
+            logger.info("[KG] SITEKG_ENABLED=1 but no config for site=%s", site)
+        else:
+            logger.info("[KG] loaded KGContext for site=%s (infotypes=%d)",
+                        site, len(ctx.kg.infotypes))
+        return ctx
+    except Exception:
+        logger.exception("[KG] _maybe_load_kg_context failed — falling back to baseline")
+        return None
+
+
 def write_agent_response(task_output_dir: Path, result: AgentRunResult) -> Path:
     """최종 agent response를 benchmark 기대 형식으로 저장한다."""
     output_path = task_output_dir / "agent_response.json"
@@ -275,7 +303,9 @@ def write_agent_response(task_output_dir: Path, result: AgentRunResult) -> Path:
         "retrieved_data": result.retrieved_data,
         "error_details": result.error_details,
     }
-    output_path.write_text(json.dumps(payload, indent=2))
+    # UTF-8 강제 + ensure_ascii=False: retrieved_data나 error_details에 한글/비ASCII가 들어가도
+    # 원문 보존. JSON 자체는 UTF-8 + Unicode escape 둘 다 유효하지만 사람 검토 편의상 원문을 쓴다.
+    output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return output_path
 
 
@@ -508,6 +538,10 @@ class WebArenaVerifiedAdapter:
                 )
                 pages = await open_start_pages(context, agent_input["start_urls"])
 
+                # SITEKG_ENABLED=1이면 KG-guided 동작, 아니면 baseline.
+                # KG config는 config/sites/<site>/ 디렉토리에서 로드.
+                kg_context = _maybe_load_kg_context(agent_input["sites"])
+
                 result = await run_agent(
                     intent=agent_input["intent"],
                     sites=agent_input["sites"],
@@ -516,6 +550,7 @@ class WebArenaVerifiedAdapter:
                     context=context,
                     pages=pages,
                     task_output_dir=task_output_dir,
+                    kg_context=kg_context,
                 )
                 # NAVIGATE 성공 시 최종 URL을 다시 로드하여 HAR에 GET 요청 기록
                 # (SPA의 pushState는 HAR에 기록되지 않으므로)

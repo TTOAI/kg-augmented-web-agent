@@ -236,19 +236,49 @@ def _extract_tool() -> dict:
     }
 
 
-def _not_found_tool() -> dict:
+def _declare_error_tool() -> dict:
+    """WebArena-Verified status enum에 맞춘 task-level error 선언 tool.
+
+    LLM이 충분한 근거로 "이 task는 에러 상태가 정답"이라 판단할 때 사용.
+    예: 검색 대상이 존재하지 않음 → NOT_FOUND_ERROR.
+    sub-goal 수준 실패가 아니라 task-level outcome으로 즉시 종료된다.
+    """
     return {
-        "name": "not_found",
+        "name": "declare_error",
         "description": (
-            "The task cannot be completed: information not found, access denied, "
-            "action not allowed, or an unexpected error occurred."
+            "Declare that this task has a definitive non-success outcome. "
+            "Use when you have sufficient evidence that the target entity does not exist, "
+            "the action is not permitted by the platform, the user lacks permission, "
+            "the required input is invalid, or an unexpected failure occurred. "
+            "A correct error declaration is a valid task outcome for some tasks — "
+            "do NOT keep searching indefinitely when evidence points to a clear error state."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "reason": {"type": "string", "description": "Why the task cannot be completed"},
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "NOT_FOUND_ERROR",
+                        "ACTION_NOT_ALLOWED_ERROR",
+                        "PERMISSION_DENIED_ERROR",
+                        "DATA_VALIDATION_ERROR",
+                        "UNKNOWN_ERROR",
+                    ],
+                    "description": (
+                        "NOT_FOUND_ERROR: target entity or resource does not exist. "
+                        "ACTION_NOT_ALLOWED_ERROR: platform does not support the requested action in this state. "
+                        "PERMISSION_DENIED_ERROR: current user lacks required permission. "
+                        "DATA_VALIDATION_ERROR: required input is missing or invalid. "
+                        "UNKNOWN_ERROR: unexpected failure that doesn't fit other categories."
+                    ),
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Concise explanation of the evidence for this error (< 200 chars).",
+                },
             },
-            "required": ["reason"],
+            "required": ["status", "reason"],
         },
     }
 
@@ -293,20 +323,20 @@ def replan_tool() -> dict:
 def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
     """sub-goal 위치와 task_type에 따라 제공할 tool 목록을 구성한다.
 
-    중간 goal: browser + cognition + done
-    마지막 goal (RETRIEVE): + extract + failure tools
-    마지막 goal (NAVIGATE/MUTATE): + failure tools
+    중간 goal: browser + cognition + done + declare_error
+    마지막 goal (RETRIEVE): + extract + declare_error
+    마지막 goal (NAVIGATE/MUTATE): + declare_error
+
+    declare_error는 모든 sub-goal에서 사용 가능 — task-level error가 정답인 경우
+    중간 sub-goal에서도 즉시 선언해 소모적 탐색을 방지한다.
     """
     tools = [
         _click_tool(), _fill_tool(), _search_tool(), _goback_tool(),
         _observe_tool(), _remember_tool(), _recall_tool(), _done_tool(),
+        _declare_error_tool(),
     ]
-    if is_last_goal:
-        if task_type == "RETRIEVE":
-            tools.append(_extract_tool())
-        tools += [
-            _not_found_tool(),
-        ]
+    if is_last_goal and task_type == "RETRIEVE":
+        tools.append(_extract_tool())
     return tools
 
 
@@ -315,11 +345,18 @@ def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def format_assistant_tool_use(response: LLMToolResponse) -> dict:
-    """LLMToolResponse를 대화 히스토리용 assistant 메시지로 포맷한다."""
+    """LLMToolResponse를 대화 히스토리용 assistant 메시지로 포맷한다.
+
+    LLM이 한 턴에 여러 tool_use를 반환하더라도(시스템 프롬프트는 단일 호출을 요구하지만
+    모델이 가끔 어기는 경우) 첫 번째만 포함한다. Anthropic API는 각 tool_use id마다 매칭
+    되는 tool_result를 요구하므로, 1개 tool_use + 1개 tool_result로 엄격히 1:1을 유지해
+    orphaned tool_use로 인한 후속 API 실패를 차단한다.
+    """
     content: list[dict[str, Any]] = []
     if response.thought:
         content.append({"type": "text", "text": response.thought})
-    for tc in response.tool_calls:
+    if response.tool_calls:
+        tc = response.tool_calls[0]
         content.append({
             "type": "tool_use",
             "id": tc.id,

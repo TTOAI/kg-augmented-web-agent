@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from site_adaptive_webagent.runtime.executor import execute_with_llm
 from site_adaptive_webagent.runtime.intent import analyze_intent
@@ -28,14 +29,14 @@ class ParseLlmActionTests(unittest.TestCase):
         self.assertEqual(result["action"], "click")
         self.assertEqual(result["target"], "Dashboard")
 
-    def test_invalid_json_returns_not_found(self) -> None:
+    def test_invalid_json_returns_parse_error(self) -> None:
         result = parse_llm_action("this is not json")
-        self.assertEqual(result["action"], "not_found")
+        self.assertEqual(result["action"], "parse_error")
         self.assertIn("reasoning", result)
 
-    def test_empty_response_returns_not_found(self) -> None:
+    def test_empty_response_returns_parse_error(self) -> None:
         result = parse_llm_action("   ")
-        self.assertEqual(result["action"], "not_found")
+        self.assertEqual(result["action"], "parse_error")
 
 
 # ---------------------------------------------------------------------------
@@ -80,16 +81,13 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         assert outcome.retrieved_data is not None
         self.assertIn("42", outcome.retrieved_data[0])
 
-    async def test_llm_not_found_triggers_failure(self) -> None:
-        """LLM이 not_found를 반환하면 sub-goal 실패 → retry+replan 소진 → FAILED."""
-        # not_found 응답을 충분히 많이 넣어 retry + replan을 모두 소진시킨다
-        not_found_response = '{"action": "not_found", "reasoning": "데이터가 없습니다"}'
-        llm = FakeLLMClient(
-            [self.PLAN_RESPONSE]
-            + [not_found_response] * 30
-            + [self.PLAN_RESPONSE]
-            + [not_found_response] * 30
+    async def test_llm_declare_error_returns_that_status(self) -> None:
+        """LLM이 declare_error를 호출하면 해당 status로 즉시 task-level 종료된다."""
+        declare_response = (
+            '{"action": "declare_error", "status": "NOT_FOUND_ERROR", '
+            '"reason": "Target entity does not exist on this site."}'
         )
+        llm = FakeLLMClient([self.PLAN_RESPONSE, declare_response])
         page = make_fake_page(url="https://example.com", title_text="Home")
 
         outcome = await execute_with_llm(
@@ -101,6 +99,49 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(outcome.status, "NOT_FOUND_ERROR")
+        assert outcome.error_details is not None
+        self.assertIn("does not exist", outcome.error_details)
+
+    async def test_llm_declare_error_invalid_status_coerced(self) -> None:
+        """declare_error가 invalid status로 오면 UNKNOWN_ERROR로 강제 치환된다."""
+        declare_response = (
+            '{"action": "declare_error", "status": "INVALID_STATUS", "reason": "whatever"}'
+        )
+        llm = FakeLLMClient([self.PLAN_RESPONSE, declare_response])
+        page = make_fake_page(url="https://example.com", title_text="Home")
+
+        outcome = await execute_with_llm(
+            task="Find the nonexistent metric",
+            task_type="RETRIEVE",
+            page=page,
+            observation=_empty_observation(),
+            llm=llm,
+        )
+
+        self.assertEqual(outcome.status, "UNKNOWN_ERROR")
+
+    async def test_stuck_loop_exits_as_unknown_error(self) -> None:
+        """LLM이 declare_error도 done도 안 부르고 의미 없는 액션을 반복하면,
+        retry+replan이 모두 소진된 뒤 UNKNOWN_ERROR로 종료된다.
+        (이전 baseline은 이 경로에 NOT_FOUND_ERROR를 쓰던 의미론 오분류를 수정)."""
+        junk_response = '{"action": "unknown_tool", "reasoning": "stuck"}'
+        llm = FakeLLMClient(
+            [self.PLAN_RESPONSE]
+            + [junk_response] * 30
+            + [self.PLAN_RESPONSE]
+            + [junk_response] * 30
+        )
+        page = make_fake_page(url="https://example.com", title_text="Home")
+
+        outcome = await execute_with_llm(
+            task="Do something the agent cannot perform",
+            task_type="RETRIEVE",
+            page=page,
+            observation=_empty_observation(),
+            llm=llm,
+        )
+
+        self.assertEqual(outcome.status, "UNKNOWN_ERROR")
 
     async def test_llm_called_with_system_prompt(self) -> None:
         """LLM 호출 시 system prompt에 strategy가 포함된다 (KB 없음)."""
@@ -123,6 +164,72 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("## Site Knowledge", system_prompt)
         user_message = llm.calls[1]["messages"][0]["content"]
         self.assertIn("Find the todo count", user_message)
+
+    async def test_unknown_tool_gets_explicit_feedback_and_exhausts_budget(self) -> None:
+        """LLM이 존재하지 않는 tool을 호출하면 명시적 "Unknown tool" 피드백을 받고,
+        반복되면 step budget 소진 → SUB_GOAL_FAILED → 최종적으로 UNKNOWN_ERROR."""
+        # sub-goal 수는 1개로 짧은 plan을 쓴다.
+        plan = '{"sub_goals": [{"goal": "g", "type": "action"}]}'
+        junk = '{"action": "scroll", "reasoning": "bad tool"}'
+        llm = FakeLLMClient([plan] + [junk] * 40)
+        page = make_fake_page(url="https://example.com", title_text="Home")
+
+        outcome = await execute_with_llm(
+            task="t", task_type="RETRIEVE",
+            page=page, observation=_empty_observation(), llm=llm,
+        )
+        self.assertEqual(outcome.status, "UNKNOWN_ERROR")
+
+    async def test_final_retrieve_extract_accepts_declare_error(self) -> None:
+        """RETRIEVE의 최종 extract 단계에서 LLM이 declare_error(NOT_FOUND_ERROR)를
+        호출하면 task가 NOT_FOUND_ERROR로 종료된다 (기존에는 무시되어 UNKNOWN_ERROR로
+        떨어졌음)."""
+        plan = '{"sub_goals": [{"goal": "look", "type": "action"}]}'
+        done_response = '{"action": "done", "reason": "searched"}'
+        # 최종 extract 단계에서 declare_error 호출
+        final_declare = (
+            '{"action": "declare_error", "status": "NOT_FOUND_ERROR", '
+            '"reason": "target truly does not exist"}'
+        )
+        # verify_done이 approve해야 함 (achieved: true)
+        verify_ok = '{"achieved": true}'
+        llm = FakeLLMClient([plan, done_response, verify_ok, final_declare])
+        page = make_fake_page(url="https://example.com", title_text="Home")
+
+        outcome = await execute_with_llm(
+            task="find nonexistent", task_type="RETRIEVE",
+            page=page, observation=_empty_observation(), llm=llm,
+        )
+        self.assertEqual(outcome.status, "NOT_FOUND_ERROR")
+        assert outcome.error_details is not None
+        self.assertIn("does not exist", outcome.error_details)
+
+    async def test_navigate_unchanged_url_returns_unknown_error(self) -> None:
+        """NAVIGATE task가 모든 sub-goal을 통과했더라도 URL이 시작과 같으면
+        SUCCESS가 아니라 UNKNOWN_ERROR로 종료된다."""
+        plan = '{"sub_goals": [{"goal": "go there", "type": "navigation"}]}'
+        done_response = '{"action": "done", "reason": "arrived"}'
+        # is_last=True이므로 hard rule 적용. _sub_goal_start_url == current_obs.url이면 reject.
+        # 대신 verify_done이 조작된 response를 주어 일단 approve하게 해, 그 다음 최종
+        # URL-unchanged guard가 발동하는지 본다.
+        # 이를 위해 첫 번째 sub-goal의 URL을 변경시키지 않는 plan (navigation 타입인데
+        # hard rule을 만족 못 할 case). hard rule이 먼저 reject → retry 루프 → replan 소진
+        # → UNKNOWN_ERROR.
+        # 대안: goal_type="action"으로 설정해 hard rule 우회, verify_done이 approve,
+        # 그 다음 execute_with_llm의 NAVIGATE-URL-unchanged guard가 발동.
+        plan = '{"sub_goals": [{"goal": "act", "type": "action"}]}'
+        verify_ok = '{"achieved": true}'
+        llm = FakeLLMClient([plan, done_response, verify_ok])
+        page = make_fake_page(url="https://example.com/start", title_text="Start")
+
+        outcome = await execute_with_llm(
+            task="navigate somewhere", task_type="NAVIGATE",
+            page=page, observation=_empty_observation(url="https://example.com/start"),
+            llm=llm,
+        )
+        # URL이 변하지 않았으므로 NAVIGATE URL-unchanged guard 발동 → UNKNOWN_ERROR.
+        # (replan이 개입할 수 있으므로 status가 UNKNOWN_ERROR이면 됨.)
+        self.assertEqual(outcome.status, "UNKNOWN_ERROR")
 
 
 # ---------------------------------------------------------------------------
@@ -176,10 +283,60 @@ class ClassifyTaskTypeTests(unittest.TestCase):
 # Tool Use tests (v5)
 # ---------------------------------------------------------------------------
 
+class BuildPlanNormalizationTests(unittest.TestCase):
+    """build_plan이 sub-goal type을 정규화하는지 검증 — hard rule이 'navigation' 정확 매칭에 의존하므로
+    스키마 외 값은 'action'으로 강등되어야 한다."""
+
+    def _make_llm(self, response: str):
+        return FakeLLMClient(response)
+
+    def _obs(self):
+        return PageObservation(
+            url="https://example.com", title="Home",
+            headings=[], text_lines=[], links=[], buttons=[], inputs=[],
+        )
+
+    def test_navigation_type_preserved(self) -> None:
+        from site_adaptive_webagent.runtime.llm import build_plan
+        llm = self._make_llm(
+            '{"sub_goals": [{"goal": "Go to project", "type": "navigation"}]}'
+        )
+        plan = build_plan(task="go", task_type="NAVIGATE", observation=self._obs(), llm=llm)
+        self.assertEqual(plan[0].goal_type, "navigation")
+
+    def test_action_type_preserved(self) -> None:
+        from site_adaptive_webagent.runtime.llm import build_plan
+        llm = self._make_llm(
+            '{"sub_goals": [{"goal": "Apply filter", "type": "action"}]}'
+        )
+        plan = build_plan(task="apply", task_type="NAVIGATE", observation=self._obs(), llm=llm)
+        self.assertEqual(plan[0].goal_type, "action")
+
+    def test_unknown_type_normalized_to_action(self) -> None:
+        """legacy 'cognition' 또는 오타 type은 'action'으로 강등된다 (hard rule 우회 방지)."""
+        from site_adaptive_webagent.runtime.llm import build_plan
+        for bad_type in ("cognition", "Navigate", "navigate_to", ""):
+            llm = self._make_llm(
+                f'{{"sub_goals": [{{"goal": "x", "type": "{bad_type}"}}]}}'
+            )
+            plan = build_plan(task="t", task_type="NAVIGATE", observation=self._obs(), llm=llm)
+            self.assertEqual(plan[0].goal_type, "action",
+                             f"bad_type={bad_type!r} should normalize to 'action'")
+
+    def test_empty_goal_string_filtered(self) -> None:
+        from site_adaptive_webagent.runtime.llm import build_plan
+        llm = self._make_llm(
+            '{"sub_goals": [{"goal": "", "type": "action"}, {"goal": "real goal", "type": "action"}]}'
+        )
+        plan = build_plan(task="t", task_type="NAVIGATE", observation=self._obs(), llm=llm)
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(plan[0].goal, "real goal")
+
+
 class ToolDefinitionTests(unittest.TestCase):
     """tools_for_goal()이 sub-goal 위치에 따라 올바른 tool 목록을 반환하는지 검증."""
 
-    def test_intermediate_goal_excludes_extract_and_failure(self) -> None:
+    def test_intermediate_goal_includes_declare_error_and_excludes_extract(self) -> None:
         from site_adaptive_webagent.runtime.tools import tools_for_goal
         tools = tools_for_goal(is_last_goal=False, task_type="RETRIEVE")
         names = {t["name"] for t in tools}
@@ -187,24 +344,39 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertIn("remember", names)
         self.assertIn("recall", names)
         self.assertIn("done", names)
+        # declare_error는 중간 sub-goal에서도 사용 가능 (task-level error 선언 허용)
+        self.assertIn("declare_error", names)
         self.assertNotIn("extract", names)
-        self.assertNotIn("not_found", names)
-        self.assertNotIn("permission_denied", names)
 
     def test_last_goal_retrieve_includes_extract(self) -> None:
         from site_adaptive_webagent.runtime.tools import tools_for_goal
         tools = tools_for_goal(is_last_goal=True, task_type="RETRIEVE")
         names = {t["name"] for t in tools}
         self.assertIn("extract", names)
-        self.assertIn("not_found", names)
+        self.assertIn("declare_error", names)
 
     def test_last_goal_navigate_excludes_extract(self) -> None:
         from site_adaptive_webagent.runtime.tools import tools_for_goal
         tools = tools_for_goal(is_last_goal=True, task_type="NAVIGATE")
         names = {t["name"] for t in tools}
         self.assertNotIn("extract", names)
-        self.assertIn("not_found", names)
+        self.assertIn("declare_error", names)
         self.assertIn("done", names)
+
+    def test_declare_error_schema(self) -> None:
+        from site_adaptive_webagent.runtime.tools import _declare_error_tool
+        tool = _declare_error_tool()
+        self.assertEqual(tool["name"], "declare_error")
+        props = tool["input_schema"]["properties"]
+        self.assertIn("status", props)
+        self.assertIn("reason", props)
+        enum = props["status"]["enum"]
+        for s in (
+            "NOT_FOUND_ERROR", "ACTION_NOT_ALLOWED_ERROR", "PERMISSION_DENIED_ERROR",
+            "DATA_VALIDATION_ERROR", "UNKNOWN_ERROR",
+        ):
+            self.assertIn(s, enum)
+        self.assertEqual(set(tool["input_schema"]["required"]), {"status", "reason"})
 
     def test_baseline_excludes_goto_tool(self) -> None:
         """lab 005 baseline은 goto tool을 제공하지 않는다."""
@@ -230,11 +402,11 @@ class ToolDefinitionTests(unittest.TestCase):
                 self.assertNotIn("memo", tool["input_schema"].get("required", []))
 
     def test_cognitive_tools_do_not_have_memo_field(self) -> None:
-        """done / remember / recall / extract 등은 자체 메커니즘이 있어 memo가 없다."""
+        """done / remember / recall / extract / declare_error는 자체 메커니즘이 있어 memo가 없다."""
         from site_adaptive_webagent.runtime.tools import (
-            _done_tool, _remember_tool, _recall_tool, _extract_tool, _not_found_tool,
+            _done_tool, _remember_tool, _recall_tool, _extract_tool, _declare_error_tool,
         )
-        for tool_fn in (_done_tool, _remember_tool, _recall_tool, _extract_tool, _not_found_tool):
+        for tool_fn in (_done_tool, _remember_tool, _recall_tool, _extract_tool, _declare_error_tool):
             tool = tool_fn()
             with self.subTest(tool=tool["name"]):
                 props = tool["input_schema"]["properties"]
@@ -305,6 +477,159 @@ class VerifyDoneTests(unittest.IsolatedAsyncioTestCase):
             task_notes=["second project ID 187 still pending"],
         )
         self.assertEqual(result, "second item not yet recorded")
+
+    def test_verify_done_rejects_malformed_response(self) -> None:
+        """verifier response에 'achieved' 키가 없으면 approve하지 않고 reject한다.
+        (이전 baseline은 True 기본값으로 false SUCCESS를 발생시켰음.)"""
+        from site_adaptive_webagent.runtime.executor import _verify_done
+        llm = FakeLLMClient('{"something_else": true}')
+        obs = PageObservation(
+            url="https://example.com", title="Page",
+            headings=[], text_lines=[], links=[], buttons=[],
+        )
+        result = _verify_done(
+            goal="Arrive at target page",
+            reason="I think I'm there",
+            current_obs=obs,
+            llm=llm,
+        )
+        self.assertIsInstance(result, str)
+        assert isinstance(result, str)
+        self.assertIn("missing", result.lower())
+
+    def test_verify_done_rejects_on_verifier_exception(self) -> None:
+        """verifier LLM 호출이 예외를 일으키면 approve하지 않고 reject한다."""
+        from site_adaptive_webagent.runtime.executor import _verify_done
+
+        class _RaisingLLM:
+            def complete(self, *, system: str, messages: list[dict[str, str]]) -> str:
+                raise RuntimeError("simulated network failure")
+            def complete_with_tools(self, *, system: str, messages: list[dict], tools: list[dict]):  # noqa: D401, E501
+                raise RuntimeError("unused")
+
+        obs = PageObservation(
+            url="https://example.com", title="Page",
+            headings=[], text_lines=[], links=[], buttons=[],
+        )
+        result = _verify_done(
+            goal="Arrive at target page",
+            reason="I think I'm there",
+            current_obs=obs,
+            llm=_RaisingLLM(),
+        )
+        self.assertIsInstance(result, str)
+        assert isinstance(result, str)
+        self.assertIn("verifier call failed", result.lower())
+
+
+class ReadTemperatureEnvTests(unittest.TestCase):
+    """LLM_TEMPERATURE 환경변수 파싱 — 실험 재현성 제어."""
+
+    def test_unset_returns_none(self) -> None:
+        import os
+        from site_adaptive_webagent.runtime.llm import _read_temperature_env
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("LLM_TEMPERATURE", None)
+            self.assertIsNone(_read_temperature_env())
+
+    def test_empty_string_returns_none(self) -> None:
+        import os
+        from site_adaptive_webagent.runtime.llm import _read_temperature_env
+        with patch.dict(os.environ, {"LLM_TEMPERATURE": "  "}):
+            self.assertIsNone(_read_temperature_env())
+
+    def test_valid_number_parsed(self) -> None:
+        import os
+        from site_adaptive_webagent.runtime.llm import _read_temperature_env
+        with patch.dict(os.environ, {"LLM_TEMPERATURE": "0"}):
+            self.assertEqual(_read_temperature_env(), 0.0)
+        with patch.dict(os.environ, {"LLM_TEMPERATURE": "0.7"}):
+            self.assertEqual(_read_temperature_env(), 0.7)
+
+    def test_invalid_string_returns_none(self) -> None:
+        import os
+        from site_adaptive_webagent.runtime.llm import _read_temperature_env
+        with patch.dict(os.environ, {"LLM_TEMPERATURE": "hot"}):
+            self.assertIsNone(_read_temperature_env())
+
+
+class TaskNotesAccumulationTests(unittest.TestCase):
+    """_append_task_note: 중복 제거 + 상한 유지."""
+
+    def test_dedup(self) -> None:
+        from site_adaptive_webagent.runtime.executor import _append_task_note
+        notes: list[str] = []
+        _append_task_note(notes, "fact A")
+        _append_task_note(notes, "fact A")  # 중복
+        _append_task_note(notes, "fact B")
+        self.assertEqual(notes, ["fact A", "fact B"])
+
+    def test_strip_whitespace(self) -> None:
+        from site_adaptive_webagent.runtime.executor import _append_task_note
+        notes: list[str] = []
+        _append_task_note(notes, "  fact  ")
+        self.assertEqual(notes, ["fact"])
+
+    def test_empty_skipped(self) -> None:
+        from site_adaptive_webagent.runtime.executor import _append_task_note
+        notes: list[str] = []
+        _append_task_note(notes, "")
+        _append_task_note(notes, "   ")
+        self.assertEqual(notes, [])
+
+    def test_none_notes_no_crash(self) -> None:
+        from site_adaptive_webagent.runtime.executor import _append_task_note
+        _append_task_note(None, "anything")  # no-op, no crash
+
+    def test_cap_keeps_latest(self) -> None:
+        """상한 초과 시 가장 오래된 항목부터 drop."""
+        from site_adaptive_webagent.runtime.executor import _TASK_NOTES_MAX, _append_task_note
+        notes: list[str] = []
+        for i in range(_TASK_NOTES_MAX + 5):
+            _append_task_note(notes, f"fact {i}")
+        self.assertEqual(len(notes), _TASK_NOTES_MAX)
+        self.assertEqual(notes[-1], f"fact {_TASK_NOTES_MAX + 4}")
+        self.assertEqual(notes[0], "fact 5")
+
+
+class FormatAssistantToolUseTests(unittest.TestCase):
+    """format_assistant_tool_use 방어: 여러 tool_calls 시 첫 번째만 포함해 pair 무결성 유지."""
+
+    def test_single_tool_use_preserved(self) -> None:
+        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
+        r = LLMToolResponse(
+            thought="reasoning",
+            tool_calls=[ToolCall(id="a", name="click", arguments={"target": "x"})],
+        )
+        msg = format_assistant_tool_use(r)
+        tool_uses = [b for b in msg["content"] if isinstance(b, dict) and b.get("type") == "tool_use"]
+        self.assertEqual(len(tool_uses), 1)
+        self.assertEqual(tool_uses[0]["id"], "a")
+
+    def test_multiple_tool_uses_reduced_to_first(self) -> None:
+        """LLM이 한 턴에 여러 tool_use를 반환해도 첫 번째만 메시지에 포함된다.
+        (orphaned tool_use → tool_result 매칭 실패로 Anthropic API가 에러를 내는 위험 차단.)"""
+        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
+        r = LLMToolResponse(
+            thought="reasoning",
+            tool_calls=[
+                ToolCall(id="a", name="click", arguments={"target": "x"}),
+                ToolCall(id="b", name="fill", arguments={"target": "y", "value": "z"}),
+                ToolCall(id="c", name="done", arguments={"reason": "r"}),
+            ],
+        )
+        msg = format_assistant_tool_use(r)
+        tool_uses = [b for b in msg["content"] if isinstance(b, dict) and b.get("type") == "tool_use"]
+        self.assertEqual(len(tool_uses), 1)
+        self.assertEqual(tool_uses[0]["id"], "a")
+        self.assertEqual(tool_uses[0]["name"], "click")
+
+    def test_no_tool_calls_produces_text_only(self) -> None:
+        from site_adaptive_webagent.runtime.tools import LLMToolResponse, format_assistant_tool_use
+        r = LLMToolResponse(thought="just thinking", tool_calls=[])
+        msg = format_assistant_tool_use(r)
+        tool_uses = [b for b in msg["content"] if isinstance(b, dict) and b.get("type") == "tool_use"]
+        self.assertEqual(len(tool_uses), 0)
 
 
 class ToolUseMessageTests(unittest.TestCase):

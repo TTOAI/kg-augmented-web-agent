@@ -1,0 +1,194 @@
+{
+  "_schema": "docs/kg_design/05_implementation_architecture.md §1 (kg/types.py)",
+  "_note": "manual layer seed — crawl/llm layer는 M4에서 병합 (docs/kg_design/07 §14).",
+  "version": 1,
+  "site": "gitlab",
+  "construction_status": "in_progress",
+  "last_manual_verification": "2026-04-16",
+
+  "state_patterns": [
+    {
+      "id": "project_page",
+      "url_template": "/{project_path}",
+      "url_template_trust": "declared",
+      "path_params": {
+        "project_path": { "type": "path_segments", "required": true }
+      },
+      "identity_query_params": [],
+      "canonical_emit_order": [],
+      "source": "manual"
+    },
+
+    {
+      "id": "project_issues_list",
+      "url_template": "/{project_path}/-/issues",
+      "url_template_trust": "declared",
+      "path_params": {
+        "project_path": { "type": "path_segments", "required": true }
+      },
+      "identity_query_params": [],
+      "canonical_emit_order": [],
+      "source": "manual"
+    },
+
+    {
+      "id": "project_issues_filtered",
+      "url_template": "/{project_path}/-/issues",
+      "url_template_trust": "declared",
+      "path_params": {
+        "project_path": { "type": "path_segments", "required": true }
+      },
+      "identity_query_params": [
+        {
+          "name": "state",
+          "type": "enum",
+          "values": ["opened", "closed", "all"],
+          "default": "opened",
+          "default_trust": "declared",
+          "required": false
+        },
+        {
+          "name": "label_name[]",
+          "type": "multi_string",
+          "default": [],
+          "default_trust": "declared",
+          "required": false
+        },
+        {
+          "name": "assignee_username",
+          "type": "string",
+          "default": null,
+          "default_trust": "declared",
+          "required": false
+        },
+        {
+          "name": "milestone_title",
+          "type": "string",
+          "default": null,
+          "default_trust": "declared",
+          "required": false
+        }
+      ],
+      "canonical_emit_order": ["state", "label_name[]", "assignee_username", "milestone_title"],
+      "source": "manual"
+    },
+
+    {
+      "id": "project_graphs_contributors",
+      "url_template": "/{project_path}/-/graphs/{branch}",
+      "url_template_trust": "declared",
+      "path_params": {
+        "project_path": { "type": "path_segments", "required": true },
+        "branch": { "type": "segment", "default": "main", "default_trust": "declared" }
+      },
+      "identity_query_params": [],
+      "canonical_emit_order": [],
+      "source": "manual"
+    }
+  ],
+
+  "realizes_edges": [
+    {
+      "infotype": "issues_list",
+      "state_pattern": "project_issues_list",
+      "condition": "default",
+      "binding_map": {
+        "project_path": "bindings.project_path"
+      },
+      "trust": "declared",
+      "source": "manual"
+    },
+    {
+      "infotype": "issues_list",
+      "state_pattern": "project_issues_filtered",
+      "condition": "has_filter",
+      "binding_map": {
+        "project_path": "bindings.project_path",
+        "state": "bindings.state",
+        "label_name[]": "bindings.label_name",
+        "assignee_username": "bindings.assignee_username",
+        "milestone_title": "bindings.milestone_title"
+      },
+      "trust": "declared",
+      "source": "manual"
+    },
+    {
+      "infotype": "project_commits_contributors",
+      "state_pattern": "project_graphs_contributors",
+      "condition": "default",
+      "binding_map": {
+        "project_path": "bindings.project_path",
+        "branch": "bindings.branch"
+      },
+      "trust": "declared",
+      "source": "manual"
+    }
+  ],
+
+  "actions": [
+    {
+      "name": "navigate_to",
+      "params": [{ "name": "url", "type": "string" }],
+      "description": "Direct URL navigation (goto).",
+      "source": "manual"
+    },
+    {
+      "name": "apply_label_filter",
+      "params": [{ "name": "label", "type": "string" }],
+      "description": "Apply a label filter on an issues/MR list.",
+      "source": "manual"
+    },
+    {
+      "name": "apply_state_filter",
+      "params": [{ "name": "state", "type": "enum" }],
+      "description": "Switch between opened/closed/all on list views.",
+      "source": "manual"
+    },
+    {
+      "name": "goto_issues_tab",
+      "params": [],
+      "description": "From project_page to project_issues_list (click Issues tab).",
+      "source": "manual"
+    }
+  ],
+
+  "leads_to_edges": [
+    {
+      "from": { "state_pattern": "project_page", "bindings": ["project_path"] },
+      "action": "goto_issues_tab",
+      "to": { "state_pattern": "project_issues_list", "bindings": ["project_path"] },
+      "trust": "declared",
+      "source": "manual"
+    },
+    {
+      "from": { "state_pattern": "project_issues_list", "bindings": ["project_path"] },
+      "action": "apply_label_filter",
+      "to": {
+        "state_pattern": "project_issues_filtered",
+        "bindings": ["project_path", "label_name[]<-label"]
+      },
+      "trust": "declared",
+      "source": "manual"
+    },
+    {
+      "from": { "state_pattern": "project_issues_filtered" },
+      "action": "apply_state_filter",
+      "to": { "state_pattern": "project_issues_filtered", "bindings": ["state"] },
+      "trust": "declared",
+      "source": "manual"
+    }
+  ],
+
+  "_notes": {
+    "binding_notation": "'label_name[]<-label'은 action의 label 파라미터가 target StatePattern의 label_name[] 슬롯에 바인딩됨을 의미. 구현 시 결합 규칙(append vs overwrite)은 types.py에서 정의.",
+    "url_emit_example_339": {
+      "infotype": "issues_list",
+      "bindings": {
+        "project_path": "a11yproject/a11yproject.com",
+        "label_name": ["bug"],
+        "state": "opened"
+      },
+      "expected_emit": "/a11yproject/a11yproject.com/-/issues?state=opened&label_name[]=bug"
+    }
+  }
+}
