@@ -6,7 +6,9 @@
 - kg_seed.json → SiteKG (StatePatterns + realizes + leads_to + actions)
 """
 from .crawl_to_kg import crawl_results_to_sitekg, extract_url_template
+from .derivation_to_kg import derivation_to_sitekg
 from .infotype_catalog import load_infotypes
+from .llm_derivation import DerivationResult, derive_infotypes_and_actions
 from .manual_config import load_site_config
 from .playwright_crawler import CrawlResult, FormElementMeta, crawl_site
 from .seed_loader import (
@@ -29,4 +31,8 @@ __all__ = [
     "FormElementMeta",
     "crawl_results_to_sitekg",
     "extract_url_template",
+    # M4-B LLM derivation
+    "derive_infotypes_and_actions",
+    "DerivationResult",
+    "derivation_to_sitekg",
 ]
