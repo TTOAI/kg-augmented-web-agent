@@ -154,10 +154,49 @@ def load_kg_context(
     """`config/sites/<site>/` 에서 SiteConfig + SiteKG를 로드해 KGContext 구성.
 
     해당 디렉토리가 없거나 로드 실패 시 None.
+
+    환경변수 `SITEKG_FROZEN`이 set이면 해당 path의 frozen snapshot(SiteKGStore.load
+    호환 JSON)만 로드하고, SiteConfig는 같은 site config 디렉토리에서 fallback 로드.
+    이는 baseline 측정 시 catalog freeze 보장(M4-C, docs/kg_design/07 §14)을 위함.
     """
+    import os
+
     from site_adaptive_webagent.kg.seed import load_site_kg_from_dir
+    from site_adaptive_webagent.kg.seed.manual_config import load_site_config
+    from site_adaptive_webagent.kg.store import SiteKGStore
 
     dir_path = Path(config_root) / site
+
+    frozen_env = os.getenv("SITEKG_FROZEN", "").strip()
+    if frozen_env:
+        frozen_path = Path(frozen_env)
+        if not frozen_path.exists():
+            logger.error("[KG] SITEKG_FROZEN=%s does not exist — KG disabled", frozen_path)
+            return None
+        try:
+            kg = SiteKGStore.load(frozen_path).kg
+        except Exception:
+            logger.exception("[KG] failed to load frozen snapshot %s — KG disabled", frozen_path)
+            return None
+        site_config_path = dir_path / "site_config.yaml"
+        if not site_config_path.exists():
+            logger.error(
+                "[KG] frozen snapshot loaded but site_config.yaml missing at %s — KG disabled",
+                site_config_path,
+            )
+            return None
+        try:
+            site_config = load_site_config(site_config_path)
+        except Exception:
+            logger.exception("[KG] failed to load site_config %s — KG disabled", site_config_path)
+            return None
+        logger.info("[KG] loaded frozen snapshot %s (git_rev=%s)", frozen_path, kg.git_rev)
+        return KGContext(
+            kg=kg,
+            site_config=site_config,
+            runtime_context=runtime_context or {},
+        )
+
     if not dir_path.exists():
         logger.info("[KG] no config dir at %s — KG disabled", dir_path)
         return None

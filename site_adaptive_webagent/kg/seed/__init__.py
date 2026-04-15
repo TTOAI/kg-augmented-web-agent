@@ -11,6 +11,15 @@ from .infotype_catalog import load_infotypes
 from .llm_derivation import DerivationResult, derive_infotypes_and_actions
 from .manual_config import load_site_config
 from .playwright_crawler import CrawlResult, FormElementMeta, crawl_site
+from .review_diff import (
+    DiffEntry,
+    diff_actions,
+    diff_leads_to_edges,
+    diff_realizes_edges,
+    diff_state_patterns,
+    render_markdown,
+)
+from .run_freeze import freeze
 from .seed_loader import (
     BUILDER_VERSION,
     compute_source_mix,
@@ -35,4 +44,12 @@ __all__ = [
     "derive_infotypes_and_actions",
     "DerivationResult",
     "derivation_to_sitekg",
+    # M4-C review + freeze
+    "DiffEntry",
+    "diff_state_patterns",
+    "diff_actions",
+    "diff_realizes_edges",
+    "diff_leads_to_edges",
+    "render_markdown",
+    "freeze",
 ]

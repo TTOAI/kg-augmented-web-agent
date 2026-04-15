@@ -185,6 +185,7 @@ class SiteKG:
     build_timestamp: str | None = None
     source_mix: dict[str, int] = field(default_factory=dict)
     builder_version: str | None = None
+    git_rev: str | None = None  # freeze 시점 git HEAD (재현성)
 
 
 # ---------------------------------------------------------------------------

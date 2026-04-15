@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -101,6 +102,54 @@ class LoadKGContextTests(unittest.TestCase):
 
     def test_missing_site_returns_none(self) -> None:
         ctx = load_kg_context("nonexistent_site", config_root=GITLAB_CONFIG_DIR.parent)
+        self.assertIsNone(ctx)
+
+
+class FrozenKGLoadTests(unittest.TestCase):
+    """SITEKG_FROZEN env var 분기 검증."""
+
+    def setUp(self) -> None:
+        import os
+        self._old_env = os.environ.get("SITEKG_FROZEN")
+        self._tmp = tempfile.TemporaryDirectory()
+        # 실 manual seed → frozen snapshot 1개 만들어두기
+        from site_adaptive_webagent.kg.seed.run_freeze import freeze
+        site_root = Path(self._tmp.name) / "sites"
+        import shutil
+        shutil.copytree(GITLAB_CONFIG_DIR, site_root / "gitlab")
+        snapshot, _ = freeze(
+            site="gitlab",
+            site_config_dir=site_root,
+            crawl_dir=None,
+            derivation_dir=None,
+            timestamp="2026-04-16T00-00-00Z",
+        )
+        self.snapshot = snapshot
+        self.site_root = site_root
+
+    def tearDown(self) -> None:
+        import os
+        if self._old_env is None:
+            os.environ.pop("SITEKG_FROZEN", None)
+        else:
+            os.environ["SITEKG_FROZEN"] = self._old_env
+        self._tmp.cleanup()
+
+    def test_frozen_env_loads_snapshot(self) -> None:
+        import os
+        os.environ["SITEKG_FROZEN"] = str(self.snapshot)
+        ctx = load_kg_context("gitlab", config_root=self.site_root)
+        self.assertIsNotNone(ctx)
+        assert ctx is not None
+        # snapshot 안의 InfoType이 살아있어야 함
+        self.assertGreater(len(ctx.kg.infotypes), 0)
+        # site_config은 디렉토리에서 fallback 로드
+        self.assertEqual(ctx.site_config.site, "gitlab")
+
+    def test_frozen_env_with_missing_path_returns_none(self) -> None:
+        import os
+        os.environ["SITEKG_FROZEN"] = str(self.snapshot.parent / "nonexistent.json")
+        ctx = load_kg_context("gitlab", config_root=self.site_root)
         self.assertIsNone(ctx)
 
 

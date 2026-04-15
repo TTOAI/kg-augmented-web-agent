@@ -168,6 +168,7 @@ class SiteKGStore:
             "build_timestamp": self.kg.build_timestamp,
             "builder_version": self.kg.builder_version,
             "source_mix": dict(self.kg.source_mix),
+            "git_rev": self.kg.git_rev,
             "state_patterns": [_dc_to_dict(p) for p in self.kg.state_patterns.values()],
             "infotypes": [_dc_to_dict(it) for it in self.kg.infotypes.values()],
             "actions": [_dc_to_dict(a) for a in self.kg.actions.values()],
@@ -184,6 +185,7 @@ class SiteKGStore:
             build_timestamp=data.get("build_timestamp"),
             builder_version=data.get("builder_version"),
             source_mix=dict(data.get("source_mix") or {}),
+            git_rev=data.get("git_rev"),
         )
         for p in data.get("state_patterns", []):
             sp = _state_pattern_from_dict(p)
