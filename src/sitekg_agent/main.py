@@ -1,3 +1,7 @@
+"""sitekg-agent CLI 진입점.
+
+WebArena-Verified 어댑터를 호출하여 task 하나를 실행한다.
+"""
 from __future__ import annotations
 
 import argparse
@@ -6,8 +10,8 @@ from pathlib import Path
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """WebArena-Verified 어댑터 러너용 CLI 파서를 생성한다."""
     parser = argparse.ArgumentParser(
+        prog="sitekg-agent",
         description="WebArena-Verified 어댑터를 통해 task 하나를 실행한다",
     )
     parser.add_argument("--tasks-file", required=True, help="task 데이터가 들어 있는 JSON 파일 경로")
@@ -29,9 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def main() -> int:
-    args = build_parser().parse_args()
-    from .adapter import WebArenaVerifiedAdapter
+async def _run_async(args: argparse.Namespace) -> int:
+    from .adapters.webarena_verified import WebArenaVerifiedAdapter
 
     adapter = WebArenaVerifiedAdapter()
     config_path = Path(args.config) if args.config else None
@@ -58,7 +61,8 @@ async def main() -> int:
 
 def cli() -> None:
     """콘솔 진입점."""
-    raise SystemExit(asyncio.run(main()))
+    args = build_parser().parse_args()
+    raise SystemExit(asyncio.run(_run_async(args)))
 
 
 if __name__ == "__main__":

@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any, TypedDict
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
-from site_adaptive_webagent.agent.core import run_agent
-from site_adaptive_webagent.agent.types import AgentRunResult
+from sitekg_agent.agent import run_agent
+from sitekg_agent.types import AgentRunResult
 
 logger = logging.getLogger("webarena_verified")
 

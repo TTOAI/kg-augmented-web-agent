@@ -21,3 +21,4 @@ __pycache__/
 /collect_gitlab_seed.py
 /seeds/.gitlab_auth_state.json
 /seeds/*.bak_*
+/outputs/

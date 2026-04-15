@@ -24,7 +24,7 @@ class FakeLLMClient:
     def complete_with_tools(
         self, *, system: str, messages: list[dict], tools: list[dict],
     ) -> "LLMToolResponse":
-        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall
+        from sitekg_agent.runtime.tools import LLMToolResponse, ToolCall
 
         self.calls.append({"system": system, "messages": list(messages), "tools": tools})
         response_str = self._responses[min(self._index, len(self._responses) - 1)]
