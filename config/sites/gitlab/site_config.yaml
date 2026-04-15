@@ -66,8 +66,6 @@ path_aliases:
   # 형식: [canonical, alias1, alias2, ...]
   - ["/users/{{me}}", "/users/me", "/-/profile/main"]
   - ["/-/profile", "/profile"]
-  # Phase 2 관찰로 추가:
-  # - ["/explore", "/explore/projects", "/public"]   # task 258 관련
 
 # ---------------------------------------------------------------
 # 6. Emit 정책 — canonical URL 생성 시 기본 규칙

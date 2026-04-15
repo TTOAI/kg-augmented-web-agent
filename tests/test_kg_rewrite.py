@@ -1,6 +1,6 @@
 """kg.rewrite 단위 테스트 — Hook B의 rewrite_plan 검증.
 
-task 339(NAVIGATE)·308(RETRIEVE)·448(MUTATE) 시나리오 커버.
+NAVIGATE / RETRIEVE / MUTATE 각 task type에서 rewrite 정책 동작 검증.
 """
 from __future__ import annotations
 
@@ -38,8 +38,8 @@ class RewritePlanTaskTypesTests(unittest.TestCase):
     def setUp(self) -> None:
         self.ctx = _ctx()
 
-    def test_navigate_task_339_pattern_collapses_all_nav(self) -> None:
-        """task 339 유사: 모든 sub-goal이 navigation → 전체를 단일 navigate_to로 치환."""
+    def test_navigate_all_nav_collapses_to_single_navigate_to(self) -> None:
+        """모든 sub-goal이 navigation → 전체를 단일 navigate_to로 치환."""
         sub_goals = [
             SubGoal("Open project page", "navigation"),
             SubGoal("Navigate to issues list", "navigation"),
@@ -61,8 +61,8 @@ class RewritePlanTaskTypesTests(unittest.TestCase):
         self.assertIn("/a11yproject/a11yproject.com/-/issues", result[0].goal)
         self.assertIn("label_name[]=bug", result[0].goal)
 
-    def test_retrieve_task_308_pattern_preserves_action_tail(self) -> None:
-        """task 308 유사: [nav, action(find), action(extract)] → [nav_direct, action(find), action(extract)]"""
+    def test_retrieve_preserves_action_tail(self) -> None:
+        """[nav, action(find), action(extract)] → [nav_direct, action(find), action(extract)]."""
         sub_goals = [
             SubGoal("Open project page", "navigation"),
             SubGoal("Find contributors section", "action"),

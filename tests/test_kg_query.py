@@ -1,4 +1,4 @@
-"""kg.query 단위 테스트 — task 339·448·308 시나리오로 primitive 검증."""
+"""kg.query 단위 테스트 — primitive별 시나리오 검증."""
 from __future__ import annotations
 
 import unittest
@@ -37,12 +37,8 @@ class EmitTargetURLTests(unittest.TestCase):
     def setUp(self) -> None:
         self.config, self.kg = _make_kg()
 
-    def test_task_339_issues_list_with_filter(self) -> None:
-        """task 339의 target URL 생성.
-
-        intent: "Go to bug issues for current project"
-        InfoType: issues_list, bindings: project_path + state + label_name → has_filter realizes
-        """
+    def test_issues_list_with_filter(self) -> None:
+        """intent: "Go to bug issues for project X" → has_filter realizes로 URL 합성."""
         url = emit_target_url(
             self.kg,
             self.config,
@@ -59,8 +55,8 @@ class EmitTargetURLTests(unittest.TestCase):
         self.assertIn("state=opened", url)
         self.assertIn("label_name[]=bug", url)
 
-    def test_task_102_help_wanted_filter(self) -> None:
-        """task 102: help-wanted label 필터."""
+    def test_help_wanted_label_filter(self) -> None:
+        """label에 공백·다단어가 들어가도 URL-encode 되어 emit."""
         url = emit_target_url(
             self.kg,
             self.config,
@@ -94,11 +90,8 @@ class EmitTargetURLTests(unittest.TestCase):
         )
         self.assertIsNone(url)
 
-    def test_task_308_commits_contributors(self) -> None:
-        """task 308: /-/graphs/<branch>로의 라우팅.
-
-        project_commits_contributors InfoType을 쓰고 branch default='main' 적용.
-        """
+    def test_commits_contributors_routing(self) -> None:
+        """project_commits_contributors → /-/graphs/<branch>, branch default='main' 적용."""
         url = emit_target_url(
             self.kg,
             self.config,

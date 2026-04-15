@@ -357,7 +357,7 @@ async def _try_sub_goal(
     _sub_goal_start_url = current_obs.url  # 현재 sub-goal 진입 시점 URL (navigation hard check용)
     tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type)
 
-    # mid-task stuck 감지 상태 (pilot 스캔에서 URL 100+ stall, done 5+ 연속 reject 등 관찰)
+    # mid-task stuck 감지 상태: 동일 URL 다회 stall + done 연속 reject 누적 시 강제 종료
     _last_url_for_stall = current_obs.url
     _url_stall_steps = 0
     _consecutive_done_rejects = 0
@@ -465,8 +465,8 @@ async def _try_sub_goal(
                 return None, step + 1
             logger.info("[LLM] sub-goal done REJECTED: %s", verified)
             _consecutive_done_rejects += 1
-            # Bug 29 방어: 연속 reject가 누적되면 LLM에게 더 강하게 신호를 준다.
-            # pilot에서 done 5회 연속 호출 후 17회 reject 관찰됨 (task 174).
+            # 방어: done 연속 reject가 누적되면 LLM에게 더 강하게 신호를 준다
+            # (그렇지 않으면 같은 done 호출이 반복되며 step 예산을 소진).
             if _consecutive_done_rejects >= 3:
                 last_action_feedback = (
                     f"Done has been rejected {_consecutive_done_rejects} times in a row. "

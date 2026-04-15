@@ -20,7 +20,7 @@ from site_adaptive_webagent.kg.store import SiteKGStore
 
 
 def _make_minimal_kg() -> SiteKG:
-    """task 339 시나리오 최소 KG: project_page + issues_list + issues_filtered."""
+    """최소 KG fixture: project_page + issues_list + issues_filtered."""
     kg = SiteKG(site="gitlab")
     kg.state_patterns["project_issues_list"] = StatePattern(
         id="project_issues_list",

@@ -19,7 +19,7 @@ site: gitlab
 # ---------------------------------------------------------------
 infotypes:
 
-  # ----- 예시 1: task 339가 착지할 InfoType -----
+  # ----- InfoType: issues_list (project-scoped issues, optional filtering) -----
   - name: issues_list
     description: >
       Project-scoped issues list. Supports filtering by state, labels,
@@ -39,12 +39,12 @@ infotypes:
         condition: has_filter     # state/label/assignee/milestone 중 하나라도 있으면
     intent_examples:
       - "List open issues for project X"
-      - "Go to bug issues in project X"          # task 339
-      - "Find help-wanted issues in project X"   # task 102
+      - "Go to bug issues in project X"
+      - "Find help-wanted issues in project X"
     trust_label: declared
     source: manual
 
-  # ----- 예시 2: task 156이 착지할 InfoType -----
+  # ----- InfoType: dashboard_merge_requests (cross-project MR dashboard) -----
   - name: dashboard_merge_requests
     description: >
       Global merge requests dashboard (across all projects user has
@@ -60,12 +60,12 @@ infotypes:
       - state_pattern: dashboard_mr_filtered
         condition: has_filter
     intent_examples:
-      - "Go to merge requests assigned to me"    # task 156
+      - "Go to merge requests assigned to me"
       - "Show my merge requests"
     trust_label: declared
     source: manual
 
-  # ----- 예시 3: task 308이 착지할 InfoType -----
+  # ----- InfoType: project_commits_history (commit list with optional author filter) -----
   - name: project_commits_history
     description: >
       Project commit history with optional author filter.
@@ -95,7 +95,7 @@ infotypes:
       - state_pattern: project_graphs_contributors
         condition: default
     intent_examples:
-      - "Who has the most commits to project X"  # task 308
+      - "Who has the most commits to project X"
       - "Show contributors for project X"
     trust_label: declared
     source: manual

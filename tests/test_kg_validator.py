@@ -79,7 +79,7 @@ class TargetReachedTests(unittest.TestCase):
         self.assertFalse(target_reached("/any", lookup, self.ctx))
 
     def test_commits_contributors_reached(self) -> None:
-        """task 308 target URL과 일치 확인."""
+        """project_commits_contributors target URL과 현재 URL이 일치하면 True."""
         lookup = KGLookup(
             infotype="project_commits_contributors",
             bindings={"project_path": "primer/design"},

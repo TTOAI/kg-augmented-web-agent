@@ -14,7 +14,7 @@ from site_adaptive_webagent.kg import (
 
 
 def _gitlab_config() -> SiteConfig:
-    """task 339·448 등 실측에서 관찰된 GitLab 정규화 규칙을 반영한 SiteConfig."""
+    """GitLab URL 정규화 규칙을 반영한 SiteConfig fixture."""
     return SiteConfig(
         site="gitlab",
         base_url="http://localhost:8023",
@@ -35,7 +35,7 @@ def _gitlab_config() -> SiteConfig:
 
 
 def _issues_filtered_pattern() -> StatePattern:
-    """task 339의 target state: 특정 project의 필터링된 issues 리스트."""
+    """Project issues list with state/label/assignee/milestone filters."""
     return StatePattern(
         id="project_issues_filtered",
         url_template="/{project_path}/-/issues",
@@ -162,11 +162,11 @@ class Normalize8DimensionTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 2. Task 339 end-to-end 라운드트립
+# 2. Project issues filtered — match·emit end-to-end roundtrip
 # ---------------------------------------------------------------------------
 
-class Task339RoundTripTests(unittest.TestCase):
-    """실측 pilot task 339의 target URL이 match·emit에 안정적으로 처리되는지."""
+class ProjectIssuesFilteredRoundTripTests(unittest.TestCase):
+    """Filtered project issues URL이 match·emit에 안정적으로 round-trip 처리되는지."""
 
     def setUp(self) -> None:
         self.config = _gitlab_config()
