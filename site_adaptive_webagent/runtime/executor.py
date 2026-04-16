@@ -188,7 +188,12 @@ async def execute_with_llm(
     if task_type == "RETRIEVE":
         obs = await observe_page(page)
         try:
-            from .tools import _declare_error_tool, _extract_tool
+            from .tools import (
+                _declare_error_tool,
+                _extract_tool,
+                _observe_tool,
+                _recall_tool,
+            )
             notes_str = f"\nRemembered facts: {task_notes}" if task_notes else ""
             extract_msg = (
                 f"Task: {task}\n"
@@ -213,21 +218,33 @@ async def execute_with_llm(
                 "   - If PLURAL and a value of the correct format is mentioned anywhere in your\n"
                 "     notes or your prior reasoning, INCLUDE it (be inclusive — better to return\n"
                 "     a candidate than to omit it). Re-read the notes carefully for all matches.\n"
-                "5. If the target entity clearly does not exist (after the searches above), "
+                "5. Use recall to re-check saved notes or observe to refresh the page if helpful.\n"
+                "6. If the target entity clearly does not exist (after exhaustive checks), "
                 "invoke declare_error with NOT_FOUND_ERROR instead of extract."
             )
-            extract_response = llm.complete_with_tools(
-                system=system,
-                messages=[{"role": "user", "content": extract_msg}],
-                tools=[_extract_tool(), _declare_error_tool()],
-            )
-            if not extract_response.tool_calls:
-                logger.info("[LLM] final extract stage: LLM returned no tool call")
-            else:
+            tools_final = [
+                _extract_tool(), _declare_error_tool(),
+                _recall_tool(), _observe_tool(),
+            ]
+            current_msg = extract_msg
+            final_declare_rejected = False
+            iter_limit = 4
+            for iteration in range(iter_limit):
+                extract_response = llm.complete_with_tools(
+                    system=system,
+                    messages=[{"role": "user", "content": current_msg}],
+                    tools=tools_final,
+                )
+                if not extract_response.tool_calls:
+                    logger.info("[LLM] final extract stage: no tool call (iter=%d)", iteration)
+                    break
                 call = extract_response.tool_calls[0]
                 if call.name == "extract":
                     args = call.arguments
-                    result = _handle_extract({"value": args.get("value", ""), "label": args.get("label", "")}, task_type)
+                    result = _handle_extract(
+                        {"value": args.get("value", ""), "label": args.get("label", "")},
+                        task_type,
+                    )
                     elapsed = time.time() - t_start
                     logger.info("[LLM] final extract in %.1fs (%d steps)", elapsed, steps_used)
                     return result
@@ -237,13 +254,56 @@ async def execute_with_llm(
                     if status not in _DECLARE_ERROR_STATUSES:
                         logger.info("[LLM] final declare_error invalid status=%r → UNKNOWN_ERROR", status)
                         status = "UNKNOWN_ERROR"
+                    if not final_declare_rejected:
+                        logger.info(
+                            "[LLM] final declare_error REJECTED (first attempt); reason=%r",
+                            reason[:120],
+                        )
+                        final_declare_rejected = True
+                        notes_dump = "\n".join(f"- {n}" for n in task_notes) if task_notes else "(no notes)"
+                        current_msg = (
+                            f"Your declare_error ({status}) was rejected. This is the final "
+                            "extraction stage — re-examine evidence carefully before declaring "
+                            "again.\n"
+                            f"\nSaved notes:\n{notes_dump}\n"
+                            f"\nPage URL: {obs.url}\n"
+                            f"Page title: {obs.title}\n"
+                            f"Visible text (first 20): {obs.text_lines[:20]}\n"
+                            f"Links (first 15): {obs.links[:15]}\n"
+                            "\nIf the answer appears anywhere above, call extract. "
+                            "Only call declare_error again if you are certain the answer does not exist."
+                        )
+                        continue
                     elapsed = time.time() - t_start
-                    logger.info("[LLM] final declare_error → %s in %.1fs (%d steps)", status, elapsed, steps_used)
+                    logger.info(
+                        "[LLM] final declare_error → %s in %.1fs (%d steps)",
+                        status, elapsed, steps_used,
+                    )
                     return ExecutionOutcome(
                         task_type=task_type, status=status,  # type: ignore[arg-type]
                         error_details=reason[:200] if reason else None,
                     )
+                if call.name == "recall":
+                    notes_dump = "\n".join(f"- {n}" for n in task_notes) if task_notes else "(no notes)"
+                    current_msg = (
+                        f"{extract_msg}\n\nYou requested recall. Saved notes:\n{notes_dump}\n"
+                        "\nNow call extract with the final answer, or declare_error if it does not exist."
+                    )
+                    logger.info("[LLM] final extract stage: recall (iter=%d)", iteration)
+                    continue
+                if call.name == "observe":
+                    obs = await observe_page(page)
+                    current_msg = (
+                        f"{extract_msg}\n\nYou requested observe. Refreshed page state:\n"
+                        f"URL: {obs.url}\nTitle: {obs.title}\n"
+                        f"Visible text (first 20): {obs.text_lines[:20]}\n"
+                        f"Links (first 15): {obs.links[:15]}\n"
+                        "\nNow call extract with the final answer, or declare_error if it does not exist."
+                    )
+                    logger.info("[LLM] final extract stage: observe (iter=%d)", iteration)
+                    continue
                 logger.info("[LLM] final extract stage: unexpected tool=%r", call.name)
+                break
         except Exception:
             logger.exception("[LLM] final extract stage raised")
         # RETRIEVE인데 extract 실패 → 데이터 없이 SUCCESS 방지.
@@ -503,6 +563,31 @@ async def _try_sub_goal(
             if status not in _DECLARE_ERROR_STATUSES:
                 logger.info("[LLM] declare_error invalid status=%r → coerce to UNKNOWN_ERROR", status)
                 status = "UNKNOWN_ERROR"
+
+            # Warning mode: 재시도 이력이 부족하면 declare_error를 거절하고 다시 탐색하게 한다.
+            # done이 _verify_done으로 검증되는 것과 대칭 — declare_error도 "충분한 시도" 검증.
+            prior_attempts = len(previous_failures)
+            if prior_attempts < 3:
+                logger.info(
+                    "[LLM] declare_error REJECTED (attempts=%d/3): status=%s reason=%r",
+                    prior_attempts, status, reason[:120],
+                )
+                rejection_msg = (
+                    f"declare_error rejected: only {prior_attempts} prior attempt(s). "
+                    f"Before declaring {status}, try at least 3 meaningfully different "
+                    "strategies (different query terms, filter combinations, alternative "
+                    "navigation paths, scrolling through paginated results). If the page "
+                    "text, headings, or lists already contain evidence of the answer, use "
+                    "observe/remember/done instead. If after 3+ distinct attempts the "
+                    "target is still unreachable, call declare_error again."
+                )
+                messages.append(format_tool_result(tool_id, rejection_msg))
+                last_action_feedback = (
+                    f"declare_error rejected — evidence insufficient after {prior_attempts} "
+                    "attempt(s); keep investigating."
+                )
+                continue
+
             logger.info("[LLM] declare_error → task-level exit: status=%s reason=%r", status, reason[:200])
             return ExecutionOutcome(
                 task_type=task_type,
