@@ -49,8 +49,9 @@ _MAX_RETRIES_PER_GOAL = 8
 # Global LLM call limit per task — task 748 같은 retry loop 폭발 방지.
 # Standard ReAct web agent는 step budget (max_steps)으로 제어하지만, 본 agent는 tool
 # call 재시도 등 parasitic LLM call이 누적될 수 있다. Task당 LLM call을 명시적으로
-# 상한해 wall-time 예측성을 확보한다. 300 = max_steps(50) × ~6 call/step 여유치.
-_MAX_LLM_CALLS_PER_TASK = 300
+# 상한해 wall-time 예측성을 확보한다. 350 = max_steps(50) × ~7 call/step 여유치
+# (Phase 0c smoke에서 max 275 관찰, 어려운 MUTATE task 대비 15% 추가 버퍼).
+_MAX_LLM_CALLS_PER_TASK = 350
 
 
 class _LLMCallLimitExceeded(Exception):

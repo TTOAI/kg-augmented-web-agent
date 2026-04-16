@@ -148,7 +148,12 @@ class OpenAILLMClient:
         max_tokens: int = 1024,
         reasoning_effort: str | None = None,
     ) -> LLMToolResponse:
-        if self._use_responses_api:
+        # Responses API는 multi-turn tool_calls 포맷이 chat.completions와 달라 agent의
+        # ReAct loop (assistant tool_call → tool_result → assistant ...)를 그대로 못 받음.
+        # 따라서 `reasoning_effort`가 명시됐을 때만 Responses API 경로 (주로 KG derivation
+        # single-turn tool call). agent task는 reasoning_effort 없이 호출되므로 chat.completions
+        # 경로로 분기되어 multi-turn ReAct가 정상 작동.
+        if self._use_responses_api and reasoning_effort is not None:
             return self._complete_via_responses_api(
                 system=system, messages=messages, tools=tools,
                 max_tokens=max_tokens, reasoning_effort=reasoning_effort,
