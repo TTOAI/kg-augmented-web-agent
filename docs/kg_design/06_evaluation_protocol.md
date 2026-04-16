@@ -119,7 +119,19 @@ agent가 runtime에 결정한 task_type(`NAVIGATE` / `RETRIEVE` / `MUTATE`) 기�
 - Paired 단위: (task, N회 반복 중 majority vote 결과).
 - Test: McNemar's test for paired binary outcomes. Multiple comparison correction 불필요 (가설 1개).
 
-### 4-5. 의도적으로 평가하지 않는 가설 (future work로 분리)
+### 4-5. Per-run paired 이진화 규칙 (Pre-registered)
+
+McNemar test 입력을 생성할 때의 이진화 규칙을 **M5 실행 전에 고정**한다. Reviewer가 optional stopping / p-hacking을 의심하지 않도록 사전 선언.
+
+- **Primary**: `(task, variant)` pair 당 **majority vote** (N=3 runs 중 **2회 이상** eval_status=success → 1, 아니면 0). 50 task × 2 variant → 50 pair로 McNemar.
+- **Secondary (appendix)**: per-run paired (N1 쌍·N2 쌍·N3 쌍 = 150 pair). 같은 방향의 유의성 확인용.
+- **Broken evaluator 제외 버전**: `eval_exclusions.md`에 등록된 task는 `(task, variant)` pair에서 제외하고 McNemar 재계산. Raw + Adjusted 둘 다 보고.
+- **Env error 처리**: agent_status가 `UNKNOWN_ERROR`이고 log에 env error token이 있는 run은 `failure`가 아니라 **재측정 대상**. 재측정 불가 시 해당 task는 Limitation에 명시하고 **fair하게 양 variant에서 동일 규칙 적용**.
+- **이진화 규칙 변경 금지**: M5 측정 시작 이후 이 규칙은 수정하지 않는다 (commit hash로 freeze).
+
+근거: `scripts/analyze_baseline.py`의 `write_paired_csv`가 정확히 이 규칙으로 CSV 생성.
+
+### 4-6. 의도적으로 평가하지 않는 가설 (future work로 분리)
 
 3-page 분량 제약으로 다음 세분 가설은 본 논문에서 검정하지 않고 `07 §11`의 Out-of-scope 표에 future work로 선언한다:
 

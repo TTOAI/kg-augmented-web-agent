@@ -47,16 +47,18 @@ def _read_task_types(path: Path) -> dict[int, str]:
     return out
 
 
-def _parse_log_metrics(log_path: Path) -> tuple[int | None, float | None, bool]:
-    """step_count, wall_time_sec, env_error_flag."""
+def _parse_log_metrics(log_path: Path) -> tuple[int | None, float | None, bool, int]:
+    """step_count, wall_time_sec, env_error_flag, llm_call_count."""
     if not log_path.exists():
-        return (None, None, False)
+        return (None, None, False, 0)
     text = log_path.read_text(encoding="utf-8", errors="replace")
     match = _STEPS_RE.search(text)
     step_count = int(match.group(2)) if match else None
     wall_time = float(match.group(1)) if match else None
     env_error = any(tok in text for tok in _ENV_ERROR_TOKENS)
-    return (step_count, wall_time, env_error)
+    # LLM call count: "[LLM] step=" 라인 수 (중복 가능성 있으나 근사)
+    llm_calls = len(re.findall(r"\[LLM\] step=", text))
+    return (step_count, wall_time, env_error, llm_calls)
 
 
 def _load_agent_response(path: Path) -> dict:
@@ -104,7 +106,15 @@ def collect(baseline_dir: Path) -> tuple[list[dict], dict[int, str]]:
             task_id = int(task_dir.name)
             resp = _load_agent_response(task_dir / "agent_response.json")
             ev = _load_eval_result(task_dir / "eval_result.json")
-            steps, wall, env_err = _parse_log_metrics(task_dir / "webarena_verified.log")
+            steps, wall, env_err, llm_calls = _parse_log_metrics(
+                task_dir / "webarena_verified.log",
+            )
+            # 어떤 evaluator가 실패했는지 (broken 후보 세분)
+            failed_evaluators: list[str] = []
+            for er in ev.get("evaluators_results") or []:
+                if str(er.get("status", "")).lower() != "success":
+                    name = str(er.get("evaluator_name", "unknown"))
+                    failed_evaluators.append(name)
             rows.append({
                 "task_id": task_id,
                 "run": run,
@@ -113,8 +123,10 @@ def collect(baseline_dir: Path) -> tuple[list[dict], dict[int, str]]:
                 "agent_error": (resp.get("error_details") or "").replace("\n", " ")[:240],
                 "eval_status": ev.get("status", ""),
                 "eval_score": ev.get("score", ""),
+                "failed_evaluators": "|".join(failed_evaluators),
                 "step_count": steps if steps is not None else "",
                 "wall_time_sec": wall if wall is not None else "",
+                "llm_calls": llm_calls,
                 "env_error_in_log": env_err,
             })
     return rows, task_types
@@ -124,7 +136,8 @@ def write_raw_csv(rows: list[dict], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "task_id", "run", "task_type", "agent_status", "agent_error",
-        "eval_status", "eval_score", "step_count", "wall_time_sec", "env_error_in_log",
+        "eval_status", "eval_score", "failed_evaluators",
+        "step_count", "wall_time_sec", "llm_calls", "env_error_in_log",
     ]
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -169,6 +182,20 @@ def _is_success(row: dict) -> bool:
     return str(row.get("eval_status", "")).strip().lower() == "success"
 
 
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    s = sorted(values)
+    mid = len(s) // 2
+    if len(s) % 2 == 1:
+        return float(s[mid])
+    return (s[mid - 1] + s[mid]) / 2
+
+
 def build_summary(rows: list[dict], task_types: dict[int, str]) -> str:
     n = len(rows)
     successes = sum(1 for r in rows if _is_success(r))
@@ -194,11 +221,34 @@ def build_summary(rows: list[dict], task_types: dict[int, str]) -> str:
     mixed = sum(1 for v in by_task.values() if len(v) == 3 and 0 < sum(v) < 3)
     incomplete = sum(1 for v in by_task.values() if len(v) != 3)
 
-    # broken 후보: agent SUCCESS인데 eval !=success
+    # broken 후보: agent SUCCESS인데 eval != success
     broken_candidates: list[dict] = [
         r for r in rows
         if str(r["agent_status"]).lower() == "success" and not _is_success(r)
     ]
+    # 세분화: 어떤 evaluator가 실패했나
+    broken_by_category: Counter[str] = Counter()
+    for r in broken_candidates:
+        fe = str(r.get("failed_evaluators") or "")
+        if not fe:
+            broken_by_category["(unknown)"] += 1
+        elif "NetworkEventEvaluator" in fe and "AgentResponseEvaluator" in fe:
+            broken_by_category["Both network+response"] += 1
+        elif "NetworkEventEvaluator" in fe:
+            broken_by_category["NetworkEventEvaluator only"] += 1
+        elif "AgentResponseEvaluator" in fe:
+            broken_by_category["AgentResponseEvaluator only"] += 1
+        else:
+            broken_by_category[fe] += 1
+
+    # McNemar discordant pair preview (majority vote → per-task pair)
+    # 지금은 single variant(baseline)만 있으므로 per-task 안정성만 보여줌.
+    # N=3 run 일관성: 3/3 성공/실패 외 mixed를 "per-task variance"로 리포트.
+
+    # 성능 통계 (step·wall·llm_calls) — 성공 run만 포함해 outlier 완화
+    steps_vals = [int(r["step_count"]) for r in rows if str(r.get("step_count", "")).isdigit()]
+    wall_vals = [float(r["wall_time_sec"]) for r in rows if str(r.get("wall_time_sec") or "").replace(".", "", 1).isdigit()]
+    llm_vals = [int(r["llm_calls"]) for r in rows if str(r.get("llm_calls", "")).isdigit() and int(r["llm_calls"]) > 0]
 
     # CI
     lo, hi = _wilson_ci(successes, n) if n else (0.0, 0.0)
@@ -206,15 +256,34 @@ def build_summary(rows: list[dict], task_types: dict[int, str]) -> str:
     lines: list[str] = []
     lines.append("# Baseline N=3 분석 요약")
     lines.append("")
-    lines.append(f"- Total runs: **{n}** (expected {3 * len(task_types)})")
-    lines.append(f"- Unique tasks: **{n_tasks}**")
-    lines.append(f"- Agent status=SUCCESS: **{agent_success}** / {n} "
-                 f"({100 * agent_success / n:.1f}%)" if n else "- Agent status=SUCCESS: 0")
-    lines.append(f"- Eval status=success: **{successes}** / {n} "
-                 f"({100 * successes / n:.1f}%, Wilson 95% CI [{100*lo:.1f}%, {100*hi:.1f}%])"
-                 if n else "- Eval status=success: 0")
-    lines.append(f"- Agent non-success: {timeout_or_crash}")
-    lines.append(f"- Runs with env error token in log: **{env_errors}**")
+    lines.append("## 주요 수치 (primary)")
+    lines.append("")
+    if n:
+        lines.append(f"- **Eval success rate**: {successes} / {n} = **{100 * successes / n:.1f}%** "
+                     f"(Wilson 95% CI [{100*lo:.1f}%, {100*hi:.1f}%])")
+        lines.append(f"- Agent status=SUCCESS: {agent_success} / {n} ({100 * agent_success / n:.1f}%)")
+        lines.append(f"- Total runs: {n} (expected {3 * len(task_types)}) · Unique tasks: {n_tasks}")
+    else:
+        lines.append("- (empty)")
+    lines.append("")
+    lines.append("### Sanity")
+    lines.append("")
+    env_pct = (100 * env_errors / n) if n else 0
+    lines.append(f"- Agent non-success: **{timeout_or_crash}**")
+    lines.append(f"- Env error token in log: **{env_errors}** ({env_pct:.0f}%)")
+    lines.append("")
+    # Performance metrics (step/wall/llm_calls)
+    lines.append("### Performance metrics")
+    lines.append("")
+    if steps_vals:
+        lines.append(f"- Steps (n={len(steps_vals)}): median={_median(steps_vals):.0f}, "
+                     f"mean={_mean(steps_vals):.1f}, min={min(steps_vals)}, max={max(steps_vals)}")
+    if wall_vals:
+        lines.append(f"- Wall-time sec (n={len(wall_vals)}): median={_median(wall_vals):.1f}, "
+                     f"mean={_mean(wall_vals):.1f}")
+    if llm_vals:
+        lines.append(f"- LLM call count (n={len(llm_vals)}): median={_median(llm_vals):.0f}, "
+                     f"mean={_mean(llm_vals):.1f}")
     lines.append("")
     lines.append("## Eval status 분포")
     lines.append("")
@@ -241,36 +310,43 @@ def build_summary(rows: list[dict], task_types: dict[int, str]) -> str:
     lines.append("")
     lines.append("## Broken evaluator 후보")
     lines.append("")
-    lines.append(f"Agent 내부 판정은 SUCCESS이나 evaluator는 success 아님. 수동 확인 필요 → "
-                 f"`docs/kg_design/eval_exclusions.md`에 기록.")
+    lines.append("Agent 내부 판정은 SUCCESS이나 evaluator는 success 아님. 수동 확인 필요 → "
+                 "`docs/kg_design/eval_exclusions.md`에 기록.")
     lines.append("")
-    lines.append(f"- 후보 runs: **{len(broken_candidates)}**")
+    lines.append(f"- 전체 후보: **{len(broken_candidates)}** runs")
+    if broken_by_category:
+        lines.append("")
+        lines.append("| 카테고리 | count |")
+        lines.append("|---|---|")
+        for cat, cnt in broken_by_category.most_common():
+            lines.append(f"| {cat} | {cnt} |")
     if broken_candidates:
         lines.append("")
-        lines.append("| task_id | run | task_type | eval_status | agent_error |")
-        lines.append("|---|---|---|---|---|")
-        # 중복 task_id 한 번만 보이게 정렬
-        shown_keys: set[tuple[int, str]] = set()
+        lines.append("<details><summary>후보 task 상세 (클릭)</summary>")
+        lines.append("")
+        lines.append("| task_id | run | task_type | failed_evaluators |")
+        lines.append("|---|---|---|---|")
         for r in broken_candidates:
-            key = (r["task_id"], r["run"])
-            if key in shown_keys:
-                continue
-            shown_keys.add(key)
-            err = (r.get("agent_error") or "").replace("|", "\\|")[:60]
-            lines.append(f"| {r['task_id']} | {r['run']} | {r['task_type']} | "
-                         f"`{r['eval_status']}` | {err} |")
+            fe = (r.get("failed_evaluators") or "").replace("|", "/")[:60]
+            lines.append(f"| {r['task_id']} | {r['run']} | {r['task_type']} | {fe} |")
+        lines.append("")
+        lines.append("</details>")
     lines.append("")
-    lines.append("## Environment error 후보 (재측정 고려)")
+    lines.append("## Environment error 후보 (재측정 필요)")
     lines.append("")
     env_err_rows = [r for r in rows if r["env_error_in_log"]]
+    lines.append(f"- {len(env_err_rows)} runs 에서 env error token 감지 (insufficient_quota 등)")
     if env_err_rows:
+        lines.append("")
+        lines.append("<details><summary>env error 목록 (클릭)</summary>")
+        lines.append("")
         lines.append("| task_id | run | agent_status | eval_status |")
         lines.append("|---|---|---|---|")
         for r in env_err_rows:
             lines.append(f"| {r['task_id']} | {r['run']} | `{r['agent_status']}` | "
                          f"`{r['eval_status']}` |")
-    else:
-        lines.append("(none detected)")
+        lines.append("")
+        lines.append("</details>")
     lines.append("")
     lines.append("---")
     lines.append("")
