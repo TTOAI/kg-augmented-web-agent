@@ -15,14 +15,24 @@
 
 ---
 
-## 2. Primary outcome
+## 2. Primary outcome (dual — 2026-04-17 update)
 
-**Task success rate per variant**
+본 연구는 **dual primary outcome**을 측정한다 (`07 §1` triple contribution C1/C2 대응):
+
+### 2-A. Task success rate per variant (H1a)
 
 - 정의: `eval_result.json`의 `status == "success"` 비율.
 - 분모: 실행 task 수 (error/timeout 포함).
 - 분자: evaluator `status = success` 수.
 - 단위: task 단위. step/sub-goal 단위 아님.
+
+### 2-B. Compute efficiency per variant (H1b)
+
+- **Token usage**: 누적 input + output + tool input 토큰 합계 (per task 평균).
+- **Step count**: agent loop step 수 (per task 평균).
+- **Wall-clock time**: task 시작~종료 elapsed seconds (per task 평균).
+- 비교: paired (variant 간 같은 task) — 2 variant 간 차이를 Wilcoxon signed-rank test로 검정 가능.
+- Budget context: 모든 variant가 `MAX_STEPS_PER_TASK=50` 제약 하 — `agent/core.py` env로 명시.
 
 ### 2-1. Error 처리
 
@@ -106,18 +116,29 @@ agent가 runtime에 결정한 task_type(`NAVIGATE` / `RETRIEVE` / `MUTATE`) 기�
 
 ### 4-3. Significance testing
 
-- **Variant 간 비교**: paired analysis (같은 task의 variant별 결과를 pair). McNemar's test for paired binary outcomes.
-- **Multiple comparisons**: Bonferroni correction (ablation variant 수로 나눔).
+- **Variant 간 비교**: paired analysis (같은 task의 variant별 결과를 pair).
 - 유의수준: α = 0.05.
+- **Multiple comparisons**: dual H1 (H1a + H1b)에 Bonferroni → 각 sub-test α = 0.025.
+  3 pairwise variant 비교 시 추가 적용.
 
-### 4-4. Primary 가설 (3-page scope, 단일 H1)
+### 4-4. Primary 가설 (3-page scope, dual H1) — 2026-04-17 update
 
-**H1**: Full KG variant의 success rate > Baseline variant의 success rate (paired McNemar test, α=0.05).
+**H1a (정확도)**: Full KG variant의 success rate ≠ Baseline (paired McNemar, two-tailed,
+α=0.025 after Bonferroni).
+
+**H1b (효율)**: Full KG variant의 compute cost (token / step / wall-time) < Baseline
+(paired Wilcoxon signed-rank, one-tailed, α=0.025 after Bonferroni).
 
 비교 구성:
-- Variants: 2개 (Baseline, Full KG). 자세한 scope 근거는 `07_scope_and_justifications.md §5`.
-- Paired 단위: (task, N회 반복 중 majority vote 결과).
-- Test: McNemar's test for paired binary outcomes. Multiple comparison correction 불필요 (가설 1개).
+- **Variants: 3개** (Baseline, KG-Info-Ignored, Full KG). 자세한 scope 근거는
+  `07_scope_and_justifications.md §5`.
+- Paired 단위: (task, N=3 반복의 majority vote).
+- **3 pairwise tests**:
+  - Baseline ↔ KG-Info-Ignored: 추가 LLM call의 reasoning step 효과
+  - KG-Info-Ignored ↔ Full KG: KG **정보**의 순수 기여
+  - Baseline ↔ Full KG: 종합 KG 효과 (H1a/H1b의 1차 검정)
+- **Two-tailed**: KG가 정확도를 *향상*시킬 수도, *손상*시킬 수도 있음을 사전 명시. 결과 부호
+  가정 안 함 (any-result-valuable framing의 핵심).
 
 ### 4-5. Per-run paired 이진화 규칙 (Pre-registered)
 
@@ -131,12 +152,15 @@ McNemar test 입력을 생성할 때의 이진화 규칙을 **M5 실행 전에 �
 
 근거: `scripts/analyze_baseline.py`의 `write_paired_csv`가 정확히 이 규칙으로 CSV 생성.
 
-### 4-6. 의도적으로 평가하지 않는 가설 (future work로 분리)
+### 4-6. 의도적으로 평가하지 않는 가설 (future work로 분리) — 2026-04-17 update
 
-3-page 분량 제약으로 다음 세분 가설은 본 논문에서 검정하지 않고 `07 §11`의 Out-of-scope 표에 future work로 선언한다:
+3-page 분량 제약으로 다음 세분 가설은 본 논문에서 검정하지 않고 `07 §11`의 Out-of-scope 표에
+future work로 선언한다:
 
 - "KG가 retrieval 아닌 planning substrate" → KG-retrieval ablation 필요
-- "단순 compute 증가 아님" → compute-matched ablation 필요. 대신 §3-1 token/step 수치 함께 보고로 사전 차단
+- "Hook 단위 fine-grained ablation" (rewrite vs validate vs trust 개별 분리) → 본 연구는
+  *KG 정보 자체*의 기여를 KG-Info-Ignored variant로 분리. Hook 단위 추가 분리는 future work.
+- ~~"단순 compute 증가 아님"~~ — **KG-Info-Ignored variant가 직접 측정** (해소됨)
 - "모델 크기 invariance" → mini+full 양쪽 측정 필요
 - "Continual adaptation 효과" → 3-round replay 필요
 
@@ -178,7 +202,10 @@ WebArena-Verified evaluator의 알려진 문제점들:
 
 ### 7-1. 본문 표 — 필수 1개
 
-- **Table 1** (필수): 전체 task × 2 variant success rate + token·step·wall-time 평균. Raw · Adjusted(broken eval 제외) 양쪽. Wilson 95% CI 포함. 하단에 **KG-addressable coverage** (§3-5) + **KG source_mix** (crawl/llm/manual 비율)를 표기.
+- **Table 1** (필수): 전체 task × **3 variants** (Baseline / KG-Info-Ignored / Full KG)
+  success rate + token·step·wall-time 평균. Raw · Adjusted(broken eval 제외) 양쪽.
+  Wilson 95% CI 포함. 하단에 **KG-addressable coverage** (§3-5) + **KG source_mix** (crawl/
+  llm/manual 비율) + **ARI mean (3 derivation runs)** 표기.
 
 ### 7-2. 본문 표 — 공간 여유 시 추가
 
@@ -206,44 +233,50 @@ WebArena-Verified evaluator의 알려진 문제점들:
 
 ---
 
-## 8. Limitation 공개 (reporting 필수 항목)
+## 8. Limitation 공개 (reporting 필수 항목) — 2026-04-17 update
 
-본 논문 Limitation 섹션에 **다음 5개를 명시적으로 열거** (근거: `07_scope_and_justifications.md §11`):
+본 논문 Limitation 섹션에 **다음 6개를 명시적으로 열거** (근거: `07_scope_and_justifications.md §11`):
 
 1. **단일 사이트 (GitLab)**: Cross-domain 일반화는 future work.
-2. **Fine-grained ablation 미수행**: rewrite / validate / trust policy 개별 기여 분석은 future work.
-3. **Compute-matched ablation 미수행**: 대신 token·step·wall-time 수치로 compute confound 사전 차단, 공식 ablation은 future work.
+2. **Hook 단위 fine-grained ablation 미수행**: 본 3-variant ablation은 KG *정보*의 기여를 분리하나, Hook 개별(rewrite/validate/trust) 분리는 future work.
+3. ~~**Compute-matched ablation 미수행**~~ → **본 연구의 KG-Info-Ignored variant가 직접 측정** (해소됨).
 4. **단일 모델 family**: 모델 크기에 따른 KG 효과 robustness는 future work.
 5. **Single-shot evaluation**: Continual trust evolution은 architecture에 설계돼 있으나 longitudinal empirical 검증은 future work.
-6. **KG 구축 방법론 자체가 연구 artifact**: 본 연구의 3단계 hybrid 구축 파이프라인(Playwright crawl + LLM derivation + 수동 검증)은 GitLab에 적용된 첫 사례로, 다른 사이트에 scale했을 때의 인력·시간 비용, crawler 커버리지, LLM derivation의 재현성은 본 논문에서 측정하지 않는다 (`07 §14` 참조).
+6. **KG 구축 방법론 — 2-stage automated + heuristic post-enrich**: GitLab 단일 사이트 case study. 다른 사이트로의 확장성 (per-site setup 비용, crawler coverage, LLM derivation reproducibility)은 future work. Pipeline의 generic web/domain prior(post_enrich heuristics, prompt convention)는 disclose됨 (`07 §14`).
+7. **KG coverage의 seed selection 의존성**: 본 연구는 사이트 공식 navigation entry point 8개를 seed로 사용. 다른 seed set으로의 robustness는 future work.
 
 Reviewer가 이 중 한 항목을 지적해도 "우리가 먼저 future work로 선언함"으로 답변 가능. `07 §11`의 "review 공격면 통제" 설계.
 
 ---
 
-## 9. 결정된 타임라인
+## 9. 결정된 타임라인 — 2026-04-17 update
 
-**주의**: 개발 초기의 비공식 baseline(Phase 1/2 pilot)은 다수 버그가 발견돼 폐기됐다. 그 pilot 결과는 `04_baseline_failure_analysis.md`에 개발 로그로만 남아 있고 **paper에 인용되지 않는다**.
+**주의**: 개발 초기의 비공식 baseline(Phase 1/2 pilot)은 다수 버그가 발견돼 폐기됐다.
+그 pilot 결과는 `04_baseline_failure_analysis.md`에 개발 로그로만 남아 있고 **paper에
+인용되지 않는다**.
 
-전체 실험 규모는 `07_scope_and_justifications.md §12`: **~370 runs, ~$11 (mini), ~19시간**.
+전체 실험 규모는 `07_scope_and_justifications.md §12`: **~530 runs, ~$16 (mini), ~27시간**.
 
 ```
 [baseline 첫 공식 측정]
   1. 새 baseline (29건 버그 수정 반영, LLM_TEMPERATURE=0)을 gitlab 50 task × N=3 실행
      → 150 runs. token 사용량·실행 시간·실패 분포 측정
-  2. 측정 결과로 token/run 비용 확정 → full 모델 전환 여지 검토
-  3. 새 baseline failure classification (본 protocol §3-2 적용) → paper Method 근거
 
 [KG 구현]
-  4. M1~M6 (05 참고). 구현 중 14 task smoke로 회귀 검증 (~60 runs)
+  2. M1~M6 (05 참고). 구현 + KG-Info-Ignored variant 분기 추가
 
-[본 실험]
-  5. Full KG variant × N=3 × 50 task = 150 runs 측정
-  6. H1: McNemar's test (Baseline vs Full KG)
+[본 실험 — 3 variants]
+  3. Baseline × N=3 × 50 task = 150 runs (1과 재사용 가능)
+  4. KG-Info-Ignored × N=3 × 50 task = 150 runs
+  5. Full KG × N=3 × 50 task = 150 runs
+  6. McNemar/Wilcoxon 검정:
+     - H1a: Baseline ↔ Full KG (success rate)
+     - H1b: Baseline ↔ Full KG (token/step/time)
+     - Confounding 분리: KG-Info-Ignored ↔ Full KG (KG 정보 기여)
   7. Failure classification (단일 저자 intra-rater agreement)
 
 [논문 작성]
-  8. Introduction / Related Work / Method / Experiment / Limitation / References
-  9. Limitation 섹션에 §8의 5개 항목 명시
-  10. 부록: 재현 지침 (seed, task_id 목록, 모델 버전, Docker 이미지 해시)
+  8. Introduction / Method / Experiment / Discussion / Limitation / References
+  9. Limitation 섹션에 §8의 7개 항목 명시
+  10. 부록: 재현 지침 (seed, task_id 목록, 모델 버전, Docker hash, ARI score)
 ```

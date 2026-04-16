@@ -22,33 +22,62 @@
 
 ---
 
-## 1. 주장 범위 (narrow claim)
+## 1. 주장 범위 (triple contribution)
 
-### 결정
-논문의 핵심 주장을 다음 한 문장으로 좁힌다:
+### 결정 (2026-04-17 update — pre-experiment framing freeze)
 
-> **"Text-centric web agent에 site-specific Knowledge Graph를 결합하면, WebArena-Verified GitLab task에서 baseline 대비 task 성공률이 유의미하게 향상된다."**
+본 논문의 contribution을 **3개**로 명시한다:
 
-### 근거
-- 3-page 분량에서 뒷받침 가능한 주장 밀도는 1개 핵심 주장 + 부속 관찰 수준
-- 세분된 주장("KG가 retrieval 아닌 planning substrate", "모델 크기 invariant", "continual adaptation 효과")은 각각 전용 ablation을 요구하며 분량 불가
-- 단일 핵심 주장은 **2-variant 비교(Baseline vs Full KG)**로 반박 불가 수준 입증 가능
+> **C1 (정확도)**: Site-specific KG가 LLM agent의 task 성공률에 미치는 영향을
+> WebArena-Verified GitLab에서 정량화한다.
+>
+> **C2 (효율)**: KG가 token / step / wall-time 같은 compute 자원을 정량적으로 절약하는가를
+> 보고한다.
+>
+> **C3 (methodology)**: 3-stage automated KG 구축 파이프라인 (Playwright crawl + multi-call
+> LLM derivation + heuristic post-enrichment) 자체가 reproducible artifact로 제공된다.
 
-### 의도적 제외
-| 제외 주장 | 탑티어용이라 drop | 미래 연구로 분리 |
+### Hypothesis (dual primary)
+
+- **H1a**: Full KG variant의 success rate ≠ Baseline variant의 success rate (paired McNemar α=0.05)
+- **H1b**: Full KG variant의 compute cost (token/step/time) < Baseline variant (paired comparison)
+
+H1a/H1b 둘 다 **양방향 검정** — KG가 정확도/효율을 *향상*시킬 수도, *손상*시킬 수도 있음을
+사전 명시. 측정 결과의 부호를 가정하지 않는다.
+
+### 근거 (현 framing 채택 이유)
+
+- **Any-result-valuable 보장**: H1a 또는 H1b 한쪽 null이어도 다른 한쪽으로 contribution
+  유지. 둘 다 null이어도 C3 (methodology artifact) 살아남음 → 모든 결과 시나리오에서
+  논문 가치 보장.
+- **인과 mechanism 분리**: KG가 정확도 효과인지 효율 효과인지 분리 못 한다는 reviewer
+  반박은 dual claim에서 무의미.
+- **Pre-registration 원칙**: 이 framing freeze는 측정 시작 *전*에 결정. p-hacking 의심 차단.
+- 자세한 contribution 시나리오별 narrative는 `08_contribution_scenarios.md` 참조.
+
+### 의도적 제외 (이번 framing 변경 후 update)
+
+| 제외 주장 | 사유 | 미래 연구 |
 |---|---|---|
 | "planning substrate ≠ retrieval" | KG-retrieval ablation 필요 | 후속 연구 |
-| "compute 증가 아님" | compute-matched ablation 필요 | 후속 연구 (대신 token/step 수치 함께 보고) |
+| "compute 증가 아님" | (현 dual claim의 H1b가 직접 측정) | — (해소됨) |
+| "추가 LLM call confounding" | (3rd variant KG-Info-Ignored가 직접 측정) | — (해소됨) |
 | "모델 크기 invariance" | mini + full 모두 측정 필요 | 후속 연구 |
 | "continual adaptation 효과" | 3-round replay 필요 | 후속 연구 |
 | "cross-domain 일반화" | Reddit/Shopping 추가 측정 필요 | 후속 연구 |
 
 ### 예상 반박 & 방어
-- **반박 A**: "KG의 어느 구성요소가 기여하는지 알 수 없음"  
-  **방어**: Future Work 섹션에 "fine-grained ablation (rewrite / validate / trust policy 분리)은 후속 연구"를 명시. 3-page scope에서는 KG 도입 자체의 전체적 효과만 주장.
 
-- **반박 B**: "단순 compute 증가 효과일 수 있음"  
-  **방어**: Method + Result 섹션에 **token · step · wall-time 수치를 표로 포함**. "Full KG variant의 평균 step은 baseline 대비 X% 수준"을 함께 보고 → ablation 없이 compute confound 사전 차단.
+- **반박 A**: "KG의 어느 구성요소가 기여하는지 알 수 없음"
+  **방어**: 3-variant ablation (Baseline / KG-Info-Ignored / Full KG)으로 *KG 정보 자체의*
+  기여를 분리. 추가 fine-grained (rewrite / validate / trust policy 개별)은 future work.
+
+- **반박 B**: "성공률 차이가 추가 LLM call의 reasoning step 효과 아닌가 (compute confound)"
+  **방어**: KG-Info-Ignored variant가 Hook A LLM 호출은 수행하되 결과를 plan에 사용 안 함.
+  Full KG vs KG-Info-Ignored 비교가 KG *정보* 기여를 직접 분리.
+
+- **반박 C**: "정확도 효과인지 효율 효과인지 분리 안 됨"
+  **방어**: Dual claim (H1a/H1b)이 둘 다 측정. 분리할 필요 없음.
 
 ---
 
@@ -126,22 +155,36 @@ WebArena-Verified GitLab **전체 180 task**에서 **50개를 stratified random 
 
 ---
 
-## 5. 비교 variant — 2개
+## 5. 비교 variant — 3개 (compute-matched ablation)
 
-### 결정
-비교 variant는 **2개**: (1) Baseline (KG 없음), (2) Full KG (Hook A/B/C/D 전부 on).
+### 결정 (2026-04-17 update)
+비교 variant는 **3개**:
+
+1. **Baseline**: Hook A/B/C/D 모두 off — KG 미사용
+2. **KG-Info-Ignored**: Hook A의 `plan_to_info` LLM call **수행하되 결과를 plan/rewrite/
+   validate에 사용 안 함**. 추가 LLM call의 reasoning-step confounding을 분리하기 위한
+   compute-matched control
+3. **Full KG**: Hook A/B/C 모두 on (Hook D는 logging only — `06 §5` 참조)
 
 ### 근거
-- 3-page 분량에서 5-variant ablation은 표 + 분석이 들어갈 공간이 없음
-- 핵심 주장("KG가 baseline을 개선한다")은 2 variant 비교로 충분
-- 세분 ablation은 주장을 **강화**하는 것이지 주장의 **성립 조건**이 아님
+- 2-variant 비교는 "추가 LLM call 효과 vs KG 정보 효과"를 분리 못 함 → 핵심 confounding
+- 3rd variant (KG-Info-Ignored)가 두 비교를 모두 가능하게 함:
+  - Baseline ↔ KG-Info-Ignored: 추가 LLM call의 reasoning step 효과 측정
+  - KG-Info-Ignored ↔ Full KG: KG *정보*의 순수 기여 분리
+- 추가 비용: 50 task × N=3 = 150 runs (≈ $5, 7.5h) — reviewer-proof 강화 가치 충분
+- 3-page 분량 적합: Table 1에 3 columns (variant 3개)
 
 ### 예상 반박 & 방어
-- **반박 A**: "ablation 없이 KG의 어느 부분이 기여하는지 알 수 없음"  
-  **방어**: 주장의 scope가 "KG 도입 전체"이며, 내부 요소별 기여 분석은 future work. 3-page 포맷상 제약이 명시적.
 
-- **반박 B**: "baseline이 공식 reference인가?"  
-  **방어**: baseline은 **새 baseline** (declare_error 지원, verify_done 엄격화, LLM_TEMPERATURE=0 등 29건 수정 적용됨). "비교를 위한 합리적 기준점이지만 공식 reference implementation은 아니다. 두 variant가 **같은 code base + LLM + temperature + task 세트**에서 돌기 때문에 비교의 internal validity는 확보됨" — paper Method 섹션에 명시.
+- **반박 A**: "fine-grained ablation (rewrite / validate 개별 분리)이 없음"
+  **방어**: KG-Info-Ignored가 Hook A의 정보 기여를 분리하는 핵심 ablation. Hook B/C 개별
+  분리는 future work — 3-page scope 제약.
+
+- **반박 B**: "baseline이 공식 reference인가?"
+  **방어**: baseline은 **새 baseline** (declare_error 지원, verify_done 엄격화, LLM_TEMPERATURE=0
+  등 29건 수정 적용됨). "비교를 위한 합리적 기준점이지만 공식 reference implementation은 아니다.
+  세 variant가 **같은 code base + LLM + temperature + task 세트**에서 돌기 때문에 비교의
+  internal validity는 확보됨" — paper Method 섹션에 명시.
 
 ---
 
@@ -242,11 +285,12 @@ Evaluator의 strict match 결함으로 정상 agent 행동이 fail로 기록되�
 | 항목 | Limitation 선언 문구 (예시) |
 |---|---|
 | Cross-domain 일반화 | "We evaluate on GitLab only; generalization to other WebArena-Verified sites is future work." |
-| Fine-grained ablation | "Isolating individual contributions of rewrite / validate / trust policy requires targeted ablation, which is future work." |
-| Compute-matched baseline | "We report token/step counts alongside success rate; a formal compute-matched ablation is future work." |
+| Fine-grained ablation (Hook 단위) | "Our 3-variant ablation isolates the contribution of KG *information* (Full KG vs KG-Info-Ignored). Isolating individual hooks (rewrite vs validate vs trust policy) requires further targeted ablation, which is future work." |
 | 모델 크기 robustness | "We use a single LLM model family; robustness across model sizes is future work." |
 | Continual adaptation | "Trust evolution across repeated deployment is modeled in the architecture but empirically evaluated only in single-shot mode; longitudinal evaluation is future work." |
-| KG 구축 파이프라인 확장성 | "The 3-stage hybrid construction pipeline is applied to GitLab as a single case study; scalability cost (human-hours per site, crawler coverage, LLM derivation reproducibility across sites) is future work." |
+| KG 구축 파이프라인 확장성 | "The 2-stage automated construction pipeline (with heuristic post-enrichment) is applied to GitLab as a single case study; scalability cost (per-site setup, crawler coverage, LLM derivation reproducibility across sites) is future work." |
+| **KG coverage의 seed selection 의존성** | **"KG-addressable coverage depends on seed URL selection. We use the site's official navigation entry points (8 URLs) chosen independently of the experimental task distribution; coverage robustness across alternative seed sets is future work."** |
+| **Domain prior in pipeline code** | **"The pipeline includes generic web/domain prior in code (post-enrichment heuristics on URL slot naming conventions, download-extension blocklist) and in LLM prompt (list/index page filter convention). These are not per-task labels but represent generic web-engineering knowledge embedded in pipeline."** |
 
 **포함 (out-of-scope에서 제외)**: "KG catalog 확장"은 본 연구의 artifact이므로 out-of-scope가 아니다 — baseline 측정 전에 포괄 catalog를 freeze하는 것이 본 연구의 정당성 요건이다 (§14 참조).
 
@@ -255,56 +299,118 @@ Reviewer가 가능한 반박 방향 5개를 **우리가 먼저 열거**함으로
 
 ---
 
-## 12. 실험 규모 총합
+## 12. 실험 규모 총합 (2026-04-17 update — 3 variants 반영)
 
 위 결정들을 종합한 실험 규모:
 
 | 단계 | 계산 | runs |
 |---|---|---|
 | A. baseline 첫 측정 | 1 variant × N=3 × 50 task | 150 |
-| B. KG 개발 smoke | ~30 task × 2 variants (single-run) | ~60 |
-| C. 본 실험 | 2 variants × N=3 × 50 task (baseline은 A 재사용 가능) | 300 (이미 150 공유) |
-| F. debug margin | ~15% | 60 |
-| **합계** | | **약 370 runs** (A·C 중복 감안 시 310) |
+| B. KG 개발 smoke | ~30 task × 변종 (single-run) | ~60 |
+| C. 본 실험 | **3 variants** × N=3 × 50 task (baseline은 A 재사용) | 450 (A 150 공유 시 +300) |
+| F. debug margin | ~15% | 70 |
+| **합계** | | **약 530 runs** (A·C 중복 감안 시 460) |
 
 **비용 추정** (mini 기준, task당 ~$0.03):
-- 370 × $0.03 = **약 $11** ≪ $150 예산
+- 530 × $0.03 = **약 $16** ≪ $150 예산
 
 **시간 추정** (평균 3분/run):
-- 370 × 3분 = **약 19시간** (순차). 2~3 저녁에 분산 가능.
+- 530 × 3분 = **약 27시간** (순차). 3~4 저녁에 분산 가능.
+
+3 variants 추가 비용은 baseline 단일 비용(150 runs)의 +1배 — reviewer-proof 강화 가치
+(추가 LLM call confounding 직접 분리) 충분.
 
 ---
 
-## 14. KG 구축 방법론 (연구 artifact)
+## 14. KG 구축 방법론 (연구 artifact) — 2026-04-17 update
 
-### 결정
+### 결정 (정확한 stage 표현)
 
-본 연구의 KG는 **3단계 hybrid 파이프라인**으로 구축하며, 이 방법론 자체가 연구 artifact의 일부로 보고된다.
+본 연구의 KG는 **2-stage automated 파이프라인 + heuristic post-enrichment**로 구축하며,
+이 방법론 자체가 C3 (methodology contribution)으로 보고된다. 핵심 표현:
 
-1. **Playwright auto-crawl** — base URL + seed URL set에서 DOM·navigation·URL schema를 관찰해 StatePattern·leads_to 엣지를 자동 수집. 결과는 `source="crawl"`, `trust="verified"`.
-2. **LLM-assisted derivation** — crawl 산출물을 LLM에게 주고 InfoType 후보·description·realizes 매핑·사이트간 공통 일반화를 도출. 결과는 `source="llm"`, `trust="inferred"`.
-3. **Manual verification** — 1·2단계 결과를 사람이 검증해 부정확한 항목을 제거·보정·승격. decorative param, identity token, alias 같은 관찰로 잡히지 않는 항목을 채움. 결과는 `source="manual"`, `trust="declared"`.
+> **"No per-task manual labeling, with generic web/domain prior in pipeline code."**
+
+이전 버전의 "automated-only" 표현은 정확하지 않아 폐기. 본 evaluation에서 manual stage는
+**0건** (design상 stage 3로 포함되나 본 연구에서 수행하지 않음).
+
+### Stage 정의
+
+1. **Stage 1 — Playwright auto-crawl** (`source="crawl"`, `trust="verified"`):
+   base URL + seed URL set에서 DOM·navigation·URL schema를 관찰해 StatePattern·leads_to·
+   form actions를 자동 수집.
+   - 본 연구는 8개 seed (사이트 공식 navigation entry point) 사용. 자세한 정당화는
+     §11 Limitation 표 참조.
+
+2. **Stage 2 — Multi-call LLM derivation** (`source="llm"`, `trust="inferred"`):
+   reasoning model의 single-call context overflow를 방지하기 위해 **3 call로 분할**:
+   - Call 1: state pattern grouping (semantic template 추출)
+   - Call 2: InfoType naming + realize edges (group_id 기반)
+   - Call 3: action renames
+   ARI mean = 0.926 across 3 derivation runs (run-to-run consistency 안정).
+
+3. **Stage 2.5 — Heuristic post-enrichment** (post_enrich.py): LLM 재호출 없이 schema 결함
+   자동 보강 (binding_map, path_params, query_params, InfoType category, form action
+   description). source는 `inferred` 유지.
+
+4. **Stage 3 — Manual verification** (design only, **본 evaluation 0건**): 1·2단계 결과를
+   사람이 검증·승격하는 단계는 architecture에는 포함되나, 본 evaluation에서는 수행하지 않음.
+
+### Domain prior disclosure (정직한 공개)
+
+본 pipeline에는 다음 generic web/domain prior가 코드/prompt에 박혀 있음. 이는 *per-task
+labeling*이 아니라 *generic web-engineering knowledge*:
+
+| 위치 | Prior 내용 | 정당화 |
+|---|---|---|
+| `playwright_crawler.py` | download extension blocklist (.zip, .tar, .ics, .pdf 등) | 일반 web 표준 — 사이트 무관 |
+| `crawl_to_kg.py` | form.action_url 기반 cross-target edge | HTML form spec 표준 |
+| `post_enrich.py` D1 | bindings ↔ slot/query name match (exact + `[]` variant) | 일반 URL convention |
+| `post_enrich.py` D2 | `*_path → path_segments`, 그 외 → `segment` heuristic | 일반 path slot naming |
+| `post_enrich.py` D3 | InfoType.optional_bindings → query param backfill (literal tail suffix matching) | 일반 web query convention |
+| `post_enrich.py` D6 | InfoType prefix 기반 category clustering (≥2 공유) | 일반 taxonomy heuristic |
+| `llm_derivation.py` Call 1 prompt | "list/index page는 filter/sort/pagination 받는다" | 일반 web app convention |
+
+이들은 **사이트 어휘를 박지 않으므로** task-bias 위험 없음 (memory `feedback_no_task_site_bias`
+원칙 준수).
 
 ### 구축 시점 제약 (hindsight bias 차단)
 
-- Catalog는 **baseline 측정 전에 freeze**한다. 실험 task 실패 로그를 본 후 catalog를 수정하면 baseline에 대한 KG 우위가 사후 조정의 결과로 해석될 수 있다.
-- Catalog 크기 목표: GitLab 전체 기능 표면을 **포괄 기준**으로 `~20~30 InfoType`, `~30~50 StatePattern`. 실험 50 task 분포에 맞추지 않는다.
-- Catalog freeze 시점의 SiteKG는 `build_timestamp`와 `builder_version`으로 snapshot하고, 실험 실행은 이 snapshot만 로드한다.
+- Catalog는 **baseline 측정 전에 freeze**한다. 실험 task 실패 로그를 본 후 catalog를 수정하면
+  baseline에 대한 KG 우위가 사후 조정의 결과로 해석될 수 있다.
+- Catalog 크기 목표: GitLab 전체 기능 표면을 **포괄 기준**. 본 frozen은 ~50 InfoType,
+  ~3000 StatePattern (literal URL). 실험 50 task 분포에 맞추지 않는다.
+- Catalog freeze 시점의 SiteKG는 `build_timestamp`, `git_rev`, `builder_version`으로 snapshot
+  하고, 실험 실행은 이 snapshot만 로드 (`SITEKG_FROZEN` env).
+- ARI mean (3 derivation runs) ≥ 0.85를 충족할 때만 frozen 채택.
 
 ### 보고 의무
 
-- **커버리지**: 50 task 중 Hook A가 `plan_to_info`를 성공적으로 호출한 비율(§06 §3-5). 100% 미만이어야 "catalog가 task에 맞춰져 있지 않다"는 증거가 됨.
-- **Source mix**: `SiteKG.source_mix` — crawl / llm / manual 노드·엣지 비율. 세 source 모두 0이 아닌 분포.
-- **Build metadata**: timestamp, builder version, crawl seed URL set, LLM derivation prompt 버전을 부록에 공개.
+- **커버리지**: 50 task 중 Hook A가 `plan_to_info`를 성공적으로 호출한 비율 (`06 §3-5`).
+  100% 미만이 catalog가 task에 맞춰지지 않은 직접 증거. seed selection 의존성은 §11
+  Limitation에 명시.
+- **Source mix**: `SiteKG.source_mix` — crawl / llm / manual 노드·엣지 비율. 본 evaluation
+  에서 manual=0 명시.
+- **Build metadata**: timestamp, builder version, git_rev, crawl seed URL set, LLM derivation
+  prompt 버전을 부록에 공개.
+- **ARI**: 3 derivation runs의 group-level Adjusted Rand Index를 부록에 공개.
 
 ### 예상 반박 & 방어
 
-- **반박 A**: "KG catalog가 실험 task에 맞춰져 있어 KG 우위가 과장됐을 것"  
-  **방어**: catalog freeze timestamp가 baseline 측정보다 앞서고, 커버리지가 100% 미만(즉 task 중 일부는 KG-addressable하지 않음)임을 수치로 제시. 포괄 범위(~20~30 InfoType)는 실험 task 수(50)보다 훨씬 많지 않으며 사이트 기능 표면 기준으로 설정됐음을 §14에 공개.
-- **반박 B**: "수동 단계가 있어 재현 불가"  
-  **방어**: 수동 단계의 산출물(site_config, infotypes YAML, kg_seed JSON)은 `config/sites/gitlab/`에 공개. source 필드와 build metadata로 어느 항목이 manual 기원인지 투명하게 구분. LLM derivation prompt와 crawl seed URL set도 부록 공개.
-- **반박 C**: "1 사이트 적용으로 파이프라인 일반화 주장 부족"  
+- **반박 A**: "KG catalog가 실험 task에 맞춰져 있어 KG 우위가 과장됐을 것"
+  **방어**: catalog freeze timestamp가 baseline 측정보다 앞서고, 커버리지가 100% 미만임을
+  수치로 제시. seed URL은 사이트 공식 navigation entry point 기준 (§11).
+
+- **반박 B**: "automated 주장 vs heuristic post-enrich 모순"
+  **방어**: 명시적 표현 변경 — "no per-task manual labeling, with generic web/domain prior
+  in pipeline code". post_enrich/prompt의 prior 7개 항목 정직 disclose (위 표).
+
+- **반박 C**: "1 사이트 적용으로 파이프라인 일반화 주장 부족"
   **방어**: §11 out-of-scope 표에 "파이프라인 확장성은 future work"로 명시.
+
+- **반박 D**: "LLM derivation 안정성 불확실"
+  **방어**: ARI mean=0.926 (3 runs) 보고. group 수 변동(49~105)은 cluster 세분화 차이로
+  member-level 일관성은 강함.
 
 ---
 

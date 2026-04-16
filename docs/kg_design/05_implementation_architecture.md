@@ -39,8 +39,22 @@ site_adaptive_webagent/
 │       ├── manual_config.py        # site_config.yaml 로더
 │       ├── infotype_catalog.py     # infotypes.yaml 로더
 │       ├── seed_loader.py          # 3 source를 병합해 SiteKG 구성
-│       ├── playwright_crawler.py   # [단계 1] 관찰 기반 자동 수집 → verified
-│       └── llm_derivation.py       # [단계 2] InfoType·realizes 일반화 → inferred
+│       ├── playwright_crawler.py   # [Stage 1] 관찰 기반 자동 수집 → verified
+│       │                              (signature dedupe, download blocklist, form action_url
+│       │                               cross-target lookup)
+│       ├── crawl_to_kg.py          # CrawlResult → SiteKG 변환 (form input → LeadsToEdge)
+│       ├── llm_derivation.py       # [Stage 2] LLM derivation (3-call 분할):
+│       │                              Call 1: state pattern grouping
+│       │                              Call 2: InfoType + realize (group_id 참조)
+│       │                              Call 3: action renames
+│       │                              → Responses API + reasoning_effort=low
+│       ├── derivation_to_kg.py     # DerivationResult → llm SiteKG (group expansion)
+│       ├── post_enrich.py          # [Stage 2.5] LLM 재호출 없이 schema 결함 보강
+│       │                              (binding_map, path_params, query_params, category)
+│       │                              source 유지: inferred
+│       ├── run_crawl.py            # CLI: Stage 1 entrypoint
+│       ├── run_derivation.py       # CLI: Stage 2 entrypoint
+│       └── run_freeze.py           # CLI: 통합 + post_enrich + immutable snapshot
 ├── agent/
 │   └── kg_integration.py           # [신규] 기존 agent와 kg 모듈을 잇는 얇은 bridge
 config/

@@ -34,8 +34,13 @@ class LLMClient(Protocol):
         messages: list[dict],
         tools: list[dict],
         max_tokens: int = 1024,
+        reasoning_effort: str | None = None,
     ) -> "LLMToolResponse":
-        """Tool Use 완성. Thought + tool call을 반환한다."""
+        """Tool Use 완성. Thought + tool call을 반환한다.
+
+        reasoning_effort: "low" | "medium" | "high" — reasoning model에만 의미가 있다.
+        None이면 provider default 사용. 일반 chat model은 무시.
+        """
         ...
 
 
@@ -72,7 +77,9 @@ class AnthropicLLMClient:
     def complete_with_tools(
         self, *, system: str, messages: list[dict], tools: list[dict],
         max_tokens: int = 1024,
+        reasoning_effort: str | None = None,
     ) -> LLMToolResponse:
+        # Anthropic은 reasoning_effort 파라미터를 노출하지 않음 — silently ignore.
         response = self._client.messages.create(
             model=self._model,
             max_tokens=max_tokens,
@@ -96,13 +103,24 @@ class OpenAILLMClient:
 
     temperature: None이면 API 호출에 전달하지 않음 (provider default 사용).
     재현성 있는 실험을 위해 env var LLM_TEMPERATURE로 보통 0을 지정한다.
+
+    Reasoning model (gpt-5*, o-series) 호출 시 reasoning_effort를 사용하려면
+    Responses API를 써야 한다 (chat.completions에선 function tools와 동시 사용 불가).
+    `_use_responses_api`가 True면 complete_with_tools가 client.responses.create로 분기.
+    LLM_REQUEST_TIMEOUT env로 client-side timeout (초) 설정 가능 (기본 300초).
     """
 
     def __init__(self, model: str = "gpt-4o", temperature: float | None = None) -> None:
         import openai  # lazy import
-        self._client = openai.OpenAI()
+        timeout_s = float(os.getenv("LLM_REQUEST_TIMEOUT", "300"))
+        # OpenAI client에 timeout 적용 — server-side hang 방지
+        self._client = openai.OpenAI(timeout=timeout_s)
         self._model = model
         self._temperature = temperature
+        # gpt-5* / o-series는 reasoning model → Responses API 우선
+        self._use_responses_api = (
+            model.startswith("gpt-5") or model.startswith("o1") or model.startswith("o3")
+        )
 
     def _extra_kwargs(self) -> dict[str, Any]:
         return {"temperature": self._temperature} if self._temperature is not None else {}
@@ -120,7 +138,14 @@ class OpenAILLMClient:
     def complete_with_tools(
         self, *, system: str, messages: list[dict], tools: list[dict],
         max_tokens: int = 1024,
+        reasoning_effort: str | None = None,
     ) -> LLMToolResponse:
+        if self._use_responses_api:
+            return self._complete_via_responses_api(
+                system=system, messages=messages, tools=tools,
+                max_tokens=max_tokens, reasoning_effort=reasoning_effort,
+            )
+        # 비-reasoning 모델: chat.completions
         oai_tools = [
             {
                 "type": "function",
@@ -132,7 +157,6 @@ class OpenAILLMClient:
             }
             for t in tools
         ]
-        # Anthropic content-block 메시지를 OpenAI 형식으로 변환
         oai_messages = [{"role": "system", "content": system}]
         for msg in messages:
             oai_messages.extend(_to_openai_messages(msg))
@@ -141,7 +165,7 @@ class OpenAILLMClient:
             messages=oai_messages,  # type: ignore[arg-type]
             tools=oai_tools,  # type: ignore[arg-type]
             max_completion_tokens=max_tokens,
-            parallel_tool_calls=False,  # 1턴 1 tool call 강제
+            parallel_tool_calls=False,
             **self._extra_kwargs(),
         )
         choice = response.choices[0]
@@ -155,6 +179,60 @@ class OpenAILLMClient:
                     arguments=json.loads(tc.function.arguments),
                 ))
         return LLMToolResponse(thought=thought, tool_calls=tool_calls, raw_content=[choice.message])
+
+    def _complete_via_responses_api(
+        self, *, system: str, messages: list[dict], tools: list[dict],
+        max_tokens: int, reasoning_effort: str | None,
+    ) -> LLMToolResponse:
+        """Responses API (reasoning model + function tools 지원)."""
+        # Tool spec: Responses API는 type=function + 평면 schema 사용
+        resp_tools = [
+            {
+                "type": "function",
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "parameters": t["input_schema"],
+            }
+            for t in tools
+        ]
+        # input은 chat-style messages list 그대로 받음
+        input_messages: list[dict] = []
+        for msg in messages:
+            input_messages.extend(_to_openai_messages(msg))
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "instructions": system,
+            "input": input_messages,
+            "tools": resp_tools,
+            "max_output_tokens": max_tokens,
+            "parallel_tool_calls": False,
+        }
+        if reasoning_effort is not None:
+            kwargs["reasoning"] = {"effort": reasoning_effort}
+        # 주의: reasoning model (gpt-5*, o-series)는 temperature 파라미터 미지원.
+        # determinism은 reasoning model 자체 특성으로 보장된다 (default temp=1, 단
+        # 동일 input + reasoning 결정성으로 안정 cluster 결과).
+        response = self._client.responses.create(**kwargs)
+
+        thought: str | None = None
+        tool_calls: list[ToolCall] = []
+        for item in getattr(response, "output", []) or []:
+            item_type = getattr(item, "type", None)
+            if item_type == "message":
+                # message.content → list of content blocks
+                for block in getattr(item, "content", []) or []:
+                    if getattr(block, "type", None) in ("output_text", "text"):
+                        thought = (thought or "") + getattr(block, "text", "")
+            elif item_type in ("function_call", "tool_call"):
+                name = getattr(item, "name", None) or ""
+                args_str = getattr(item, "arguments", "") or "{}"
+                call_id = getattr(item, "call_id", None) or getattr(item, "id", "")
+                try:
+                    args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                except Exception:
+                    args = {}
+                tool_calls.append(ToolCall(id=call_id, name=name, arguments=args))
+        return LLMToolResponse(thought=thought, tool_calls=tool_calls, raw_content=[response])
 
 
 def _to_openai_messages(msg: dict) -> list[dict]:

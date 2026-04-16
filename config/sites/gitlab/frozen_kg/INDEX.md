@@ -5,3 +5,4 @@
 - `2026-04-16T13-35-46Z` git=c85b326 mix={'crawl': 12338, 'llm': 465, 'manual': 0} note='Iter2 post-enrichment 적용 (D7 form self-loop edges + edge-based query param backfill + action description 자동화)'
 - `2026-04-16T13-47-16Z` git=c85b326 mix={'crawl': 12338, 'llm': 465, 'manual': 0} note='Iter3 form edge target 정확화 (action_url → target state) + query param이 올바른 state에 박힘'
 - `2026-04-16T13-54-06Z` git=c85b326 mix={'crawl': 12338, 'llm': 465, 'manual': 0} note='Iter4 site-separator(`/-/`) hardcode 제거 + literal tail suffix 일반화'
+- `2026-04-16T16-46-55Z` git=534c49d mix={'crawl': 33150, 'llm': 593, 'manual': 0} note='v9 multi-call derivation (Responses API + reasoning_effort=low) + crawler v4 (signature dedupe + outgoing_links query union). ARI mean=0.9264 across 3 runs.'

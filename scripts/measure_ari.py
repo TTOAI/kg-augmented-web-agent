@@ -22,15 +22,24 @@ from pathlib import Path
 
 
 def load_member_to_group(run_dir: Path) -> dict[str, str]:
-    """derivation_response.json → {crawl_member_id: group_index_str}."""
+    """derivation_response.json → {crawl_member_id: group_index_str}.
+
+    두 schema 지원:
+    - 옛 단일 호출: {"state_pattern_groups": [{"member_ids": [...]}, ...]}
+    - 새 multi-call: {"groups": {"groups": [{"member_ids": [...]}, ...]}, ...}
+    """
     resp_path = run_dir / "derivation_response.json"
     if not resp_path.exists():
         raise FileNotFoundError(f"missing {resp_path}")
     raw = json.loads(resp_path.read_text(encoding="utf-8"))
-    groups = raw.get("state_pattern_groups") or []
+    # 새 multi-call schema 우선, fallback to 옛
+    if "groups" in raw and isinstance(raw["groups"], dict):
+        groups = raw["groups"].get("groups") or []
+    else:
+        groups = raw.get("state_pattern_groups") or []
     member_to_group: dict[str, str] = {}
     for idx, g in enumerate(groups):
-        gid = str(idx)  # run 내부 group index
+        gid = str(idx)
         for m in g.get("member_ids") or []:
             member_to_group[m] = gid
     return member_to_group

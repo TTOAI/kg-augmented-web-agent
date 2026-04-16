@@ -23,13 +23,13 @@ class FakeLLMClient:
 
     def complete_with_tools(
         self, *, system: str, messages: list[dict], tools: list[dict],
-        max_tokens: int = 1024,
+        max_tokens: int = 1024, reasoning_effort: str | None = None,
     ) -> "LLMToolResponse":
         from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall
 
         self.calls.append({
             "system": system, "messages": list(messages), "tools": tools,
-            "max_tokens": max_tokens,
+            "max_tokens": max_tokens, "reasoning_effort": reasoning_effort,
         })
         response_str = self._responses[min(self._index, len(self._responses) - 1)]
         self._index += 1

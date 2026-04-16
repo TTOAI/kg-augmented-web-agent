@@ -53,11 +53,12 @@ def _sample_crawl_kg() -> tuple[list[CrawlResult], SiteKG]:
     return results, crawl_kg
 
 
-def _make_valid_response(crawl_kg: SiteKG) -> str:
-    """LLM이 valid한 derive_kg 호출을 한 척하는 JSON 응답.
+def _make_valid_response(crawl_kg: SiteKG) -> list[str]:
+    """LLM의 multi-call derivation을 흉내내는 3개 응답 (Call 1/2/3).
 
-    state_pattern_groups: 각 crawl StatePattern을 자기 자신이 유일한 member인
-    그룹으로 간단히 묶음 (테스트 편의).
+    Call 1: derive_state_pattern_groups — 각 crawl SP를 자기 자신이 member인 group으로
+    Call 2: derive_infotypes — group_id (G0, G1, …)로 realize
+    Call 3: derive_action_renames — form action 1개 rename
     """
     pattern_ids = list(crawl_kg.state_patterns.keys())
     form_action_name = next(
@@ -73,9 +74,12 @@ def _make_valid_response(crawl_kg: SiteKG) -> str:
             "member_ids": [sp_id],
             "reasoning": "unit test group",
         })
-    return json.dumps({
-        "action": "derive_kg",
-        "state_pattern_groups": groups,
+    call1 = json.dumps({
+        "action": "derive_state_pattern_groups",
+        "groups": groups,
+    })
+    call2 = json.dumps({
+        "action": "derive_infotypes",
         "infotypes": [
             {
                 "name": "site_dashboard",
@@ -84,11 +88,7 @@ def _make_valid_response(crawl_kg: SiteKG) -> str:
                 "optional_bindings": ["state"],
                 "intent_examples": ["Open my dashboard"],
                 "realizes": [
-                    {
-                        "state_pattern_id": pattern_ids[0],
-                        "condition": "default",
-                        "binding_map": {},
-                    },
+                    {"group_id": "G0", "condition": "default", "binding_map": {}},
                 ],
             },
             {
@@ -99,14 +99,17 @@ def _make_valid_response(crawl_kg: SiteKG) -> str:
                 "intent_examples": [],
                 "realizes": [
                     {
-                        "state_pattern_id": pattern_ids[1],
+                        "group_id": "G1",
                         "condition": "has_filter",
                         "binding_map": {"project_path": "slot_0"},
                     },
                 ],
             },
         ],
-        "action_renames": [
+    })
+    call3 = json.dumps({
+        "action": "derive_action_renames",
+        "renames": [
             {
                 "original_name": form_action_name,
                 "semantic_name": "create_issue",
@@ -114,6 +117,16 @@ def _make_valid_response(crawl_kg: SiteKG) -> str:
             },
         ],
     })
+    return [call1, call2, call3]
+
+
+def _empty_call_responses() -> list[str]:
+    """3개 빈 응답 (모든 call이 declined된 시나리오)."""
+    return [
+        json.dumps({"action": "derive_state_pattern_groups", "groups": []}),
+        json.dumps({"action": "derive_infotypes", "infotypes": []}),
+        json.dumps({"action": "derive_action_renames", "renames": []}),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -175,15 +188,20 @@ class DeriveInfoTypesAndActionsTests(unittest.TestCase):
         self.assertEqual(result.actions["create_issue"].source, "llm")
 
     def test_no_tool_call_returns_empty(self) -> None:
-        # FakeLLMClient는 'action' 필드를 tool_name으로 사용한다. 다른 이름이면 매칭 안 됨.
-        llm = FakeLLMClient(json.dumps({"action": "something_else"}))
+        # 모든 call에서 다른 tool name 응답 → all empty
+        llm = FakeLLMClient([
+            json.dumps({"action": "something_else"}),
+            json.dumps({"action": "something_else"}),
+            json.dumps({"action": "something_else"}),
+        ])
         result = derive_infotypes_and_actions(self.results, self.crawl_kg, llm)
         self.assertEqual(result.infotypes, [])
         self.assertEqual(result.action_name_map, {})
 
     def test_llm_exception_returns_empty(self) -> None:
         class RaisingClient:
-            def complete_with_tools(self, *, system, messages, tools):
+            def complete_with_tools(self, *, system, messages, tools, max_tokens=1024,
+                                     reasoning_effort=None):
                 raise RuntimeError("network down")
         result = derive_infotypes_and_actions(self.results, self.crawl_kg, RaisingClient())
         self.assertEqual(result.infotypes, [])
@@ -199,23 +217,32 @@ class DeriveInfoTypesAndActionsTests(unittest.TestCase):
         self.assertEqual(len(llm.calls), 0)
 
     def test_realizes_with_unknown_state_pattern_kept_in_raw_but_filtered_at_kg_step(self) -> None:
-        """derive 단계에선 그대로 두고, derivation_to_sitekg가 filter."""
-        bad = json.dumps({
-            "action": "derive_kg",
-            "infotypes": [
-                {
-                    "name": "x",
-                    "description": "y",
-                    "realizes": [{"state_pattern_id": "nonexistent_id"}],
-                },
-            ],
-            "action_renames": [],
-        })
-        llm = FakeLLMClient(bad)
+        """unknown group_id로 realize한 InfoType은 derive 단계에서 skip된다 (multi-call resolves group_id eagerly)."""
+        responses = [
+            # Call 1: 1 group
+            json.dumps({
+                "action": "derive_state_pattern_groups",
+                "groups": [{
+                    "semantic_template": "/dashboard",
+                    "member_ids": list(self.crawl_kg.state_patterns.keys())[:1],
+                }],
+            }),
+            # Call 2: InfoType referencing unknown group_id (G99)
+            json.dumps({
+                "action": "derive_infotypes",
+                "infotypes": [{
+                    "name": "x", "description": "y",
+                    "realizes": [{"group_id": "G99"}],
+                }],
+            }),
+            # Call 3: empty
+            json.dumps({"action": "derive_action_renames", "renames": []}),
+        ]
+        llm = FakeLLMClient(responses)
         result = derive_infotypes_and_actions(self.results, self.crawl_kg, llm)
-        # derive 단계에선 RealizesEdge 객체 자체는 만들어둠
+        # InfoType 자체는 살아 있음, realizes는 unknown group_id라서 filter됨
         self.assertEqual(len(result.infotypes), 1)
-        self.assertEqual(result.infotypes[0].realizes[0].state_pattern_id, "nonexistent_id")
+        self.assertEqual(result.infotypes[0].realizes, [])
 
 
 # ---------------------------------------------------------------------------
@@ -322,22 +349,25 @@ class StatePatternGroupingTests(unittest.TestCase):
             )
         return kg
 
+    def _multi(self, groups, infotypes=None, renames=None):
+        """multi-call 3 응답 helper."""
+        return [
+            json.dumps({"action": "derive_state_pattern_groups", "groups": groups}),
+            json.dumps({"action": "derive_infotypes", "infotypes": infotypes or []}),
+            json.dumps({"action": "derive_action_renames", "renames": renames or []}),
+        ]
+
     def test_single_group_merges_members_into_one_state_pattern(self) -> None:
         crawl_kg = self._make_crawl_kg_with_n_patterns(3)
-        response = json.dumps({
-            "action": "derive_kg",
-            "state_pattern_groups": [
-                {
-                    "semantic_template": "/{project_path}/-/issues",
-                    "path_params": {"project_path": {"type": "path_segments"}},
-                    "member_ids": list(crawl_kg.state_patterns.keys()),
-                    "reasoning": "all share same /-/issues tail",
-                },
-            ],
-            "infotypes": [],
-            "action_renames": [],
-        })
-        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(response))
+        responses = self._multi(groups=[
+            {
+                "semantic_template": "/{project_path}/-/issues",
+                "path_params": {"project_path": {"type": "path_segments"}},
+                "member_ids": list(crawl_kg.state_patterns.keys()),
+                "reasoning": "all share same /-/issues tail",
+            },
+        ])
+        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(responses))
         self.assertEqual(len(result.state_pattern_groups), 1)
         self.assertEqual(len(result.state_pattern_groups[0].member_ids), 3)
         derived = derivation_to_sitekg(result, crawl_kg)
@@ -350,103 +380,75 @@ class StatePatternGroupingTests(unittest.TestCase):
 
     def test_group_member_ids_with_unknown_crawl_id_filtered(self) -> None:
         crawl_kg = self._make_crawl_kg_with_n_patterns(2)
-        response = json.dumps({
-            "action": "derive_kg",
-            "state_pattern_groups": [
-                {
-                    "semantic_template": "/{x}/-/issues",
-                    "member_ids": list(crawl_kg.state_patterns.keys()) + ["crawl:nonexistent"],
-                },
-            ],
-            "infotypes": [],
-            "action_renames": [],
-        })
-        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(response))
-        # nonexistent는 filter됨
+        responses = self._multi(groups=[
+            {
+                "semantic_template": "/{x}/-/issues",
+                "member_ids": list(crawl_kg.state_patterns.keys()) + ["crawl:nonexistent"],
+            },
+        ])
+        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(responses))
         self.assertEqual(len(result.state_pattern_groups[0].member_ids), 2)
 
     def test_infotype_realizes_crawl_member_resolves_to_group_id(self) -> None:
         crawl_kg = self._make_crawl_kg_with_n_patterns(2)
         crawl_ids = list(crawl_kg.state_patterns.keys())
-        response = json.dumps({
-            "action": "derive_kg",
-            "state_pattern_groups": [
-                {
-                    "semantic_template": "/{project_path}/-/issues",
-                    "member_ids": crawl_ids,
-                },
-            ],
-            "infotypes": [
-                {
-                    "name": "project_issues_list",
-                    "description": "",
-                    "realizes": [{"state_pattern_id": crawl_ids[0]}],
-                },
-            ],
-            "action_renames": [],
-        })
-        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(response))
+        responses = self._multi(
+            groups=[{
+                "semantic_template": "/{project_path}/-/issues",
+                "member_ids": crawl_ids,
+            }],
+            infotypes=[{
+                "name": "project_issues_list",
+                "description": "",
+                "realizes": [{"group_id": "G0"}],
+            }],
+        )
+        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(responses))
         derived = derivation_to_sitekg(result, crawl_kg)
         it = derived.infotypes["project_issues_list"]
         self.assertEqual(len(it.realizes), 1)
-        # crawl id가 아닌 llm: group id로 교체돼야
+        # group_id G0 → sample crawl id → derivation_to_kg가 llm: group으로 resolve
         self.assertTrue(it.realizes[0].state_pattern_id.startswith("llm:"))
         self.assertIn(it.realizes[0].state_pattern_id, derived.state_patterns)
 
     def test_group_reasoning_preserved_in_derivation_result(self) -> None:
         crawl_kg = self._make_crawl_kg_with_n_patterns(1)
-        response = json.dumps({
-            "action": "derive_kg",
-            "state_pattern_groups": [
-                {
-                    "semantic_template": "/{x}/-/issues",
-                    "member_ids": list(crawl_kg.state_patterns.keys()),
-                    "reasoning": "audit trail text",
-                },
-            ],
-            "infotypes": [],
-            "action_renames": [],
-        })
-        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(response))
+        responses = self._multi(groups=[
+            {
+                "semantic_template": "/{x}/-/issues",
+                "member_ids": list(crawl_kg.state_patterns.keys()),
+                "reasoning": "audit trail text",
+            },
+        ])
+        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(responses))
         self.assertEqual(result.state_pattern_groups[0].reasoning, "audit trail text")
 
     def test_no_groups_yields_empty_derived_state_patterns(self) -> None:
-        """LLM이 grouping을 거부하면 derived SiteKG에 StatePattern 없음 (realizes도 skip)."""
+        """Call 1이 빈 groups를 반환하면 Call 2는 skip되고 derived SP 없음."""
         crawl_kg = self._make_crawl_kg_with_n_patterns(2)
-        response = json.dumps({
-            "action": "derive_kg",
-            "state_pattern_groups": [],
-            "infotypes": [
-                {
-                    "name": "x",
-                    "description": "",
-                    "realizes": [{"state_pattern_id": list(crawl_kg.state_patterns.keys())[0]}],
-                },
-            ],
-            "action_renames": [],
-        })
-        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(response))
+        responses = self._multi(
+            groups=[],
+            infotypes=[{
+                "name": "x", "description": "",
+                "realizes": [{"group_id": "G0"}],
+            }],
+        )
+        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(responses))
         derived = derivation_to_sitekg(result, crawl_kg)
         self.assertEqual(len(derived.state_patterns), 0)
-        self.assertIn("x", derived.infotypes)
-        # realizes는 resolve 실패해 skip됨
-        self.assertEqual(derived.infotypes["x"].realizes, [])
+        # Call 2는 skip되므로 InfoType도 없음
+        self.assertNotIn("x", derived.infotypes)
 
     def test_compression_scale_thousand_to_one(self) -> None:
         """1,000 crawl StatePattern이 단일 group으로 묶이는 시나리오 smoke."""
         crawl_kg = self._make_crawl_kg_with_n_patterns(1000)
-        response = json.dumps({
-            "action": "derive_kg",
-            "state_pattern_groups": [
-                {
-                    "semantic_template": "/{project_path}/-/issues",
-                    "member_ids": list(crawl_kg.state_patterns.keys()),
-                },
-            ],
-            "infotypes": [],
-            "action_renames": [],
-        })
-        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(response))
+        responses = self._multi(groups=[
+            {
+                "semantic_template": "/{project_path}/-/issues",
+                "member_ids": list(crawl_kg.state_patterns.keys()),
+            },
+        ])
+        result = derive_infotypes_and_actions([], crawl_kg, FakeLLMClient(responses))
         derived = derivation_to_sitekg(result, crawl_kg)
         self.assertEqual(len(derived.state_patterns), 1)
 

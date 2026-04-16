@@ -1,17 +1,38 @@
 # Manual Review Notes — site=gitlab
 
-## Design Decision: Automated-Only KG Construction
+## Design Decision: No Per-Task Manual Labeling
 
-**사람의 수동 검증 단계는 본 연구 설계에서 의도적으로 생략되었다 (no human review by design).**
+**본 evaluation에서 manual stage는 0건. 정확한 표현: "no per-task manual labeling, with
+generic web/domain prior in pipeline code".** "Automated-only" 표현은 부정확해 폐기됨
+(2026-04-17 — `07 §14` update 참조).
 
 관련 docs: `docs/kg_design/07 §14` (KG 구축 방법론), `docs/kg_design/02 §3-7` (trust layer).
 
+### 정확한 표현 (2026-04-17 update)
+
+본 pipeline은 **2-stage automated (Playwright crawl + multi-call LLM derivation) +
+heuristic post-enrichment**. Manual stage(Stage 3)는 architecture에 포함되나 본 evaluation
+에서는 수행하지 않음. Pipeline에는 다음 generic web/domain prior가 박혀 있음 (정직 disclose):
+
+- post_enrich 6개 helper의 heuristic 규칙 (URL slot naming convention, `*_path` →
+  `path_segments` 등)
+- LLM prompt에 "list/index page는 filter/sort/pagination 받는다" 같은 일반 web app convention
+- crawler의 download extension blocklist (.zip, .tar, .ics 등 — 일반 web 표준)
+
+이들은 **사이트 어휘를 박지 않으므로** task-bias 없음 (`memory: feedback_no_task_site_bias`).
+자세한 prior 표는 `docs/kg_design/07 §14`의 "Domain prior disclosure" 표 참조.
+
 ### 이유 (Reviewer-proof 논거)
 
-1. **재현성(Reproducibility) 우선**. 사람이 개입한 catalog는 artifact이지 instrument이 아니다. 후속 연구자가 pipeline을 그대로 재생산할 수 없다. 본 연구의 기여는 "automated construction pipeline"이므로 사람 검증을 배제한다.
-2. **Hindsight bias 원천 차단**. 사람이 baseline 측정 후 catalog를 조정할 경우 reviewer가 "결과 보고 고쳤냐"를 반박할 수 있다. 완전 자동 pipeline은 이 공격면을 없앤다.
-3. **Scalability 주장**. 다른 사이트에 같은 pipeline을 그대로 돌리면 된다. 사람 손이 필요하면 이 주장이 약화된다.
-4. **자동 hallucination filter 이미 존재**. crawler가 관찰한 URL 위에서만 LLM이 grouping하며 `member_ids`는 crawl id로 검증(`kg/seed/llm_derivation.py`). 즉 "LLM이 존재하지 않는 페이지를 만들어냄" risk는 이미 차단.
+1. **재현성(Reproducibility) 우선**. 사람이 per-task labeling으로 개입한 catalog는 후속
+   연구자가 pipeline을 재생산할 수 없다. 본 연구는 "no per-task manual labeling"으로 이
+   재현성을 보장하되, generic web prior는 정직 disclose.
+2. **Hindsight bias 원천 차단**. catalog freeze가 baseline 측정 *전*에 이뤄지며, post-hoc
+   조정은 git history로 추적 가능. reviewer "결과 보고 고쳤냐" 공격 차단.
+3. **Scalability 부분 주장**. 다른 사이트에 같은 pipeline 적용 가능 (Stage 1+2 코드 변경
+   불필요). 단 site_config.yaml의 alias·identity_token 같은 설정은 사이트별 1회 작성 필요.
+4. **자동 hallucination filter 이미 존재**. crawler가 관찰한 URL 위에서만 LLM이 grouping하며
+   `member_ids`는 crawl id로 검증(`kg/seed/llm_derivation.py`).
 
 ### Pipeline 재현 지침
 
@@ -30,7 +51,9 @@
 | `declared` | `prov:wasAttributedTo` (사람·문서) | 수동 기재 |
 | `inferred` | `prov:wasGeneratedBy` (LLM agent) | LLM 추정 |
 
-본 연구 catalog는 `declared` 항목이 0이며, `verified` + `inferred` 조합만으로 구성된다 — 완전 자동화의 직접 증거.
+본 연구 catalog는 `declared` + `manual` 항목이 0이며, `verified` + `inferred` 조합만으로
+구성된다. 이는 **per-task manual labeling이 0건**이라는 의미이지, pipeline에 generic web/
+domain prior가 0이라는 의미는 아님 (위 "정확한 표현" 참조).
 
 ### Freeze 이력
 

@@ -50,19 +50,44 @@ async def run_agent(  # noqa: PLR0913
     if llm is None:
         return AgentRunResult.unknown_error("LLM client unavailable — set ANTHROPIC_API_KEY or OPENAI_API_KEY")
 
-    # Hook A: KG-based intent classification
+    import os
+    # KG_VARIANT: "off" | "info_ignored" | "full" (default depends on kg_context)
+    # - off: baseline — Hook A/B/C 모두 미실행 (kg_context 무시)
+    # - info_ignored: Hook A LLM call 수행, 결과 사용 안 함 (compute-matched control)
+    # - full: Hook A/B/C 모두 활성화 (KG hooks 정상 동작)
+    kg_variant = os.getenv("KG_VARIANT", "full" if kg_context is not None else "off").lower()
+    if kg_variant not in {"off", "info_ignored", "full"}:
+        logger.warning("[KG] unknown KG_VARIANT=%r → fallback to baseline (off)", kg_variant)
+        kg_variant = "off"
+
+    # Hook A: KG-based intent classification (info_ignored와 full에서 호출)
     kg_lookup = None
-    if kg_context is not None:
+    if kg_context is not None and kg_variant in {"info_ignored", "full"}:
         try:
             from .kg_integration import classify_intent_via_kg
-            kg_lookup = classify_intent_via_kg(intent, kg_context.kg, llm)
-            if kg_lookup is not None:
-                logger.info("[KG] Hook A: infotype=%s bindings=%s",
-                            kg_lookup.infotype, kg_lookup.bindings)
+            classified = classify_intent_via_kg(intent, kg_context.kg, llm)
+            if kg_variant == "full":
+                kg_lookup = classified
+                if kg_lookup is not None:
+                    logger.info("[KG] Hook A (full): infotype=%s bindings=%s",
+                                kg_lookup.infotype, kg_lookup.bindings)
+                else:
+                    logger.info("[KG] Hook A (full): classification declined — baseline path")
             else:
-                logger.info("[KG] Hook A: classification declined — baseline path")
+                # info_ignored: LLM call 수행하지만 결과 discard (compute-matched control)
+                logger.info("[KG] Hook A (info_ignored): LLM call performed, result discarded "
+                            "(infotype=%s)", classified.infotype if classified else "None")
+                kg_lookup = None
         except Exception:
             logger.exception("[KG] Hook A raised — baseline path")
+
+    try:
+        max_steps = int(os.getenv("MAX_STEPS_PER_TASK", "50"))
+    except ValueError:
+        max_steps = 50
+
+    # info_ignored는 Hook B/C도 비활성화 (kg_context를 None으로 넘김)
+    effective_kg_context = kg_context if kg_variant == "full" else None
 
     outcome = await execute_with_llm(
         task=intent,
@@ -70,8 +95,9 @@ async def run_agent(  # noqa: PLR0913
         page=primary_page,
         observation=observation,
         llm=llm,
-        kg_context=kg_context,
+        kg_context=effective_kg_context,
         kg_lookup=kg_lookup,
+        max_steps=max_steps,
     )
 
     return AgentRunResult(

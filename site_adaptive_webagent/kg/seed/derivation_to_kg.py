@@ -43,23 +43,32 @@ def derivation_to_sitekg(
     group_by_member: dict[str, str] = {}
     for group in derivation.state_pattern_groups:
         group_id = _make_group_id(group.semantic_template)
-        # member들의 query params union
-        union_params: list[str] = []
+        # member들의 query params union + LLM이 추정한 expected_query_params 병합
+        union_param_types: dict[str, str] = {}
         for member_id in group.member_ids:
             member = crawl_kg.state_patterns.get(member_id)
             if member is None:
                 continue
             for p in member.identity_query_params:
-                if p.name not in union_params:
-                    union_params.append(p.name)
+                union_param_types.setdefault(p.name, p.type or "string")
             group_by_member[member_id] = group_id
-        identity_params = [IdentityParam(name=n, type="string") for n in union_params]
+        # LLM expected_query_params는 crawler가 못 본 것을 보강 (사이트 어휘를 코드에
+        # 박지 않기 위해 LLM이 page kind에서 도메인 추정으로 제공)
+        for eqp in group.expected_query_params:
+            name = eqp.get("name")
+            if not name or name in union_param_types:
+                continue
+            t = eqp.get("type") or "string"
+            union_param_types[name] = t
+        identity_params = [
+            IdentityParam(name=n, type=t) for n, t in union_param_types.items()
+        ]
         derived.state_patterns[group_id] = StatePattern(
             id=group_id,
             url_template=group.semantic_template,
             path_params=dict(group.path_params),
             identity_query_params=identity_params,
-            canonical_emit_order=list(union_params),
+            canonical_emit_order=list(union_param_types.keys()),
             url_template_trust="inferred",
             source="llm",
         )

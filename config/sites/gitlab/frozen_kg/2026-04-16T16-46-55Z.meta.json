@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-04-16T16-46-55Z",
+  "git_rev": "534c49d",
+  "source_mix": {
+    "crawl": 33150,
+    "llm": 593,
+    "manual": 0
+  },
+  "builder_version": "0.1.0-hybrid",
+  "note": "v9 multi-call derivation (Responses API + reasoning_effort=low) + crawler v4 (signature dedupe + outgoing_links query union). ARI mean=0.9264 across 3 runs.",
+  "crawl_dir": "output/crawl/20260416_231931_v4",
+  "derivation_dir": "output/derivation/20260417_011348_v9_run1"
+}

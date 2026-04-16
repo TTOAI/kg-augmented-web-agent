@@ -98,8 +98,11 @@ async def _crawl_site_async(
     storage_path = Path(storage_state_file) if storage_state_file else None
 
     results: list[CrawlResult] = []
-    visited_templates: set[str] = set()
+    template_to_result: dict[str, CrawlResult] = {}
     visited_urls: set[str] = set()
+    # 같은 (template, query_keys) 조합은 한 번만 큐에 추가 — query NAME 발견이 목적이므로
+    # 같은 key set의 다른 value는 중복. visit 수 폭발 방지.
+    planned_signatures: set[tuple[str, tuple[str, ...]]] = set()
     queue: deque[tuple[str, int, str | None]] = deque()
     for url in seed_urls:
         queue.append((url, 0, None))
@@ -125,6 +128,11 @@ async def _crawl_site_async(
                 if url in visited_urls:
                     continue
                 visited_urls.add(url)
+                if len(visited_urls) % 100 == 0:
+                    logger.info(
+                        "[progress] visited=%d queued=%d results=%d",
+                        len(visited_urls), len(queue), len(results),
+                    )
 
                 page = await context.new_page()
                 try:
@@ -157,29 +165,44 @@ async def _crawl_site_async(
                 forms = await _extract_forms(page)
                 signature = await _dom_signature(page)
 
-                # 동일 template은 한 번만 결과로 채택 (중복 페이지 회피)
-                if template not in visited_templates:
-                    visited_templates.add(template)
-                    results.append(
-                        CrawlResult(
-                            url=final_url,
-                            normalized_url_template=template,
-                            path_params={},
-                            query_params_seen=list(query_names),
-                            outgoing_links=outgoing,
-                            form_elements=forms,
-                            dom_signature=signature,
-                            http_status=status,
-                            parent_url=parent,
-                        )
+                # 동일 template은 한 번만 결과로 채택하되, query_params_seen은
+                # 후속 방문에서 발견된 key를 union해 누적한다. 사이트의 같은 page에
+                # 대해 여러 filter URL을 visit한 경우 모두 catalog에 반영하기 위함.
+                existing = template_to_result.get(template)
+                if existing is None:
+                    cr = CrawlResult(
+                        url=final_url,
+                        normalized_url_template=template,
+                        path_params={},
+                        query_params_seen=list(query_names),
+                        outgoing_links=outgoing,
+                        form_elements=forms,
+                        dom_signature=signature,
+                        http_status=status,
+                        parent_url=parent,
                     )
+                    template_to_result[template] = cr
+                    results.append(cr)
+                else:
+                    for q in query_names:
+                        if q not in existing.query_params_seen:
+                            existing.query_params_seen.append(q)
 
                 await page.close()
 
                 if depth < max_depth:
                     for link in outgoing:
-                        if link not in visited_urls:
-                            queue.append((link, depth + 1, final_url))
+                        if link in visited_urls:
+                            continue
+                        link_parsed = urlparse(link)
+                        link_norm = normalize_url(link_parsed.path or "/", cfg)
+                        link_template = link_norm.path
+                        link_keys = tuple(sorted({k for k, _ in link_norm.query_pairs}))
+                        sig = (link_template, link_keys)
+                        if sig in planned_signatures:
+                            continue
+                        planned_signatures.add(sig)
+                        queue.append((link, depth + 1, final_url))
         finally:
             await context.close()
             await browser.close()
@@ -187,8 +210,29 @@ async def _crawl_site_async(
     return results
 
 
+_DOWNLOAD_EXTENSIONS = frozenset({
+    # 압축 archive
+    "zip", "tar", "gz", "bz2", "xz", "7z", "rar",
+    # diff/patch
+    "diff", "patch",
+    # binary asset
+    "exe", "dmg", "iso", "deb", "rpm", "pkg", "apk",
+    # media (페이지가 아니라 raw asset)
+    "png", "jpg", "jpeg", "gif", "svg", "ico", "webp",
+    "mp3", "mp4", "mov", "avi", "wav", "ogg",
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    # source/config dump
+    "ics", "git",
+})
+
+
 async def _extract_links(page: Any, base_url: str, base_host: str) -> list[str]:
-    """페이지의 <a href> 중 같은 호스트인 절대 URL만 추출, 중복 제거."""
+    """페이지의 <a href> 중 같은 호스트인 절대 URL만 추출, 중복 제거.
+
+    다운로드로 끝나는 binary/asset 확장자는 제외 — Playwright `page.goto`가
+    download trigger를 만나면 timeout이 길어져 crawl이 비효율적이 된다.
+    이 결정은 사이트 무관 — 일반적인 web download 확장자 집합.
+    """
     from urllib.parse import urljoin, urlparse
 
     hrefs: list[str] = await page.eval_on_selector_all(
@@ -200,8 +244,15 @@ async def _extract_links(page: Any, base_url: str, base_host: str) -> list[str]:
         if not href or href.startswith("#") or href.startswith("javascript:"):
             continue
         absolute = urljoin(base_url, href)
-        if urlparse(absolute).netloc != base_host:
+        parsed = urlparse(absolute)
+        if parsed.netloc != base_host:
             continue
+        # download extension filter
+        last = parsed.path.rsplit("/", 1)[-1]
+        if "." in last:
+            ext = last.rsplit(".", 1)[-1].lower()
+            if ext in _DOWNLOAD_EXTENSIONS:
+                continue
         # fragment 제거
         cleaned = absolute.split("#", 1)[0]
         if cleaned in seen:
