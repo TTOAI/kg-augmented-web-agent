@@ -17,12 +17,12 @@ from site_adaptive_webagent.kg.seed import load_site_kg_from_dir
 
 from .fixtures import FakeLLMClient
 
-GITLAB_CONFIG_DIR = Path(__file__).parent.parent / "config" / "sites" / "gitlab"
+FIXTURE_KG_DIR = Path(__file__).parent / "fixtures" / "kg_test_site"
 
 
 class PlanToInfoToolTests(unittest.TestCase):
     def setUp(self) -> None:
-        _, self.kg = load_site_kg_from_dir(GITLAB_CONFIG_DIR)
+        _, self.kg = load_site_kg_from_dir(FIXTURE_KG_DIR)
 
     def test_tool_has_required_fields(self) -> None:
         tool = build_plan_to_info_tool(self.kg)
@@ -48,7 +48,7 @@ class PlanToInfoToolTests(unittest.TestCase):
 
 class ClassifyIntentTests(unittest.TestCase):
     def setUp(self) -> None:
-        _, self.kg = load_site_kg_from_dir(GITLAB_CONFIG_DIR)
+        _, self.kg = load_site_kg_from_dir(FIXTURE_KG_DIR)
 
     def test_valid_classification_returns_lookup(self) -> None:
         """LLM이 plan_to_info tool을 올바르게 호출하면 KGLookup 반환."""
@@ -93,15 +93,15 @@ class ClassifyIntentTests(unittest.TestCase):
 
 
 class LoadKGContextTests(unittest.TestCase):
-    def test_load_gitlab_returns_context(self) -> None:
-        ctx = load_kg_context("gitlab", config_root=GITLAB_CONFIG_DIR.parent)
+    def test_load_fixture_site_returns_context(self) -> None:
+        ctx = load_kg_context("kg_test_site", config_root=FIXTURE_KG_DIR.parent)
         self.assertIsNotNone(ctx)
         assert ctx is not None
-        self.assertEqual(ctx.site_config.site, "gitlab")
+        self.assertEqual(ctx.site_config.site, "gitlab")  # fixture site_config.yaml 값
         self.assertGreater(len(ctx.kg.infotypes), 0)
 
     def test_missing_site_returns_none(self) -> None:
-        ctx = load_kg_context("nonexistent_site", config_root=GITLAB_CONFIG_DIR.parent)
+        ctx = load_kg_context("nonexistent_site", config_root=FIXTURE_KG_DIR.parent)
         self.assertIsNone(ctx)
 
 
@@ -116,7 +116,7 @@ class FrozenKGLoadTests(unittest.TestCase):
         from site_adaptive_webagent.kg.seed.run_freeze import freeze
         site_root = Path(self._tmp.name) / "sites"
         import shutil
-        shutil.copytree(GITLAB_CONFIG_DIR, site_root / "gitlab")
+        shutil.copytree(FIXTURE_KG_DIR, site_root / "gitlab")
         snapshot, _ = freeze(
             site="gitlab",
             site_config_dir=site_root,

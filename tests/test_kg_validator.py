@@ -7,11 +7,11 @@ from pathlib import Path
 from site_adaptive_webagent.kg import KGContext, KGLookup, target_reached
 from site_adaptive_webagent.kg.seed import load_site_kg_from_dir
 
-GITLAB_CONFIG_DIR = Path(__file__).parent.parent / "config" / "sites" / "gitlab"
+FIXTURE_KG_DIR = Path(__file__).parent / "fixtures" / "kg_test_site"
 
 
 def _ctx() -> KGContext:
-    cfg, kg = load_site_kg_from_dir(GITLAB_CONFIG_DIR)
+    cfg, kg = load_site_kg_from_dir(FIXTURE_KG_DIR)
     return KGContext(kg=kg, site_config=cfg)
 
 

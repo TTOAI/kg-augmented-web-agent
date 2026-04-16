@@ -14,14 +14,14 @@ from site_adaptive_webagent.kg.seed.run_freeze import freeze
 from site_adaptive_webagent.kg.store import SiteKGStore
 
 
-GITLAB_CONFIG_DIR = Path(__file__).parent.parent / "config" / "sites" / "gitlab"
+FIXTURE_KG_DIR = Path(__file__).parent / "fixtures" / "kg_test_site"
 
 
 def _copy_gitlab_to(tmp: Path) -> Path:
     """실 GitLab manual seed를 tmp/sites/gitlab/로 복사 (테스트가 변경 안전)."""
     site_root = tmp / "sites"
     target = site_root / "gitlab"
-    shutil.copytree(GITLAB_CONFIG_DIR, target)
+    shutil.copytree(FIXTURE_KG_DIR, target)
     # 기존 frozen_kg/ 디렉토리가 있을 경우 제거 (테스트 격리)
     fz = target / "frozen_kg"
     if fz.exists():

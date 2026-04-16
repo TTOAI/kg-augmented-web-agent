@@ -1,0 +1,85 @@
+# Site-level URL 정규화 규칙
+# 스키마: docs/kg_design/02_open_questions.md §3-3 (URL 정규화 결정)
+# 구축 파이프라인: 3단계 hybrid (crawl/llm/manual) — docs/kg_design/07 §14.
+# 이 파일은 `source=manual` layer로, crawler·LLM이 채울 수 없는 사이트 공통 규칙을 담는다.
+
+site: gitlab
+base_url: "http://localhost:8023"         # WebArena-Verified GitLab Docker
+
+# ---------------------------------------------------------------
+# 1. URL decoding / 공통 string 처리
+# ---------------------------------------------------------------
+url_decode: aggressive                     # 모든 비교 전 URL-decode (%5B%5D → [])
+trailing_slash: ignore                     # /issues/ == /issues
+fragment_handling: strip                   # #section 부분 비교 제외
+
+case_sensitive:
+  path: true                               # path는 case-sensitive
+  query_key: true                          # query param 이름은 case-sensitive
+  query_value: false                       # query param 값은 case-insensitive (예: label=Bug == label=bug)
+
+# ---------------------------------------------------------------
+# 2. Decorative params denylist
+# 비교 전 URL에서 제거. 모든 StatePattern 공통 적용.
+# 값: Phase 2 분석에서 추가 후보 발견 시 확장
+# ---------------------------------------------------------------
+decorative_params:
+  - page
+  - per_page
+  - sort_direction
+  - ref
+  - utm_source
+  - utm_medium
+  - utm_campaign
+  # Phase 2 후 추가 예상:
+  # - view
+  # - format (json vs html이 URL에 드러날 때)
+
+# ---------------------------------------------------------------
+# 3. Multi-value array param
+# 정렬된 형태로 비교. 예: ?label[]=a&label[]=b == ?label[]=b&label[]=a
+# ---------------------------------------------------------------
+multi_value_params:
+  # 패턴 매칭: 이름이 [] 접미사 가지거나 아래 목록에 포함
+  suffix_pattern: "\\[\\]$"
+  explicit:
+    - approver_ids
+    - reviewer_ids
+    # Phase 2 후 관찰로 확장
+
+# ---------------------------------------------------------------
+# 4. Identity token 치환
+# 런타임 치환 값: <runtime> placeholder → 현재 사용자 컨텍스트
+# ---------------------------------------------------------------
+identity_tokens:
+  me:
+    replacement_key: "current_user.username"  # 예: byteblaze
+  current_project:
+    replacement_key: "current_session.project_slug"
+
+# ---------------------------------------------------------------
+# 5. Path aliases
+# 서로 동일한 상태를 가리키는 경로 쌍
+# 비교 시 첫 entry를 canonical로 정규화
+# ---------------------------------------------------------------
+path_aliases:
+  # 형식: [canonical, alias1, alias2, ...]
+  - ["/users/{{me}}", "/users/me", "/-/profile/main"]
+  - ["/-/profile", "/profile"]
+
+# ---------------------------------------------------------------
+# 6. Emit 정책 — canonical URL 생성 시 기본 규칙
+# 각 StatePattern이 이를 override 가능 (infotypes.yaml/kg_seed.json에서)
+# ---------------------------------------------------------------
+emit_policy:
+  include_default_values: true             # default 값도 URL에 포함 (evaluator 호환 보수적)
+  query_param_order: "by_canonical_emit_order"   # StatePattern의 canonical_emit_order 따름
+  multi_value_order: "alphabetical"
+
+# ---------------------------------------------------------------
+# 메타
+# ---------------------------------------------------------------
+source: manual
+trust_label: declared                      # 이 파일 layer는 declared (crawl·llm은 별도 layer)
+last_manual_verification: "2026-04-16"
+construction_status: in_progress            # M4 단계: crawler·LLM layer 결합 중

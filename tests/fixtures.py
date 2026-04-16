@@ -23,10 +23,14 @@ class FakeLLMClient:
 
     def complete_with_tools(
         self, *, system: str, messages: list[dict], tools: list[dict],
+        max_tokens: int = 1024,
     ) -> "LLMToolResponse":
         from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall
 
-        self.calls.append({"system": system, "messages": list(messages), "tools": tools})
+        self.calls.append({
+            "system": system, "messages": list(messages), "tools": tools,
+            "max_tokens": max_tokens,
+        })
         response_str = self._responses[min(self._index, len(self._responses) - 1)]
         self._index += 1
         parsed = json.loads(response_str)

@@ -33,6 +33,7 @@ class LLMClient(Protocol):
         system: str,
         messages: list[dict],
         tools: list[dict],
+        max_tokens: int = 1024,
     ) -> "LLMToolResponse":
         """Tool Use 완성. Thought + tool call을 반환한다."""
         ...
@@ -70,10 +71,11 @@ class AnthropicLLMClient:
 
     def complete_with_tools(
         self, *, system: str, messages: list[dict], tools: list[dict],
+        max_tokens: int = 1024,
     ) -> LLMToolResponse:
         response = self._client.messages.create(
             model=self._model,
-            max_tokens=1024,
+            max_tokens=max_tokens,
             system=system,
             messages=messages,
             tools=tools,
@@ -117,6 +119,7 @@ class OpenAILLMClient:
 
     def complete_with_tools(
         self, *, system: str, messages: list[dict], tools: list[dict],
+        max_tokens: int = 1024,
     ) -> LLMToolResponse:
         oai_tools = [
             {
@@ -137,7 +140,7 @@ class OpenAILLMClient:
             model=self._model,
             messages=oai_messages,  # type: ignore[arg-type]
             tools=oai_tools,  # type: ignore[arg-type]
-            max_completion_tokens=1024,
+            max_completion_tokens=max_tokens,
             parallel_tool_calls=False,  # 1턴 1 tool call 강제
             **self._extra_kwargs(),
         )

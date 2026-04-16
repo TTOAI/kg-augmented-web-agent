@@ -25,7 +25,11 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from site_adaptive_webagent.runtime.llm import make_llm_client
+
+load_dotenv()  # .env의 LLM_PROVIDER / OPENAI_MODEL / OPENAI_API_KEY / LLM_TEMPERATURE 로드
 
 from ..store import SiteKGStore
 from .derivation_to_kg import derivation_to_sitekg

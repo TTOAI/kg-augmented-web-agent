@@ -32,12 +32,30 @@ _TOOL_NAME = "derive_kg"
 # ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
+class StatePatternGroup:
+    """LLM이 제안한 의미적 StatePattern 그룹.
+
+    semantic_template: 공통 url_template (예: "/{project_path}/-/issues")
+    path_params: semantic_template의 slot 메타 (type 등)
+    member_ids: 이 그룹에 속하는 crawl StatePattern id 목록
+    reasoning: LLM이 제공한 grouping 근거 (reviewer 감사용)
+    """
+
+    semantic_template: str
+    path_params: dict[str, dict[str, Any]] = field(default_factory=dict)
+    member_ids: list[str] = field(default_factory=list)
+    reasoning: str = ""
+
+
+@dataclass(slots=True)
 class DerivationResult:
     """LLM derivation의 단일 호출 결과.
 
     infotypes: LLM이 도출한 InfoType 객체들 (source="llm")
     action_name_map: crawler가 만든 Action 이름 → 의미 이름. 빈 매핑이면 rename 없음.
     actions: 의미 이름 기준 Action 객체 (description 포함)
+    state_pattern_groups: crawl StatePattern을 의미적 template으로 clustering한 결과.
+        후처리에서 각 group을 단일 llm StatePattern으로 merge.
     raw_response: 디버깅·재현성용 raw tool_call arguments JSON
     prompt: derivation에 보낸 system prompt (재현성)
     """
@@ -45,6 +63,7 @@ class DerivationResult:
     infotypes: list[InfoType] = field(default_factory=list)
     action_name_map: dict[str, str] = field(default_factory=dict)
     actions: dict[str, Action] = field(default_factory=dict)
+    state_pattern_groups: list[StatePatternGroup] = field(default_factory=list)
     raw_response: str = ""
     prompt: str = ""
 
@@ -54,16 +73,67 @@ class DerivationResult:
 # ---------------------------------------------------------------------------
 
 def build_derive_kg_tool() -> dict[str, Any]:
-    """LLM에게 InfoType + Action rename을 한 번에 받기 위한 tool schema."""
+    """LLM에게 grouping + InfoType + Action rename을 한 번에 받기 위한 tool schema."""
     return {
         "name": _TOOL_NAME,
         "description": (
-            "Derive semantic InfoTypes and propose semantic names for crawler-observed "
-            "actions. Call exactly once with the complete catalog."
+            "Derive the semantic layer of a site-specific Knowledge Graph from crawler "
+            "observations: (1) cluster StatePatterns by semantic template, (2) name "
+            "InfoTypes that correspond to those clusters, (3) propose semantic names "
+            "for crawler placeholder actions. Call exactly once with the complete catalog."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
+                "state_pattern_groups": {
+                    "type": "array",
+                    "description": (
+                        "Cluster the observed crawl StatePatterns into semantic groups. "
+                        "Each group names one semantic url_template that generalizes its "
+                        "members. Different pages with different meanings MUST be in "
+                        "different groups, even if URL structure looks similar."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "semantic_template": {
+                                "type": "string",
+                                "description": (
+                                    "Generalized url_template with named slots, e.g. "
+                                    "'/{project_path}/-/issues'. Use descriptive slot "
+                                    "names, not slot_0/slot_1."
+                                ),
+                            },
+                            "path_params": {
+                                "type": "object",
+                                "description": (
+                                    "For each slot in semantic_template, describe its "
+                                    "type. Example: {'project_path': {'type': 'path_segments'}}."
+                                ),
+                                "additionalProperties": {
+                                    "type": "object",
+                                    "additionalProperties": True,
+                                },
+                            },
+                            "member_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": (
+                                    "Crawl StatePattern ids that belong to this group. "
+                                    "Ids must match the 'id=...' prefix in the catalog."
+                                ),
+                            },
+                            "reasoning": {
+                                "type": "string",
+                                "description": (
+                                    "Short justification for why these members share the "
+                                    "same semantic template (reviewer audit trail)."
+                                ),
+                            },
+                        },
+                        "required": ["semantic_template", "member_ids"],
+                    },
+                },
                 "infotypes": {
                     "type": "array",
                     "description": (
@@ -90,8 +160,9 @@ def build_derive_kg_tool() -> dict[str, Any]:
                             "realizes": {
                                 "type": "array",
                                 "description": (
-                                    "Which observed StatePatterns this InfoType realizes. "
-                                    "Use the StatePattern ids from the prompt verbatim."
+                                    "Which StatePatterns this InfoType realizes. Use any "
+                                    "crawl id from the observed catalog — the post-processor "
+                                    "resolves it to the semantic group containing that id."
                                 ),
                                 "items": {
                                     "type": "object",
@@ -131,7 +202,7 @@ def build_derive_kg_tool() -> dict[str, Any]:
                     },
                 },
             },
-            "required": ["infotypes", "action_renames"],
+            "required": ["state_pattern_groups", "infotypes", "action_renames"],
         },
     }
 
@@ -143,50 +214,43 @@ def build_derivation_system_prompt(
     """LLM에게 전달할 system prompt — crawl 산출물의 구조적 요약 포함.
 
     실험 task·평가 task 어휘를 prompt에 박지 않는다 (memory feedback_no_task_site_bias).
+    1,000+ StatePattern도 수용할 수 있도록 compact format.
     """
     lines: list[str] = [
-        "You derive the semantic layer (InfoType catalog + Action semantic names) of a",
-        "site-specific Knowledge Graph from raw crawler observations.",
+        "You derive the semantic layer of a site-specific Knowledge Graph from crawler",
+        "observations. The crawler saw one literal url_template per observed URL, so many",
+        "entries below are instances of the same semantic template (e.g., different projects",
+        "all share '/{project_path}/-/issues'). Your first job is to cluster them.",
         "",
-        "## Output rules",
-        "- Use `derive_kg` tool exactly once with the full catalog.",
-        "- InfoType.name: snake_case domain-noun phrase that names what the page is",
-        "  about (e.g., a list, a detail view, a settings panel). Avoid site-specific",
-        "  brand words when a generic domain term suffices.",
-        "- InfoType.realizes[*].state_pattern_id MUST reference an id from the catalog",
-        "  below, verbatim. Do not invent ids.",
-        "- Action rename is OPTIONAL. Only rename when the crawler placeholder",
-        "  ('crawl:nav', 'crawl:form:...') maps to a clear semantic verb. Otherwise",
-        "  omit the entry — manual review will refine.",
-        "- All derived items are inferred (low-trust) and may be revised in manual",
-        "  verification. Be precise, not exhaustive: prefer fewer high-quality items.",
+        "## Output contract (call derive_kg exactly once)",
+        "1. `state_pattern_groups`: cluster the crawl StatePatterns by semantic_template.",
+        "   - Use descriptive slot names (e.g., `{project_path}`, `{issue_iid}`), NOT `slot_0`.",
+        "   - Different meanings MUST stay in different groups even if structures look alike",
+        "     (e.g., `/admin/users` vs `/admin/groups` are NOT the same group).",
+        "   - Every member_id must be one of the crawl ids below.",
+        "   - Provide `reasoning` for each group (audit trail for reviewers).",
+        "2. `infotypes`: semantic domain-noun catalog (e.g., project issues list, user profile).",
+        "   - InfoType.name: snake_case, generic domain term, not brand-specific.",
+        "   - realizes[*].state_pattern_id = any crawl id (post-processor resolves to its group).",
+        "3. `action_renames` (OPTIONAL): map `crawl:nav` / `crawl:form:*` to semantic verbs",
+        "   only when obvious. Otherwise omit — manual review will refine.",
         "",
-        "## Observed StatePatterns",
+        "## Observed crawl StatePatterns",
     ]
     for sp_id, sp in crawl_kg.state_patterns.items():
-        params = ", ".join(p.name for p in sp.identity_query_params) or "(none)"
-        path_slots = ", ".join(sp.path_params) or "(none)"
-        lines.append(
-            f"- id={sp_id!r} url_template={sp.url_template!r} "
-            f"path_slots=[{path_slots}] query_params=[{params}]"
-        )
+        params = ",".join(p.name for p in sp.identity_query_params) or "-"
+        lines.append(f"id={sp_id} url={sp.url_template} q=[{params}]")
     if not crawl_kg.state_patterns:
         lines.append("(none observed)")
 
-    lines += ["", "## Observed Actions"]
+    lines += ["", "## Observed crawl Actions"]
     for act_name, act in crawl_kg.actions.items():
-        params = ", ".join(p.get("name", "?") for p in act.params) or "(none)"
-        lines.append(f"- name={act_name!r} params=[{params}] desc={act.description!r}")
+        params = ",".join(p.get("name", "?") for p in act.params) or "-"
+        lines.append(f"name={act_name} params=[{params}]")
     if not crawl_kg.actions:
         lines.append("(none observed)")
 
-    lines += ["", "## Sample observed URLs (per pattern)"]
-    by_template: dict[str, list[str]] = {}
-    for cr in crawl_results:
-        by_template.setdefault(cr.normalized_url_template, []).append(cr.url)
-    for template, urls in by_template.items():
-        lines.append(f"- template={template!r}: {urls[:3]}")
-
+    # 전체 URL 샘플은 prompt 크기 억제를 위해 생략. 필요 시 crawler log 직접 참조.
     return "\n".join(lines)
 
 
@@ -217,7 +281,10 @@ def derive_infotypes_and_actions(
     messages = [{"role": "user", "content": user_message}]
 
     try:
-        response = llm.complete_with_tools(system=system, messages=messages, tools=[tool])
+        # derivation은 수백~수천 StatePattern을 grouping하므로 큰 output 필요.
+        response = llm.complete_with_tools(
+            system=system, messages=messages, tools=[tool], max_tokens=32768,
+        )
     except Exception:
         logger.exception("[derivation] LLM call raised")
         return DerivationResult(prompt=system)
@@ -234,8 +301,27 @@ def derive_infotypes_and_actions(
     args = tc.arguments if isinstance(tc.arguments, dict) else {}
     raw_args_json = json.dumps(args, ensure_ascii=False)
 
+    groups_raw = args.get("state_pattern_groups") or []
     infotypes_raw = args.get("infotypes") or []
     action_renames_raw = args.get("action_renames") or []
+
+    state_pattern_groups: list[StatePatternGroup] = []
+    for g in groups_raw:
+        if not isinstance(g, dict) or not g.get("semantic_template"):
+            continue
+        members = list(g.get("member_ids") or [])
+        # 알려지지 않은 crawl id는 filter (LLM hallucination 대응)
+        members = [m for m in members if m in crawl_kg.state_patterns]
+        if not members:
+            continue
+        state_pattern_groups.append(
+            StatePatternGroup(
+                semantic_template=str(g["semantic_template"]).strip(),
+                path_params=dict(g.get("path_params") or {}),
+                member_ids=members,
+                reasoning=str(g.get("reasoning", "")).strip(),
+            )
+        )
 
     infotypes: list[InfoType] = []
     for it_raw in infotypes_raw:
@@ -295,6 +381,7 @@ def derive_infotypes_and_actions(
         infotypes=infotypes,
         action_name_map=action_name_map,
         actions=actions,
+        state_pattern_groups=state_pattern_groups,
         raw_response=raw_args_json,
         prompt=system,
     )

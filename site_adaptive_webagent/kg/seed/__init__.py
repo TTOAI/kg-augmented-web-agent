@@ -8,7 +8,11 @@
 from .crawl_to_kg import crawl_results_to_sitekg, extract_url_template
 from .derivation_to_kg import derivation_to_sitekg
 from .infotype_catalog import load_infotypes
-from .llm_derivation import DerivationResult, derive_infotypes_and_actions
+from .llm_derivation import (
+    DerivationResult,
+    StatePatternGroup,
+    derive_infotypes_and_actions,
+)
 from .manual_config import load_site_config
 from .playwright_crawler import CrawlResult, FormElementMeta, crawl_site
 from .review_diff import (
@@ -43,6 +47,7 @@ __all__ = [
     # M4-B LLM derivation
     "derive_infotypes_and_actions",
     "DerivationResult",
+    "StatePatternGroup",
     "derivation_to_sitekg",
     # M4-C review + freeze
     "DiffEntry",

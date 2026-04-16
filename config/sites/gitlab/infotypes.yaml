@@ -7,101 +7,15 @@
 #   2. LLM derivation  → source=llm   / trust=inferred
 #   3. Manual verify   → source=manual/ trust=declared
 # 각 항목은 `source` 필드로 어느 layer의 기여인지 표기.
-# M4 단계에서 포괄 catalog(~20~30 InfoType)로 확장 예정.
+#
+# 2026-04-16: M4-B derivation (gpt-5.4) 결과 46 InfoType이 도출됨. 이전 manual
+# skeleton 항목은 평가 task에 편향된 선택이어서 삭제(hindsight bias 차단). 이 파일은
+# 비워 두고 모든 InfoType은 derived_kg.json 또는 frozen_kg snapshot에서 관리한다.
 
-version: 1
+version: 2
 site: gitlab
 
-# ---------------------------------------------------------------
-# InfoType 정의
-# 각 항목은 intent 파싱의 착지점 + realizes 엣지의 head
-# 자연어 intent → LLM classification → 이 카탈로그에서 하나 선택
-# ---------------------------------------------------------------
-infotypes:
-
-  # ----- InfoType: issues_list (project-scoped issues, optional filtering) -----
-  - name: issues_list
-    description: >
-      Project-scoped issues list. Supports filtering by state, labels,
-      assignee, milestone, etc. Does NOT include dashboard-wide issues.
-    required_bindings:
-      - project_path              # e.g., "a11yproject/a11yproject.com"
-    optional_bindings:
-      - state                     # enum: opened, closed, all
-      - label_name                # list[str]
-      - assignee_username
-      - milestone_title
-    realizes:
-      # 파라미터 값에 따라 여러 StatePattern으로 실체화 (1:N)
-      - state_pattern: project_issues_list
-        condition: default        # bindings에 filter 없음
-      - state_pattern: project_issues_filtered
-        condition: has_filter     # state/label/assignee/milestone 중 하나라도 있으면
-    intent_examples:
-      - "List open issues for project X"
-      - "Go to bug issues in project X"
-      - "Find help-wanted issues in project X"
-    trust_label: declared
-    source: manual
-
-  # ----- InfoType: dashboard_merge_requests (cross-project MR dashboard) -----
-  - name: dashboard_merge_requests
-    description: >
-      Global merge requests dashboard (across all projects user has
-      access to). Supports filtering by author/assignee/review-state.
-    required_bindings: []
-    optional_bindings:
-      - assignee_username
-      - author_username
-      - state
-    realizes:
-      - state_pattern: dashboard_mr_default
-        condition: default
-      - state_pattern: dashboard_mr_filtered
-        condition: has_filter
-    intent_examples:
-      - "Go to merge requests assigned to me"
-      - "Show my merge requests"
-    trust_label: declared
-    source: manual
-
-  # ----- InfoType: project_commits_history (commit list with optional author filter) -----
-  - name: project_commits_history
-    description: >
-      Project commit history with optional author filter.
-      Note: "commits-per-author aggregate" is a separate InfoType (see below).
-    required_bindings:
-      - project_path
-    optional_bindings:
-      - branch
-      - author_search
-    realizes:
-      - state_pattern: project_commits
-        condition: default
-    intent_examples:
-      - "Show commit history for project X"
-    trust_label: declared
-    source: manual
-
-  - name: project_commits_contributors
-    description: >
-      Project commit contributor graph showing per-author commit counts.
-      Reaches /<project>/-/graphs/<branch>.
-    required_bindings:
-      - project_path
-    optional_bindings:
-      - branch                    # default: main/master
-    realizes:
-      - state_pattern: project_graphs_contributors
-        condition: default
-    intent_examples:
-      - "Who has the most commits to project X"
-      - "Show contributors for project X"
-    trust_label: declared
-    source: manual
-
-  # M4 단계에서 crawler(verified) + LLM derivation(inferred) + 수동 검증(declared)으로
-  # 포괄 catalog (~20~30 InfoType)로 확장.
+infotypes: []
 
 # ---------------------------------------------------------------
 # Condition 평가 규칙 — realizes 엣지의 condition 필드 해석
@@ -109,7 +23,6 @@ infotypes:
 condition_evaluators:
   default: "no optional_bindings supplied"
   has_filter: "at least one of optional_bindings is non-empty"
-  # 이후 복합 조건 도입 시 확장
 
 # ---------------------------------------------------------------
 # 메타

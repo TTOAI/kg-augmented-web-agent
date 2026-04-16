@@ -19,12 +19,12 @@ from site_adaptive_webagent.kg import (
 )
 from site_adaptive_webagent.kg.seed import load_site_kg_from_dir
 
-GITLAB_CONFIG_DIR = Path(__file__).parent.parent / "config" / "sites" / "gitlab"
+FIXTURE_KG_DIR = Path(__file__).parent / "fixtures" / "kg_test_site"
 
 
 def _make_kg() -> tuple[SiteConfig, SiteKG]:
     """실 config 파일에서 KG + SiteConfig 로드."""
-    return load_site_kg_from_dir(GITLAB_CONFIG_DIR)
+    return load_site_kg_from_dir(FIXTURE_KG_DIR)
 
 
 # ---------------------------------------------------------------------------
