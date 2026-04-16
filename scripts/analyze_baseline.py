@@ -31,7 +31,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 _RUN_NAMES = ("N1", "N2", "N3")
-_STEPS_RE = re.compile(r"all goals complete in ([\d.]+)s \((\d+) steps\)")
+# executor.py의 다양한 종료 경로에서 뿌리는 "in Xs (Y steps)" 포맷을 모두 capture.
+# 예: "task completed in 64.6s (22 steps)", "final extract in 72.0s (23 steps)",
+#     "final declare_error → NOT_FOUND_ERROR in 95.3s (27 steps)" 등.
+_STEPS_RE = re.compile(r"in ([\d.]+)s \((\d+) steps\)")
 # "insufficient_quota" 같은 agent 외부 원인도 env error로 집계
 _ENV_ERROR_TOKENS = ("insufficient_quota", "RateLimitError", "ConnectionError")
 

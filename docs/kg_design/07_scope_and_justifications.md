@@ -100,42 +100,53 @@ H1a/H1b 둘 다 **양방향 검정** — KG가 정확도/효율을 *향상*시�
 
 ---
 
-## 3. Task 샘플 — 50개 stratified random (180 full pool)
+## 3. Task 샘플 — 30개 per-type equal (each type × 10)
 
-### 결정
-WebArena-Verified GitLab **전체 180 task**에서 **50개를 stratified random sample**로 선정.
-- Stratification 기준: task_type (RETRIEVE / NAVIGATE / MUTATE) 비율
+### 결정 (2026-04-17 update — per-type heterogeneous effect framing)
+
+WebArena-Verified GitLab **전체 180 task**에서 **task_type별 각 10개 × 3 types = 30 task**를
+**per-type equal random sample**로 선정.
+- Per-type equal 기준: RETRIEVE 10 / NAVIGATE 10 / MUTATE 10
 - Random seed: 42 고정
-- **Pool에서 pilot 제외 없음**: 개발 과정의 pilot 14개는 `04_baseline_failure_analysis.md`에 dev log로 분리됐고 paper에 인용되지 않으므로, 측정 sample 선정에서 제외할 이유가 없다. 전체 180을 대상으로 추출.
+- **Pool에서 pilot 제외 없음**: 개발 과정의 pilot 14개는 `04_baseline_failure_analysis.md`에
+  dev log로 분리됐고 paper에 인용되지 않으므로, 측정 sample 선정에서 제외할 이유 없음.
+- 30 task 리스트는 `output/tasks.30.json`에 고정 (seed=42 재현 가능).
 
-### 근거
-- 전체 180 task × N=3 × 2 variants = 1,080 runs → 평균 3분/run = 54시간. 실무적으로 단일 실행 불가.
-- 통계적 검출력: N=50 task, N=3 repetition이면 McNemar test로 **10% 수준의 variant 간 성공률 차이**를 α=0.05로 검출 가능.
-- Stratified sampling: 모집단 비율(NAVIGATE 20 / RETRIEVE 40 / MUTATE 120 = 11% / 22% / 67%) → 샘플 비율 6 / 11 / 33 로 매칭.
-- Full pool(180)에서 추출: "pilot 제외"로 인한 잔여 편향 위험을 원천 차단.
-- 50 task 리스트는 `output/tasks.50.json`에 고정 저장 (seed=42 재실행으로 재현 가능).
-
-### 현 sample의 task_id 목록
-```
-44, 46, 103, 104, 132, 135, 156, 168, 171, 172, 179, 180, 182,
-294, 305, 306, 307, 312, 339, 340, 350, 393, 394, 411, 413, 414,
-419, 421, 447, 448, 449, 452, 479, 480, 483, 536, 567, 576, 578,
-594, 665, 668, 742, 748, 751, 754, 786, 799, 800, 806
-```
-(이 리스트는 논문 부록에 공개하여 재현성 보장)
+### 근거 (per-type equal sampling)
+- **연구 질문이 per-type heterogeneous effect**: "KG가 어떤 task type에서 improve/degrade하는가?"
+  (`07 §1` C1 framing 참조). 모집단 비율 재현보다 per-type 신호의 balanced statistical power가
+  더 중요.
+- 원 모집단 비율(NAVIGATE 11% / RETRIEVE 22% / MUTATE 67%)을 재현한 proportional sampling은
+  overall effect를 MUTATE 성능에 의해 지배당하게 만들어 per-type subset 분석의 power를
+  축소한다.
+- 본 논문의 primary contribution이 "KG의 task type별 차등 효과 분석"이므로, type별 동등
+  sample 수(10)로 Bonferroni-적용 per-type McNemar에 균일한 power 제공.
+- 실행 비용: 30 task × N=3 × 2 variants = **180 runs** (기존 450 runs의 40%)
 
 ### 예상 반박 & 방어
-- **반박 A**: "왜 전체 180 task가 아닌 50개인가?"  
-  **방어**: (a) 실행 시간·비용 제약(1,080 runs 단일 실행 비현실적), (b) statistical power 50으로 충분 (McNemar 기준 >10% 차이 검출), (c) stratified random으로 편향 제거. Power analysis 기반 설계.
 
-- **반박 B**: "50개가 대표적이라는 보장이 있나?"  
-  **방어**: (a) task_type 비율 모집단 완전 일치, (b) seed=42 고정으로 bit-level 재현 가능, (c) 논문 부록에 전체 task_id 목록 공개, (d) Full pool에서 추출하여 excluded-bias 없음.
+- **반박 A**: "30 task가 너무 적다"
+  **방어**: 연구 질문이 per-type heterogeneous effect. 각 type 10 pair McNemar + overall
+  30 pair McNemar로 검정. Effect size 큰 경우 detect 가능. Task scope는 general power
+  analysis보다 research-question-driven sampling. Limitation에 "30 task는 exploratory
+  sample"로 명시.
 
-- **반박 C**: "heuristic stratification (정규식 기반 task_type 분류)은 부정확할 수 있음"  
-  **방어**: 실행 후 agent가 runtime에 결정한 task_type으로 **재집계** 가능. 본문에 heuristic · runtime 두 가지 task_type 구분 결과 함께 보고.
+- **반박 B**: "균등 sampling이 모집단 분포와 다름 (MUTATE 33% vs 모집단 67%)"
+  **방어**: 모집단 비율(MUTATE 67%) 재현 시 overall effect가 MUTATE subset에 의해 지배당해
+  per-type 신호가 희석됨. 연구 질문이 per-type effect이므로 **type별 균등 sampling이 더
+  합리적**. 모집단 비율 재현은 future work.
 
-- **반박 D**: "pilot task와 중복되는 경우 이전 실행 정보가 샘플링을 편향시킬 수 있다"  
-  **방어**: pilot 데이터는 폐기된 비공식 baseline으로 paper에 인용되지 않으며, 현 측정은 **새 baseline으로 재실행**. 중복 4 task(44, 132, 156, 339)는 이전 결과와 독립적으로 재측정됨.
+- **반박 C**: "heuristic stratification (정규식 기반 task_type 분류)은 부정확할 수 있음"
+  **방어**: 실행 후 agent가 runtime에 결정한 task_type으로 **재집계** 가능. 본문에
+  heuristic·runtime 두 task_type 구분 결과 함께 보고.
+
+- **반박 D**: "왜 N=10인가? 15개나 20개 아닌 이유"
+  **방어**: 비용·시간 제약 (180 runs × ~3분 = ~9h overnight). Per-type McNemar에서 10
+  pair는 Wilson CI 폭이 실용적. 더 큰 N은 future work.
+
+### 현 sample의 task_id 목록
+`output/tasks.30.json`에 저장됨. 생성 script: `scripts/sample_tasks_per_type.py` (seed=42).
+논문 부록에 30개 task_id 목록 공개하여 재현성 보장.
 
 ---
 
@@ -155,36 +166,81 @@ WebArena-Verified GitLab **전체 180 task**에서 **50개를 stratified random 
 
 ---
 
-## 5. 비교 variant — 3개 (compute-matched ablation)
+## 5. 비교 variant — 2개 (Baseline vs Full KG)
 
-### 결정 (2026-04-17 update)
-비교 variant는 **3개**:
+### 결정 (2026-04-17 final — scope reduction)
 
-1. **Baseline**: Hook A/B/C/D 모두 off — KG 미사용
-2. **KG-Info-Ignored**: Hook A의 `plan_to_info` LLM call **수행하되 결과를 plan/rewrite/
-   validate에 사용 안 함**. 추가 LLM call의 reasoning-step confounding을 분리하기 위한
-   compute-matched control
-3. **Full KG**: Hook A/B/C 모두 on (Hook D는 logging only — `06 §5` 참조)
+비교 variant는 **2개**:
 
-### 근거
-- 2-variant 비교는 "추가 LLM call 효과 vs KG 정보 효과"를 분리 못 함 → 핵심 confounding
-- 3rd variant (KG-Info-Ignored)가 두 비교를 모두 가능하게 함:
-  - Baseline ↔ KG-Info-Ignored: 추가 LLM call의 reasoning step 효과 측정
-  - KG-Info-Ignored ↔ Full KG: KG *정보*의 순수 기여 분리
-- 추가 비용: 50 task × N=3 = 150 runs (≈ $5, 7.5h) — reviewer-proof 강화 가치 충분
-- 3-page 분량 적합: Table 1에 3 columns (variant 3개)
+1. **Baseline**: `KG_VARIANT=off`. Hook A/B/C/D 모두 off — KG 미사용. 표준 ReAct 웹에이전트.
+2. **Full KG**: `KG_VARIANT=full`. Hook A/B/C 모두 on (Hook D는 logging only — `06 §5` 참조).
+
+### 스코프 축소 근거
+
+- 이전 3-variant 계획(Baseline / KG-Info-Ignored / Full KG, 450 runs)은 시간·예산 부담 큼.
+- 연구 질문이 "KG의 task type별 heterogeneous effect"로 재정의되며 compute-matched control
+  (KG-Info-Ignored)의 optional성 증가 — 주 contribution은 overall + per-type Baseline↔Full KG
+  비교로 충분.
+- KG-Info-Ignored (추가 LLM call confounding 분리용)는 **future work**로 이관 (§11).
+- **Compute confounding 부분 차단**: `06 §3-1`에서 Full KG variant의 token/step/wall-time을
+  수치로 보고 → reviewer가 "추가 LLM call 때문인지" 자체 분석 가능.
 
 ### 예상 반박 & 방어
 
-- **반박 A**: "fine-grained ablation (rewrite / validate 개별 분리)이 없음"
-  **방어**: KG-Info-Ignored가 Hook A의 정보 기여를 분리하는 핵심 ablation. Hook B/C 개별
-  분리는 future work — 3-page scope 제약.
+- **반박 A**: "KG 정보 효과인지 Hook A의 추가 LLM call 효과인지 분리 못 함"
+  **방어**: 맞음. 2-variant 축소로 인한 한계를 §11에 **compute-matched ablation future
+  work**로 선언. 대신 token·step·wall-time 수치를 per-variant로 보고해 reviewer가 compute
+  confound를 자체 판단 가능.
 
-- **반박 B**: "baseline이 공식 reference인가?"
-  **방어**: baseline은 **새 baseline** (declare_error 지원, verify_done 엄격화, LLM_TEMPERATURE=0
-  등 29건 수정 적용됨). "비교를 위한 합리적 기준점이지만 공식 reference implementation은 아니다.
-  세 variant가 **같은 code base + LLM + temperature + task 세트**에서 돌기 때문에 비교의
-  internal validity는 확보됨" — paper Method 섹션에 명시.
+- **반박 B**: "fine-grained ablation (rewrite / validate 개별 분리)이 없음"
+  **방어**: 3-page scope 제약. Hook 단위 ablation은 §11 future work.
+
+- **반박 C**: "baseline이 공식 reference인가?"
+  **방어**: baseline은 **새 baseline** (LLM_TEMPERATURE=0, 표준 ReAct 지향 _verify_done
+  단순화, declare_error 3-attempt, _MAX_LLM_CALLS_PER_TASK=300 등 정직하게 분류된 개선
+  반영). "비교를 위한 합리적 기준점이지만 공식 reference implementation은 아니다. 두 variant가
+  **같은 code base + LLM (gpt-5.4-mini) + temperature + task 세트**에서 돌기 때문에 비교의
+  internal validity는 확보됨" — paper Method 섹션에 명시. 자세한 baseline 수정 분류는 §5-1.
+
+### §5-1. Baseline 수정 분류 (표준 ReAct 기준 정직 공개)
+
+Baseline은 WebArena/Visual-WebArena의 표준 ReAct agent 원형을 따르되, 실험 재현성·안정성
+·공정 비교를 위한 최소 수정을 포함. 각 수정을 다음 3 카테고리로 분류해 Method 섹션에 공개:
+
+#### (A) **Standard ReAct adherence** — 표준과 동일
+| 요소 | 코드 위치 | 비고 |
+|---|---|---|
+| Observe → plan → tool-use → verify loop | `runtime/executor.py:execute_with_llm` | 표준 ReAct |
+| Tool-based action (click/fill/goto/search) | `runtime/tools.py` | Generic selector |
+| DOM-based observation (`observe_page`) | `runtime/browser.py` | Site-agnostic |
+| Checkpoint URL rollback on sub-goal failure | `executor.py` | 표준 재현 |
+
+#### (B) **Justified deviation** — 표준의 명백한 한계 해결
+| 요소 | 정당화 |
+|---|---|
+| Sub-goal decomposition with `goal_type` (navigation/action) | NAVIGATE task의 final URL 변경 여부 hard rule에 필수 (L143, llm.py L391). 단순 CoT로는 type별 규칙 적용 불가. |
+| `declare_error` tool with 5-status enum | Agent가 impossible task (NOT_FOUND/ACTION_NOT_ALLOWED 등)를 명시 선언 → evaluator false-negative 감소. Enum 제한으로 자의성 차단. |
+| `classify_task_type` via LLM (intent.py) | Heuristic regex가 URL-as-data 케이스 ("set homepage to https://...") 오분류. LLM 호출 1회로 정확성 확보. |
+| `_verify_done` hard rule (final navigation URL 변경) | 표준 ReAct의 done을 그대로 수용하되, final navigation에서 URL 미변경은 명백한 agent error — 최소 hard rule만 유지. |
+
+#### (C) **Engineering necessity** — 재현성·안정성·예측 가능 실행
+| 요소 | 정당화 |
+|---|---|
+| `LLM_TEMPERATURE=0` | 실험 재현성 국제 표준 관례 (Temperature 고정 없이 50% run간 split 관찰됨). |
+| `_MAX_RETRIES_PER_GOAL=8` | Goal 단위 retry 상한 — agent stuck 방지. |
+| `_MAX_LLM_CALLS_PER_TASK=300` | Task당 LLM call budget — task 748 관찰(2395 calls) 같은 retry loop 폭발 방지. Baseline median 243 기준 30% 여유. |
+| `_CountingLLMClient` wrapper | Budget 추적용 wrapper. Baseline/KG 양쪽 동일 적용. |
+| `task_notes` 상한 (_TASK_NOTES_MAX=50) | Context 크기 제어 — 누적 memo가 prompt 폭발 방지. |
+| `_STEP_BUDGETS` per goal_type | Goal별 step 예산 분배 — 복잡 task의 balanced allocation. |
+| `_get_tool_action` 1회 retry | Tool call 없을 때 nudge 후 재호출 — LLM response schema 안정성. |
+
+#### (D) **Over-engineering removed** — 표준으로 되돌림 (2026-04-17)
+| 요소 | 변경 |
+|---|---|
+| ~~`_verify_done` LLM 재호출~~ | → Hard rule만 유지 (c 참조). 이전 구현은 task당 LLM call 2배화 + verifier가 context 일부만 봐 false reject 유발. 표준 ReAct는 agent의 done을 그대로 수용. |
+
+**공개 원칙**: 이 4 카테고리를 Method 섹션 부록에 명시해 "29건 수정이 baseline을 유리하게
+만들었나?" reviewer 공격에 대해 "모두 표준 준수 또는 재현성 필수 엔지니어링" 방어.
 
 ---
 
@@ -285,7 +341,8 @@ Evaluator의 strict match 결함으로 정상 agent 행동이 fail로 기록되�
 | 항목 | Limitation 선언 문구 (예시) |
 |---|---|
 | Cross-domain 일반화 | "We evaluate on GitLab only; generalization to other WebArena-Verified sites is future work." |
-| Fine-grained ablation (Hook 단위) | "Our 3-variant ablation isolates the contribution of KG *information* (Full KG vs KG-Info-Ignored). Isolating individual hooks (rewrite vs validate vs trust policy) requires further targeted ablation, which is future work." |
+| **Compute-matched ablation (KG-Info-Ignored variant)** | "Our 2-variant design (Baseline vs Full KG) does not separate the contribution of KG *information* from the additional LLM call in Hook A. A compute-matched control (Hook A LLM call without using its result) was planned but deferred due to scope reduction; this compute confounding is tracked via token/step reporting and formally isolated in future work." |
+| Fine-grained ablation (Hook 단위) | "Isolating individual hook contributions (rewrite vs validate vs trust policy) requires targeted ablation and is future work." |
 | 모델 크기 robustness | "We use a single LLM model family; robustness across model sizes is future work." |
 | Continual adaptation | "Trust evolution across repeated deployment is modeled in the architecture but empirically evaluated only in single-shot mode; longitudinal evaluation is future work." |
 | KG 구축 파이프라인 확장성 | "The 2-stage automated construction pipeline (with heuristic post-enrichment) is applied to GitLab as a single case study; scalability cost (per-site setup, crawler coverage, LLM derivation reproducibility across sites) is future work." |
@@ -299,26 +356,29 @@ Reviewer가 가능한 반박 방향 5개를 **우리가 먼저 열거**함으로
 
 ---
 
-## 12. 실험 규모 총합 (2026-04-17 update — 3 variants 반영)
+## 12. 실험 규모 총합 (2026-04-17 update — 30 task × 2 variants 최종)
 
 위 결정들을 종합한 실험 규모:
 
 | 단계 | 계산 | runs |
 |---|---|---|
-| A. baseline 첫 측정 | 1 variant × N=3 × 50 task | 150 |
-| B. KG 개발 smoke | ~30 task × 변종 (single-run) | ~60 |
-| C. 본 실험 | **3 variants** × N=3 × 50 task (baseline은 A 재사용) | 450 (A 150 공유 시 +300) |
-| F. debug margin | ~15% | 70 |
-| **합계** | | **약 530 runs** (A·C 중복 감안 시 460) |
+| A. 이전 baseline 측정 | — (프레이밍 변경으로 폐기) | 0 |
+| B. KG 개발 smoke | ~10 task × variant (single-run) | ~20 |
+| C. 본 실험 | **2 variants** × N=3 × 30 task (per-type 10) | **180** |
+| F. debug margin | ~10% | 20 |
+| **합계** | | **약 220 runs** |
 
 **비용 추정** (mini 기준, task당 ~$0.03):
-- 530 × $0.03 = **약 $16** ≪ $150 예산
+- 220 × $0.03 ≈ **$6-7** ≪ $150 예산
 
 **시간 추정** (평균 3분/run):
-- 530 × 3분 = **약 27시간** (순차). 3~4 저녁에 분산 가능.
+- 220 × 3분 ≈ **~11시간** (순차). 하룻밤 분산 가능.
 
-3 variants 추가 비용은 baseline 단일 비용(150 runs)의 +1배 — reviewer-proof 강화 가치
-(추가 LLM call confounding 직접 분리) 충분.
+Scope 축소 사유:
+- 이전 3-variant × 50-task 계획(450 runs, ~$14, 27h)에서 **2-variant × 30-task** 로 축소.
+- 연구 질문이 "per-type heterogeneous effect"로 재정의되며 50 stratified proportional보다
+  30 per-type equal이 research question과 일치.
+- KG-Info-Ignored는 future work로 이관 (§11 Limitation 표 참조).
 
 ---
 

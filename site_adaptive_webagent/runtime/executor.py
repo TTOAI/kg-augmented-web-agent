@@ -46,6 +46,44 @@ def _append_task_note(task_notes: list[str] | None, note: str) -> None:
 
 _MAX_RETRIES_PER_GOAL = 8
 
+# Global LLM call limit per task — task 748 같은 retry loop 폭발 방지.
+# Standard ReAct web agent는 step budget (max_steps)으로 제어하지만, 본 agent는 tool
+# call 재시도 등 parasitic LLM call이 누적될 수 있다. Task당 LLM call을 명시적으로
+# 상한해 wall-time 예측성을 확보한다. 300 = max_steps(50) × ~6 call/step 여유치.
+_MAX_LLM_CALLS_PER_TASK = 300
+
+
+class _LLMCallLimitExceeded(Exception):
+    """Internal exception — task LLM call budget 초과 시 loop 탈출용."""
+
+
+class _CountingLLMClient:
+    """LLMClient wrapper — task 내 모든 complete / complete_with_tools 호출을 counter로
+    누적하고 `_MAX_LLM_CALLS_PER_TASK`를 초과하면 즉시 예외로 탈출한다.
+
+    wrap은 `execute_with_llm` 진입부에서 1회. counter는 task 단위이므로 LLM 객체 자체는
+    caller가 재사용해도 무관하다.
+    """
+    def __init__(self, inner: LLMClient, limit: int = _MAX_LLM_CALLS_PER_TASK) -> None:
+        self._inner = inner
+        self._limit = limit
+        self.calls = 0
+
+    def _guard(self) -> None:
+        self.calls += 1
+        if self.calls > self._limit:
+            raise _LLMCallLimitExceeded(
+                f"exceeded task LLM call budget ({self.calls}/{self._limit})"
+            )
+
+    def complete(self, *, system: str, messages):
+        self._guard()
+        return self._inner.complete(system=system, messages=messages)
+
+    def complete_with_tools(self, **kwargs):
+        self._guard()
+        return self._inner.complete_with_tools(**kwargs)
+
 
 async def execute_with_llm(
     *,
@@ -66,7 +104,19 @@ async def execute_with_llm(
     t_start = time.time()
     system = build_tool_use_system_prompt()
 
-    sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm)
+    # Wrap LLM client with call counter. Task 내 모든 LLM 호출이 자동으로 counter 증가 +
+    # 한도 초과 시 _LLMCallLimitExceeded 예외로 loop 탈출.
+    llm = _CountingLLMClient(llm)
+
+    try:
+        sub_goals = build_plan(task=task, task_type=task_type, observation=observation, llm=llm)
+    except _LLMCallLimitExceeded as exc:
+        elapsed = time.time() - t_start
+        logger.warning("[LLM] budget exceeded during plan (%s) in %.1fs", exc, elapsed)
+        return ExecutionOutcome(
+            task_type=task_type, status="UNKNOWN_ERROR",
+            error_details=str(exc),
+        )
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
@@ -100,17 +150,26 @@ async def execute_with_llm(
             logger.info("[LLM] goal=%d/%d %r  attempt=%d  budget=%d",
                         goal_idx + 1, len(sub_goals), sub_goal, attempt + 1, step_budget)
 
-            result, used = await _try_sub_goal(
-                task=task, task_type=task_type, sub_goal=sub_goal,
-                sub_goals=sub_goals, goal_index=goal_idx,
-                page=page, llm=llm, system=system,
-                step_budget=step_budget, previous_failures=failures,
-                is_last_goal=(goal_idx == len(sub_goals) - 1),
-                task_notes=task_notes,
-                start_url=checkpoint_stack[0],
-                kg_context=kg_context,
-                kg_lookup=kg_lookup,
-            )
+            try:
+                result, used = await _try_sub_goal(
+                    task=task, task_type=task_type, sub_goal=sub_goal,
+                    sub_goals=sub_goals, goal_index=goal_idx,
+                    page=page, llm=llm, system=system,
+                    step_budget=step_budget, previous_failures=failures,
+                    is_last_goal=(goal_idx == len(sub_goals) - 1),
+                    task_notes=task_notes,
+                    start_url=checkpoint_stack[0],
+                    kg_context=kg_context,
+                    kg_lookup=kg_lookup,
+                )
+            except _LLMCallLimitExceeded as exc:
+                elapsed = time.time() - t_start
+                logger.warning("[LLM] budget exceeded in _try_sub_goal (%s) in %.1fs",
+                               exc, elapsed)
+                return ExecutionOutcome(
+                    task_type=task_type, status="UNKNOWN_ERROR",
+                    error_details=str(exc),
+                )
             steps_used += used
 
             # extract/failure → 즉시 반환
@@ -156,11 +215,19 @@ async def execute_with_llm(
             current_obs = await observe_page(page)
             logger.info("[LLM] replanning (remaining=%d, depth=%d) after goal %d/%d failed",
                         replans_remaining, replan_count, goal_idx + 1, len(sub_goals))
-            new_goals = _replan(
-                task=task, task_type=task_type, observation=current_obs, llm=llm,
-                completed_goals=sub_goals[:goal_idx],
-                failed_goal=sub_goal, failure_history=failures,
-            )
+            try:
+                new_goals = _replan(
+                    task=task, task_type=task_type, observation=current_obs, llm=llm,
+                    completed_goals=sub_goals[:goal_idx],
+                    failed_goal=sub_goal, failure_history=failures,
+                )
+            except _LLMCallLimitExceeded as exc:
+                elapsed = time.time() - t_start
+                logger.warning("[LLM] budget exceeded in replan (%s) in %.1fs", exc, elapsed)
+                return ExecutionOutcome(
+                    task_type=task_type, status="UNKNOWN_ERROR",
+                    error_details=str(exc),
+                )
             if new_goals:
                 logger.info("[LLM] new plan: %s", new_goals)
                 sub_goals = sub_goals[:goal_idx] + new_goals
@@ -318,12 +385,21 @@ async def execute_with_llm(
         logger.info("[LLM] NAVIGATE final check — URL unchanged from start, replanning")
         replans_remaining -= 1
         obs = await observe_page(page)
-        new_goals = _replan(
-            task=task, task_type=task_type, observation=obs, llm=llm,
-            completed_goals=sub_goals,
-            failed_goal=SubGoal("URL unchanged from task start"),
-            failure_history=["All goals completed but URL is still the starting URL"],
-        )
+        try:
+            new_goals = _replan(
+                task=task, task_type=task_type, observation=obs, llm=llm,
+                completed_goals=sub_goals,
+                failed_goal=SubGoal("URL unchanged from task start"),
+                failure_history=["All goals completed but URL is still the starting URL"],
+            )
+        except _LLMCallLimitExceeded as exc:
+            elapsed = time.time() - t_start
+            logger.warning("[LLM] budget exceeded in NAVIGATE final replan (%s) in %.1fs",
+                           exc, elapsed)
+            return ExecutionOutcome(
+                task_type=task_type, status="UNKNOWN_ERROR",
+                error_details=str(exc),
+            )
         if new_goals:
             sub_goals = sub_goals + new_goals
             while goal_idx < len(sub_goals):
@@ -417,10 +493,13 @@ async def _try_sub_goal(
     _sub_goal_start_url = current_obs.url  # 현재 sub-goal 진입 시점 URL (navigation hard check용)
     tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type)
 
-    # mid-task stuck 감지 상태: 동일 URL 다회 stall + done 연속 reject 누적 시 강제 종료
+    # mid-task stuck 감지 상태: 동일 URL 다회 stall 감지용.
+    # `_consecutive_done_rejects`는 2026-04-17 `_verify_done` 단순화 후 trigger되는 경우가
+    # 극히 제한적 (final navigation URL 미변경 때만). 기존 feedback 로직(≥3 reject 시 강제
+    # declare_error)은 남겨두되, 현 hard-rule verify_done에서는 거의 발동 안 함을 명시.
     _last_url_for_stall = current_obs.url
     _url_stall_steps = 0
-    _consecutive_done_rejects = 0
+    _consecutive_done_rejects = 0  # hard-rule 전환 후 low-activity counter
 
     # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
@@ -1256,65 +1335,32 @@ def _verify_done(
     sub_goal_start_url: str = "",
     is_last_goal: bool = False,
 ) -> str | bool:
-    """LLM에게 현재 상태 + 누적된 task notes를 대조하여 done 검증을 요청한다.
+    """Hard-rule based done verification (표준 ReAct 지향).
+
+    이전에는 LLM에게 done 재검증을 호출했으나, 이는 표준 WebArena baseline에서 벗어난
+    over-engineering으로 (1) task당 LLM call을 두 배화하고, (2) verifier가 context를
+    부분적으로만 보면서 false reject를 유발했다. 본 함수는 표준 ReAct agent처럼 URL·
+    page-state 기반 hard rule만 적용한다.
+
+    Rules:
+    - 마지막 [navigation] sub-goal인데 URL 변경이 없으면 reject (false-positive navigation
+      방지 — 원 규칙 유지)
+    - 그 외는 agent의 done 선언을 그대로 수용 (표준 ReAct 동작)
+
+    Evaluator가 최종 success/failure를 판정하므로 여기서 과도한 reject는 false-negative만
+    증가시킨다. `task_notes`, `llm`, `reason` 매개변수는 signature 호환을 위해 유지하되 사용
+    안 함.
 
     Returns:
-        True — 목표 달성 확인
-        str — 미달성 이유
+        True — agent의 done 수용
+        str — hard rule 위반 시 reject 이유
     """
-    from urllib.parse import urlparse, parse_qs
-    parsed_url = urlparse(current_obs.url)
-    params = parse_qs(parsed_url.query)
-    params_str = ", ".join(f"{k}={v[0]}" for k, v in params.items()) if params else "(none)"
-
-    # Hard rule: 마지막 sub-goal이 [navigation]이고 그 sub-goal 내에서 URL 진전이 없으면 거부.
-    # 마지막이 [action]이거나 중간 [navigation]이면 적용 X (이전 sub-goal에서
-    # 이미 도달한 상태를 유지하는 경우 false reject 방지).
+    del reason, llm, task_notes  # 표준 ReAct에선 미사용
+    # Hard rule: 마지막 navigation sub-goal이 URL 변경 없으면 reject.
     if (is_last_goal and sub_goal_type == "navigation"
             and sub_goal_start_url and sub_goal_start_url == current_obs.url):
         return "final navigation sub-goal requires URL change within the sub-goal"
-
-    notes_section = ""
-    if task_notes:
-        notes_section = (
-            "\n\nNotes accumulated during this task:\n"
-            + "\n".join(f"- {n}" for n in task_notes)
-        )
-
-    system = (
-        "You verify whether a sub-goal has been achieved.\n"
-        "Decide PRIMARILY based on HARD EVIDENCE: current URL, URL parameters, page title.\n"
-        "- If URL/params already satisfy the goal's target state (e.g., contain the keywords or "
-        "filter values implied by the goal), APPROVE.\n"
-        "- Accumulated notes are BACKGROUND CONTEXT. Do NOT reject based on them alone when "
-        "hard evidence already matches the goal.\n"
-        "- Reject only when hard evidence clearly shows the goal is NOT yet achieved (wrong page, "
-        "missing required URL parameter, etc.).\n"
-        'Respond ONLY with JSON: {"achieved": true} or {"achieved": false, "reason": "..."}'
-    )
-    user_msg = (
-        f"Goal: {goal}\n"
-        f"Agent's claim: {reason}\n\n"
-        f"Actual page state:\n"
-        f"  URL: {current_obs.url}\n"
-        f"  URL parameters: {params_str}\n"
-        f"  Page title: {current_obs.title}\n"
-        f"  Visible text (first 5): {current_obs.text_lines[:5]}"
-        f"{notes_section}"
-    )
-    try:
-        from .llm import parse_llm_action
-        response = llm.complete(system=system, messages=[{"role": "user", "content": user_msg}])
-        parsed = parse_llm_action(response)
-    except Exception as exc:
-        # verifier 호출 실패는 판단 불가 상태. 관대 approve는 false SUCCESS를 유발하므로 reject.
-        return f"verifier call failed: {exc}"
-    # malformed response 방어: 'achieved' 키가 없으면 approve하지 않는다 (이전 True 기본값은 false SUCCESS의 주범).
-    if "achieved" not in parsed:
-        return "verifier response missing 'achieved' field"
-    if parsed["achieved"] is True:
-        return True
-    return parsed.get("reason", "goal not achieved")
+    return True
 
 
 def _get_tool_action(

@@ -104,9 +104,17 @@ class OpenAILLMClient:
     temperature: None이면 API 호출에 전달하지 않음 (provider default 사용).
     재현성 있는 실험을 위해 env var LLM_TEMPERATURE로 보통 0을 지정한다.
 
-    Reasoning model (gpt-5*, o-series) 호출 시 reasoning_effort를 사용하려면
-    Responses API를 써야 한다 (chat.completions에선 function tools와 동시 사용 불가).
-    `_use_responses_api`가 True면 complete_with_tools가 client.responses.create로 분기.
+    모델 분기:
+    - **Agent task 실행** (baseline + KG variants): 기본 `gpt-5.4-mini` (.env OPENAI_MODEL).
+      모델명이 `gpt-5*`로 시작해 Responses API로 자동 분기. `reasoning_effort`는 넘기지
+      않으므로 provider default 사용. 본 연구의 baseline/Full KG 측정은 이 경로.
+    - **KG derivation** (`kg/seed/llm_derivation.py`): `gpt-5.4` (full) + `reasoning_effort=
+      "low"` 명시. Multi-call decomposition 안정성 확보용. Baseline agent와는 독립 경로.
+
+    Reasoning model (gpt-5*, o-series) 호출 시 reasoning_effort를 사용하려면 Responses API
+    를 써야 한다 (chat.completions에선 function tools와 동시 사용 불가). `_use_responses_api`
+    가 True면 complete_with_tools가 `client.responses.create`로 분기.
+
     LLM_REQUEST_TIMEOUT env로 client-side timeout (초) 설정 가능 (기본 300초).
     """
 

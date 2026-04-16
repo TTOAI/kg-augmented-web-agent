@@ -114,38 +114,41 @@ agent가 runtime에 결정한 task_type(`NAVIGATE` / `RETRIEVE` / `MUTATE`) 기�
 - Success rate: Wilson score interval (binary 성공률에 적합, 양극단 값 안정).
 - Variance 표시: 모든 rate에 95% CI 표기.
 
-### 4-3. Significance testing
+### 4-3. Significance testing (2026-04-17 final — 2-variant)
 
 - **Variant 간 비교**: paired analysis (같은 task의 variant별 결과를 pair).
-- 유의수준: α = 0.05.
-- **Multiple comparisons**: dual H1 (H1a + H1b)에 Bonferroni → 각 sub-test α = 0.025.
-  3 pairwise variant 비교 시 추가 적용.
+- 유의수준: α = 0.05 (single pairwise comparison — Bonferroni 불필요).
+- Per-type subset 분석 시: 3 types × H1a/H1b 독립 검정 → 필요 시 **per-type Bonferroni
+  α=0.05/3 = 0.017** (overall 검정은 0.05 유지).
 
-### 4-4. Primary 가설 (3-page scope, dual H1) — 2026-04-17 update
+### 4-4. Primary 가설 (3-page scope, dual H1 + per-type) — 2026-04-17 final
 
-**H1a (정확도)**: Full KG variant의 success rate ≠ Baseline (paired McNemar, two-tailed,
-α=0.025 after Bonferroni).
+**H1a_overall (정확도)**: Full KG variant의 success rate ≠ Baseline (30 task, paired
+McNemar, two-tailed, α=0.05).
 
-**H1b (효율)**: Full KG variant의 compute cost (token / step / wall-time) < Baseline
-(paired Wilcoxon signed-rank, one-tailed, α=0.025 after Bonferroni).
+**H1b_overall (효율)**: Full KG variant의 compute cost (token / step / wall-time) ≠
+Baseline (paired Wilcoxon signed-rank, two-tailed, α=0.05).
+
+**H1_per_type (heterogeneous effect)**: 각 task type (NAVIGATE / RETRIEVE / MUTATE)별로
+H1a/H1b를 독립 검정. 각 type 10 pair McNemar/Wilcoxon, Bonferroni α=0.017.
 
 비교 구성:
-- **Variants: 3개** (Baseline, KG-Info-Ignored, Full KG). 자세한 scope 근거는
-  `07_scope_and_justifications.md §5`.
+- **Variants: 2개** (Baseline, Full KG). 자세한 scope 근거는 `07 §5`.
+- **Tasks: 30개** (per-type 10). 자세한 sampling 근거는 `07 §3`.
 - Paired 단위: (task, N=3 반복의 majority vote).
-- **3 pairwise tests**:
-  - Baseline ↔ KG-Info-Ignored: 추가 LLM call의 reasoning step 효과
-  - KG-Info-Ignored ↔ Full KG: KG **정보**의 순수 기여
-  - Baseline ↔ Full KG: 종합 KG 효과 (H1a/H1b의 1차 검정)
-- **Two-tailed**: KG가 정확도를 *향상*시킬 수도, *손상*시킬 수도 있음을 사전 명시. 결과 부호
-  가정 안 함 (any-result-valuable framing의 핵심).
+- **Pairwise tests**: Baseline ↔ Full KG만 (per-type subset에서 각각 재계산).
+- **Two-tailed**: KG가 정확도·효율을 *향상*시킬 수도, *손상*시킬 수도 있음을 사전 명시.
+  결과 부호 가정 안 함 (any-result-valuable framing의 핵심).
+
+**연구 질문 중심**: "KG가 전체적으로 개선?"보다 "**KG가 어떤 task type에서 improve/degrade하는가?**"
+(heterogeneous effect). per-type H1이 core, overall은 summary.
 
 ### 4-5. Per-run paired 이진화 규칙 (Pre-registered)
 
 McNemar test 입력을 생성할 때의 이진화 규칙을 **M5 실행 전에 고정**한다. Reviewer가 optional stopping / p-hacking을 의심하지 않도록 사전 선언.
 
-- **Primary**: `(task, variant)` pair 당 **majority vote** (N=3 runs 중 **2회 이상** eval_status=success → 1, 아니면 0). 50 task × 2 variant → 50 pair로 McNemar.
-- **Secondary (appendix)**: per-run paired (N1 쌍·N2 쌍·N3 쌍 = 150 pair). 같은 방향의 유의성 확인용.
+- **Primary**: `(task, variant)` pair 당 **majority vote** (N=3 runs 중 **2회 이상** eval_status=success → 1, 아니면 0). 30 task × 2 variant → 30 pair로 McNemar (overall). Per-type subset에서는 10 pair McNemar.
+- **Secondary (appendix)**: per-run paired (N1 쌍·N2 쌍·N3 쌍 = 90 pair). 같은 방향의 유의성 확인용.
 - **Broken evaluator 제외 버전**: `eval_exclusions.md`에 등록된 task는 `(task, variant)` pair에서 제외하고 McNemar 재계산. Raw + Adjusted 둘 다 보고.
 - **Env error 처리**: agent_status가 `UNKNOWN_ERROR`이고 log에 env error token이 있는 run은 `failure`가 아니라 **재측정 대상**. 재측정 불가 시 해당 task는 Limitation에 명시하고 **fair하게 양 variant에서 동일 규칙 적용**.
 - **이진화 규칙 변경 금지**: M5 측정 시작 이후 이 규칙은 수정하지 않는다 (commit hash로 freeze).
@@ -158,9 +161,8 @@ McNemar test 입력을 생성할 때의 이진화 규칙을 **M5 실행 전에 �
 future work로 선언한다:
 
 - "KG가 retrieval 아닌 planning substrate" → KG-retrieval ablation 필요
-- "Hook 단위 fine-grained ablation" (rewrite vs validate vs trust 개별 분리) → 본 연구는
-  *KG 정보 자체*의 기여를 KG-Info-Ignored variant로 분리. Hook 단위 추가 분리는 future work.
-- ~~"단순 compute 증가 아님"~~ — **KG-Info-Ignored variant가 직접 측정** (해소됨)
+- "Compute-matched ablation (KG-Info-Ignored)" → 본 2-variant 실험에서 제외, token/step 보고로 partial 차단. 공식 분리는 future work.
+- "Hook 단위 fine-grained ablation" (rewrite vs validate vs trust 개별 분리) → future work.
 - "모델 크기 invariance" → mini+full 양쪽 측정 필요
 - "Continual adaptation 효과" → 3-round replay 필요
 
@@ -202,15 +204,17 @@ WebArena-Verified evaluator의 알려진 문제점들:
 
 ### 7-1. 본문 표 — 필수 1개
 
-- **Table 1** (필수): 전체 task × **3 variants** (Baseline / KG-Info-Ignored / Full KG)
-  success rate + token·step·wall-time 평균. Raw · Adjusted(broken eval 제외) 양쪽.
-  Wilson 95% CI 포함. 하단에 **KG-addressable coverage** (§3-5) + **KG source_mix** (crawl/
-  llm/manual 비율) + **ARI mean (3 derivation runs)** 표기.
+- **Table 1** (필수): **per-type × 2 variants** (Baseline / Full KG) 매트릭스.
+  - Row: task_type (NAVIGATE / RETRIEVE / MUTATE) + Overall (전체 30 task)
+  - Column: (variant × {success rate with Wilson 95% CI, token avg, step avg, wall-time avg})
+  - Raw · Adjusted (broken eval 제외) 양쪽 지표 표기.
+  - 하단 footnote: **KG-addressable coverage** (§3-5) + **KG source_mix** (crawl/llm/manual)
+    + **ARI mean (3 derivation runs)**.
 
 ### 7-2. 본문 표 — 공간 여유 시 추가
 
-- Table 2: Task-type subset × variant success rate (RETRIEVE / NAVIGATE / MUTATE).
-- Table 3: Failure mode 분포 × variant (P/R/G/A 카테고리, 04_baseline_failure_analysis 분류 체계 재사용).
+- Table 2: H1a/H1b 검정 결과 (overall + per-type McNemar χ²/p-value, Wilcoxon W/p-value).
+- Table 3: Failure mode 분포 × variant (P/R/G/A/O 카테고리, 04_baseline_failure_analysis 분류 체계 재사용).
 
 ### 7-3. 그림 — 최대 1개
 

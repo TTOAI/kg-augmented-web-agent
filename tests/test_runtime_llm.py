@@ -183,7 +183,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_final_retrieve_extract_accepts_declare_error(self) -> None:
         """RETRIEVE의 최종 extract 단계에서 LLM이 declare_error(NOT_FOUND_ERROR)를
         호출하면 task가 NOT_FOUND_ERROR로 종료된다 (기존에는 무시되어 UNKNOWN_ERROR로
-        떨어졌음)."""
+        떨어졌음). 2026-04-17 update: _verify_done이 LLM 안 부르므로 verify_ok 응답 제거."""
         plan = '{"sub_goals": [{"goal": "look", "type": "action"}]}'
         done_response = '{"action": "done", "reason": "searched"}'
         # 최종 extract 단계에서 declare_error 호출
@@ -191,9 +191,7 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
             '{"action": "declare_error", "status": "NOT_FOUND_ERROR", '
             '"reason": "target truly does not exist"}'
         )
-        # verify_done이 approve해야 함 (achieved: true)
-        verify_ok = '{"achieved": true}'
-        llm = FakeLLMClient([plan, done_response, verify_ok, final_declare])
+        llm = FakeLLMClient([plan, done_response, final_declare])
         page = make_fake_page(url="https://example.com", title_text="Home")
 
         outcome = await execute_with_llm(
@@ -432,94 +430,45 @@ class VerifyDoneTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(result)
 
-    def test_verify_done_passes_notes_to_llm(self) -> None:
-        """task_notes가 LLM 호출의 user_msg에 포함된다."""
+    def test_verify_done_standard_react_no_llm_call(self) -> None:
+        """표준 ReAct 전환 (2026-04-17): _verify_done은 LLM 재호출 없이 agent의 done 선언을
+        그대로 수용. hard rule 위반이 없으면 True. LLM call은 0회."""
         from site_adaptive_webagent.runtime.executor import _verify_done
         llm = FakeLLMClient('{"achieved": true}')
         obs = PageObservation(
             url="https://example.com/projects/empathy-prompts",
             title="empathy-prompts", headings=[], text_lines=[], links=[], buttons=[],
         )
-        notes = [
-            "empathy-prompts ID = 183",
-            "millennials-to-snake-people ID = 187 still needs to be visited",
-        ]
-        _verify_done(
+        result = _verify_done(
             goal="Determine project IDs of top-starred projects",
             reason="found ID 183",
             current_obs=obs,
             llm=llm,
-            task_notes=notes,
+            task_notes=["empathy-prompts ID = 183"],
         )
-        # LLM이 호출됐고 user_msg에 notes가 포함됨
-        self.assertEqual(len(llm.calls), 1)
-        user_msg = llm.calls[0]["messages"][0]["content"]
-        self.assertIn("Notes accumulated during this task", user_msg)
-        self.assertIn("empathy-prompts ID = 183", user_msg)
-        self.assertIn("millennials-to-snake-people ID = 187", user_msg)
-        # system prompt는 hard evidence 우선 + notes는 background context로 안내
-        system = llm.calls[0]["system"]
-        self.assertIn("HARD EVIDENCE", system)
-        self.assertIn("BACKGROUND CONTEXT", system)
+        self.assertTrue(result)
+        # 표준 ReAct: LLM 호출 0회 (agent의 done을 그대로 수용)
+        self.assertEqual(len(llm.calls), 0)
 
-    def test_verify_done_rejects_when_llm_returns_false(self) -> None:
+    def test_verify_done_hard_rule_final_navigation_requires_url_change(self) -> None:
+        """Hard rule: 마지막 navigation sub-goal인데 URL 변경 없으면 reject."""
         from site_adaptive_webagent.runtime.executor import _verify_done
-        llm = FakeLLMClient('{"achieved": false, "reason": "second item not yet recorded"}')
         obs = PageObservation(
-            url="https://example.com",
-            title="Page", headings=[], text_lines=[], links=[], buttons=[],
+            url="https://example.com/start",
+            title="Start", headings=[], text_lines=[], links=[], buttons=[],
         )
         result = _verify_done(
-            goal="Get all IDs",
-            reason="got one ID",
+            goal="Navigate to target",
+            reason="done",
             current_obs=obs,
-            llm=llm,
-            task_notes=["second project ID 187 still pending"],
-        )
-        self.assertEqual(result, "second item not yet recorded")
-
-    def test_verify_done_rejects_malformed_response(self) -> None:
-        """verifier response에 'achieved' 키가 없으면 approve하지 않고 reject한다.
-        (이전 baseline은 True 기본값으로 false SUCCESS를 발생시켰음.)"""
-        from site_adaptive_webagent.runtime.executor import _verify_done
-        llm = FakeLLMClient('{"something_else": true}')
-        obs = PageObservation(
-            url="https://example.com", title="Page",
-            headings=[], text_lines=[], links=[], buttons=[],
-        )
-        result = _verify_done(
-            goal="Arrive at target page",
-            reason="I think I'm there",
-            current_obs=obs,
-            llm=llm,
+            llm=FakeLLMClient("unused"),
+            sub_goal_type="navigation",
+            sub_goal_start_url="https://example.com/start",
+            is_last_goal=True,
         )
         self.assertIsInstance(result, str)
         assert isinstance(result, str)
-        self.assertIn("missing", result.lower())
-
-    def test_verify_done_rejects_on_verifier_exception(self) -> None:
-        """verifier LLM 호출이 예외를 일으키면 approve하지 않고 reject한다."""
-        from site_adaptive_webagent.runtime.executor import _verify_done
-
-        class _RaisingLLM:
-            def complete(self, *, system: str, messages: list[dict[str, str]]) -> str:
-                raise RuntimeError("simulated network failure")
-            def complete_with_tools(self, *, system: str, messages: list[dict], tools: list[dict]):  # noqa: D401, E501
-                raise RuntimeError("unused")
-
-        obs = PageObservation(
-            url="https://example.com", title="Page",
-            headings=[], text_lines=[], links=[], buttons=[],
-        )
-        result = _verify_done(
-            goal="Arrive at target page",
-            reason="I think I'm there",
-            current_obs=obs,
-            llm=_RaisingLLM(),
-        )
-        self.assertIsInstance(result, str)
-        assert isinstance(result, str)
-        self.assertIn("verifier call failed", result.lower())
+        self.assertIn("URL change", result)
 
 
 class ReadTemperatureEnvTests(unittest.TestCase):

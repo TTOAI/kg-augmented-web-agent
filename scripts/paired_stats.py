@@ -198,9 +198,19 @@ def task_mean_metric(task_rows: list[dict], metric_field: str) -> float | None:
 def compare_binary(
     paired_a: dict[int, dict], paired_b: dict[int, dict],
     success_field: str = "majority_success",
+    task_type_filter: str | None = None,
 ) -> dict:
-    """McNemar + 성공률 비교 for two variants."""
+    """McNemar + 성공률 비교 for two variants.
+
+    task_type_filter가 주어지면 해당 task_type task만 사용 (per-type subset 분석).
+    """
     common = sorted(set(paired_a) & set(paired_b))
+    if task_type_filter is not None:
+        common = [
+            t for t in common
+            if paired_a[t].get("task_type") == task_type_filter
+            and paired_b[t].get("task_type") == task_type_filter
+        ]
     a_succ = sum(paired_a[t][success_field] for t in common)
     b_succ = sum(paired_b[t][success_field] for t in common)
     n = len(common)
@@ -244,9 +254,20 @@ def compare_binary(
 def compare_continuous(
     raw_a: dict[int, list[dict]], raw_b: dict[int, list[dict]],
     metric_field: str,
+    task_type_filter: str | None = None,
 ) -> dict:
-    """Wilcoxon signed-rank for two variants on continuous metric."""
+    """Wilcoxon signed-rank for two variants on continuous metric.
+
+    task_type_filter가 주어지면 해당 task_type task만 사용 (per-type subset 분석).
+    task_type은 raw_a/raw_b의 각 row에서 "task_type" 칼럼 확인 (analyze_baseline.py 출력).
+    """
     common = sorted(set(raw_a) & set(raw_b))
+    if task_type_filter is not None:
+        common = [
+            t for t in common
+            if any(row.get("task_type") == task_type_filter for row in raw_a[t])
+            and any(row.get("task_type") == task_type_filter for row in raw_b[t])
+        ]
     diffs: list[float] = []
     a_means: list[float] = []
     b_means: list[float] = []
@@ -366,11 +387,74 @@ def render_report(
             )
         lines.append("")
 
+    # Per-type subset analysis (H1_per_type — docs/06 §4-4)
+    lines += [
+        "## H1_per_type — per task_type 분할 분석",
+        "",
+        "연구 질문: **KG가 task type에 따라 어떤 heterogeneous effect**를 주는가?",
+        "Per-type Bonferroni α = 0.05/3 = 0.0167.",
+        "",
+    ]
+    per_type_alpha = 0.05 / 3
+    task_types = ("NAVIGATE", "RETRIEVE", "MUTATE")
+    for tt in task_types:
+        lines.append(f"### {tt}")
+        lines.append("")
+        # Per-type McNemar (정확도)
+        lines.append("**H1a (정확도) per-type McNemar**")
+        lines.append("")
+        lines.append("| comparison | n | A rate | B rate | b (A+B−) | c (A−B+) | p exact | sig (α={:.4f}) |".format(per_type_alpha))
+        lines.append("|---|---|---|---|---|---|---|---|")
+        for a_name, b_name in pairs:
+            paired_a, _ = loaded[a_name]
+            paired_b, _ = loaded[b_name]
+            r = compare_binary(paired_a, paired_b, task_type_filter=tt)
+            if r["n_common"] == 0:
+                lines.append(f"| `{a_name}` vs `{b_name}` | 0 | — | — | — | — | — | — |")
+                continue
+            sig = "✅" if r["mcnemar_p_exact"] < per_type_alpha else "—"
+            lines.append(
+                f"| `{a_name}` vs `{b_name}` | {r['n_common']} | "
+                f"{100*r['a_rate']:.1f}% | {100*r['b_rate']:.1f}% | "
+                f"{r['discordant']['b']} | {r['discordant']['c']} | "
+                f"{r['mcnemar_p_exact']:.4f} | {sig} |"
+            )
+        lines.append("")
+
+        # Per-type Wilcoxon (효율)
+        lines.append("**H1b (효율) per-type Wilcoxon**")
+        lines.append("")
+        lines.append("| metric | comparison | n | A mean | B mean | median diff | p | sig |")
+        lines.append("|---|---|---|---|---|---|---|---|")
+        for metric, label in [
+            ("step_count", "step"),
+            ("wall_time_sec", "wall"),
+            ("llm_calls", "llm_calls"),
+        ]:
+            for a_name, b_name in pairs:
+                _, raw_a = loaded[a_name]
+                _, raw_b = loaded[b_name]
+                if not raw_a or not raw_b:
+                    continue
+                r = compare_continuous(raw_a, raw_b, metric, task_type_filter=tt)
+                if r["n_paired"] == 0:
+                    continue
+                sig = "✅" if r["p_value"] < per_type_alpha else "—"
+                lines.append(
+                    f"| {label} | `{a_name}` vs `{b_name}` | {r['n_paired']} | "
+                    f"{r['a_mean']:.2f} | {r['b_mean']:.2f} | "
+                    f"{r['median_diff']:+.2f} | {r['p_value']:.4f} | {sig} |"
+                )
+        lines.append("")
+
     lines += [
         "## Decision narrative (06 §4 + 08 scenarios)",
         "",
         "각 sub-test 결과를 `docs/kg_design/08_contribution_scenarios.md` 시나리오 매트릭스에 매핑하여 ",
         "최종 contribution sentence를 작성한다. 결과 부호 가정 없음 (two-tailed test).",
+        "",
+        "Per-type heterogeneous pattern이 발견되면 08 §1-2의 per-type 시나리오 테이블에서 ",
+        "해당 pattern의 contribution sentence를 채택.",
         "",
     ]
     return "\n".join(lines)
