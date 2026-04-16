@@ -272,6 +272,7 @@ def _infotype_from_dict(d: dict[str, Any]) -> InfoType:
         intent_examples=list(d.get("intent_examples", [])),
         trust_label=d.get("trust_label", "declared"),
         source=_coerce_source(d.get("source", "manual")),
+        category=d.get("category"),
     )
 
 

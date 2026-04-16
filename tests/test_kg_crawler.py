@@ -170,12 +170,40 @@ class CrawlResultsToSiteKGTests(unittest.TestCase):
             ),
         ]
         kg = crawl_results_to_sitekg(results, self.cfg)
-        # 단일 nav action은 없어야 함 (parent_url 없음)
-        self.assertEqual(len(kg.leads_to_edges), 0)
-        # form action 1개
         form_actions = [n for n in kg.actions if n.startswith("crawl:form:")]
         self.assertEqual(len(form_actions), 1)
         self.assertEqual(kg.actions[form_actions[0]].source, "crawl")
+        # form input은 관찰된 state의 self-loop edge로 기록됨
+        # (parent_url 없으므로 nav edge는 없음 — edge 1건은 form self-loop)
+        self.assertEqual(len(kg.leads_to_edges), 1)
+        edge = kg.leads_to_edges[0]
+        self.assertEqual(edge.action_name, form_actions[0])
+        self.assertEqual(edge.from_state_pattern_id, edge.to_state_pattern_id)
+        self.assertEqual(edge.source, "crawl")
+        self.assertEqual(edge.trust, "verified")
+
+    def test_cross_target_form_edge(self) -> None:
+        """form.action_url이 다른 crawled page로 향하면 cross-page edge를 만든다."""
+        results = [
+            CrawlResult(
+                url="http://x/project",
+                normalized_url_template="/project",
+                form_elements=[
+                    FormElementMeta(
+                        name="search", type="text", action_url="/search",
+                    ),
+                ],
+            ),
+            CrawlResult(url="http://x/search", normalized_url_template="/search"),
+        ]
+        kg = crawl_results_to_sitekg(results, self.cfg)
+        form_edges = [e for e in kg.leads_to_edges if e.action_name.startswith("crawl:form:")]
+        self.assertEqual(len(form_edges), 1)
+        edge = form_edges[0]
+        self.assertNotEqual(edge.from_state_pattern_id, edge.to_state_pattern_id)
+        # from=project, to=/search
+        to_sp = kg.state_patterns[edge.to_state_pattern_id]
+        self.assertEqual(to_sp.url_template, "/search")
 
     def test_failed_status_skipped(self) -> None:
         results = [

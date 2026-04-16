@@ -133,6 +133,8 @@ class InfoType:
     intent_examples: list[str] = field(default_factory=list)
     trust_label: TrustLevel = "declared"
     source: Source = "manual"
+    # post-enrichment: prefix 기반 자동 category ("project" / "repository" / "pipeline" / "misc" 등)
+    category: str | None = None
 
 
 @dataclass(slots=True)

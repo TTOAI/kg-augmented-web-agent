@@ -81,6 +81,10 @@ def freeze(
     ts = timestamp or _isoformat_filename_safe()
     git_rev = _git_rev(repo_dir or Path.cwd())
 
+    # Post-enrichment: merged KG에 0-entries 결함 자동 보강
+    from .post_enrich import enrich as _post_enrich
+    _post_enrich(store.kg)
+
     store.kg.build_timestamp = datetime.now(tz=timezone.utc).isoformat()
     store.kg.source_mix = compute_source_mix(store.kg)
     store.kg.git_rev = git_rev

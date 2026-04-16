@@ -17,6 +17,7 @@ import re
 
 from ..types import Action, IdentityParam, LeadsToEdge, SiteKG, StatePattern
 from .llm_derivation import DerivationResult, StatePatternGroup
+from .post_enrich import enrich as _post_enrich
 
 logger = logging.getLogger("kg.derivation")
 
@@ -102,15 +103,19 @@ def derivation_to_sitekg(
             ),
         )
 
-    # 4. LeadsToEdge 복사: action rename + 양 끝점을 group id로 resolve
+    # 4. Post-enrichment: schema 결함(0-entries) 자동 보강
+    _post_enrich(derived)
+
+    # 5. LeadsToEdge 복사: action rename + 양 끝점을 group id로 resolve
     for le in crawl_kg.leads_to_edges:
         if le.action_name not in derivation.action_name_map:
             continue
         new_name = derivation.action_name_map[le.action_name]
         from_id = group_by_member.get(le.from_state_pattern_id, le.from_state_pattern_id)
         to_id = group_by_member.get(le.to_state_pattern_id, le.to_state_pattern_id)
-        # self-transition은 의미 없으므로 skip
-        if from_id == to_id:
+        # Self-loop은 form submit 같은 in-place 전이를 표현. semantic rename된
+        # form action만 보존 (crawl:nav self-loop는 의미 없음 — 어차피 제외됨).
+        if from_id == to_id and not le.action_name.startswith("crawl:form:"):
             continue
         # 양쪽 모두 derived에 존재하는 경우만 기록
         if from_id not in derived.state_patterns or to_id not in derived.state_patterns:

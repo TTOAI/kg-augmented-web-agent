@@ -186,24 +186,61 @@ def crawl_results_to_sitekg(
             )
         )
 
-    # 4. form_elements → Action 후보
-    seen_form_actions: set[str] = set()
+    # 4. form_elements → Action 후보 + LeadsToEdge (target은 form.action_url 기반)
+    # form.action_url이 관찰된 다른 page와 일치하면 cross-page edge, 그렇지 않으면
+    # self-loop fallback. 이렇게 해야 글로벌 search bar 같은 cross-target form이
+    # 정확한 target state를 가리키고, post-enrich가 query param을 옳은 state에 박는다.
+    literal_path_to_template: dict[str, str] = {}
     for cr in crawl_results:
         if cr.http_status >= 400:
             continue
+        literal_path = urlparse(cr.url).path or "/"
+        literal_path_to_template.setdefault(literal_path, cr.normalized_url_template)
+
+    seen_form_actions: set[str] = set()
+    seen_form_edges: set[tuple[str, str, str]] = set()
+    for cr in crawl_results:
+        if cr.http_status >= 400:
+            continue
+        state_id = pattern_id_by_template.get(cr.normalized_url_template)
+        if state_id is None:
+            continue
         for form in cr.form_elements:
             action_name = _make_form_action_name(form)
-            if action_name in seen_form_actions:
+            if action_name not in seen_form_actions:
+                seen_form_actions.add(action_name)
+                kg.actions[action_name] = Action(
+                    name=action_name,
+                    params=[{"name": form.name, "type": form.type}],
+                    description=(
+                        f"Crawler-observed form input {form.name!r} on page "
+                        f"{cr.normalized_url_template!r} (type={form.type}, "
+                        f"method={form.method}, action_url={form.action_url!r})."
+                    ),
+                    source="crawl",
+                )
+            # Edge target 결정: form.action_url path → known template → state_id.
+            # Lookup 실패 시 self-loop (in-place form filter 가정).
+            target_id = state_id
+            if form.action_url:
+                target_path = urlparse(form.action_url).path or ""
+                target_template = literal_path_to_template.get(target_path)
+                if target_template is not None:
+                    resolved = pattern_id_by_template.get(target_template)
+                    if resolved is not None:
+                        target_id = resolved
+            edge_key = (state_id, action_name, target_id)
+            if edge_key in seen_form_edges:
                 continue
-            seen_form_actions.add(action_name)
-            kg.actions[action_name] = Action(
-                name=action_name,
-                params=[{"name": form.name, "type": form.type}],
-                description=(
-                    f"Crawler-observed form input '{form.name}' "
-                    f"(type={form.type}, method={form.method})."
-                ),
-                source="crawl",
+            seen_form_edges.add(edge_key)
+            kg.leads_to_edges.append(
+                LeadsToEdge(
+                    from_state_pattern_id=state_id,
+                    action_name=action_name,
+                    to_state_pattern_id=target_id,
+                    trust=CRAWL_TRUST,
+                    source="crawl",
+                )
             )
 
     return kg

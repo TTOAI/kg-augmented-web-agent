@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-04-16T13-47-16Z",
+  "git_rev": "c85b326",
+  "source_mix": {
+    "crawl": 12338,
+    "llm": 465,
+    "manual": 0
+  },
+  "builder_version": "0.1.0-hybrid",
+  "note": "Iter3 form edge target 정확화 (action_url → target state) + query param이 올바른 state에 박힘",
+  "crawl_dir": "output/crawl/20260416_iter3",
+  "derivation_dir": "output/derivation/20260416_iter3"
+}

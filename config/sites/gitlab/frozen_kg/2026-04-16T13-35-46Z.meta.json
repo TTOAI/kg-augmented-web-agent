@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-04-16T13-35-46Z",
+  "git_rev": "c85b326",
+  "source_mix": {
+    "crawl": 12338,
+    "llm": 465,
+    "manual": 0
+  },
+  "builder_version": "0.1.0-hybrid",
+  "note": "Iter2 post-enrichment 적용 (D7 form self-loop edges + edge-based query param backfill + action description 자동화)",
+  "crawl_dir": "output/crawl/20260416_iter2",
+  "derivation_dir": "output/derivation/20260416_iter2"
+}

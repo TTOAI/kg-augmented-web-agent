@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-04-16T13-21-01Z",
+  "git_rev": "c85b326",
+  "source_mix": {
+    "crawl": 2901,
+    "llm": 211,
+    "manual": 0
+  },
+  "builder_version": "0.1.0-hybrid",
+  "note": "Iter1 post-enrichment 적용 (D1 binding_map, D2 path_params, D3 query_params, D6 category)",
+  "crawl_dir": "output/crawl/20260416_122923",
+  "derivation_dir": "output/derivation/20260416_131636"
+}

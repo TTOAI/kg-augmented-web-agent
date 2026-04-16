@@ -7,6 +7,13 @@
 """
 from .crawl_to_kg import crawl_results_to_sitekg, extract_url_template
 from .derivation_to_kg import derivation_to_sitekg
+from .post_enrich import (
+    assign_infotype_category,
+    auto_fill_binding_map,
+    auto_fill_path_params,
+    auto_fill_query_params,
+    enrich,
+)
 from .infotype_catalog import load_infotypes
 from .llm_derivation import (
     DerivationResult,
@@ -49,6 +56,12 @@ __all__ = [
     "DerivationResult",
     "StatePatternGroup",
     "derivation_to_sitekg",
+    # Post-enrichment
+    "enrich",
+    "auto_fill_binding_map",
+    "auto_fill_path_params",
+    "auto_fill_query_params",
+    "assign_infotype_category",
     # M4-C review + freeze
     "DiffEntry",
     "diff_state_patterns",
