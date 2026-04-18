@@ -149,6 +149,94 @@ def classify_intent_via_kg(
 
 
 # ---------------------------------------------------------------------------
+# R3-α: KG context block builder (Hook A의 결과를 agent system prompt에 주입)
+# ---------------------------------------------------------------------------
+
+def format_kg_context_for_prompt(
+    kg_context: KGContext,
+    kg_lookup: KGLookup,
+    *,
+    max_patterns: int = 3,
+    max_adjacent: int = 5,
+) -> str:
+    """Hook A 결과(InfoType + bindings)를 agent system prompt에 주입할
+    passive context block으로 포맷.
+
+    R3-α 원칙: command가 아닌 informational. agent가 URL 이동·클릭 등을 직접 선택.
+    - 관련 URL 패턴 (realize edges)
+    - 필요한 bindings 힌트
+    - 인접 InfoType 후보 (1-hop LeadsToEdge)
+
+    max_patterns/max_adjacent로 prompt 길이 제한. 빈 InfoType이면 empty string.
+    """
+    kg = kg_context.kg
+    infotype_name = kg_lookup.infotype
+    it = kg.infotypes.get(infotype_name)
+    if it is None:
+        return ""
+
+    lines: list[str] = ["## Site knowledge (from SiteKG, informational)"]
+    desc = it.description.strip() if it.description else ""
+    if desc:
+        lines.append(f"The requested information likely corresponds to **{infotype_name}**: {desc}")
+    else:
+        lines.append(f"The requested information likely corresponds to **{infotype_name}**.")
+
+    # 관련 URL 패턴
+    patterns_shown = 0
+    if it.realizes:
+        lines.append("")
+        lines.append("Relevant URL patterns you may navigate to:")
+        for realize in it.realizes[:max_patterns]:
+            sp = kg.state_patterns.get(realize.state_pattern_id)
+            if sp is None:
+                continue
+            url_repr = getattr(sp, "url_pattern", None) or getattr(sp, "path_pattern", None) or realize.state_pattern_id
+            lines.append(f"- `{url_repr}`")
+            patterns_shown += 1
+
+    # 필요한 bindings 힌트
+    if it.required_bindings:
+        req = ", ".join(it.required_bindings)
+        lines.append("")
+        lines.append(f"Context fields the URL pattern expects: {req}")
+
+    # 이미 Hook A가 채운 bindings (runtime 상태 힌트)
+    if kg_lookup.bindings:
+        nonempty = {k: v for k, v in kg_lookup.bindings.items() if v not in (None, "", [])}
+        if nonempty:
+            pretty = ", ".join(f"{k}={v}" for k, v in nonempty.items())
+            lines.append(f"Inferred context from intent: {pretty}")
+
+    # 인접 InfoType 후보 (1-hop LeadsToEdge로부터)
+    adjacent: list[str] = []
+    if it.realizes:
+        state_pattern_ids = {r.state_pattern_id for r in it.realizes}
+        for edge in kg.leads_to_edges:
+            if edge.from_state_pattern_id in state_pattern_ids:
+                to_sp = edge.to_state_pattern_id
+                # to_sp를 realize하는 다른 InfoType 찾기
+                for other_name, other_it in kg.infotypes.items():
+                    if other_name == infotype_name:
+                        continue
+                    if any(r.state_pattern_id == to_sp for r in other_it.realizes):
+                        if other_name not in adjacent:
+                            adjacent.append(other_name)
+                if len(adjacent) >= max_adjacent:
+                    break
+    if adjacent:
+        lines.append("")
+        lines.append(f"Adjacent pages reachable from this area: {', '.join(adjacent[:max_adjacent])}")
+
+    lines.append("")
+    lines.append("Use this as hints. You decide how to navigate — this knowledge does not override your own observations.")
+
+    if patterns_shown == 0 and not it.required_bindings and not adjacent:
+        return ""
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # KGContext 빌더
 # ---------------------------------------------------------------------------
 

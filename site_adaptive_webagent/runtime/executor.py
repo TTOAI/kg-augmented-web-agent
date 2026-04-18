@@ -1,10 +1,22 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
 logger = logging.getLogger("webarena_verified")
+
+
+def _sitekg_mode() -> str:
+    """R3-α: `SITEKG_MODE` env var로 Hook 세트 전환.
+
+    - `full` (default): Hook A + B (rewrite) + C (validator) 모두 활성. 기존 동작.
+    - `alpha`: Hook A만 활성. kg_lookup 결과는 system prompt에 passive context로 주입.
+               Hook B/C는 skip (Phase 2C β smoke에서 관찰된 false positive 해소 목적).
+    - `disabled`: kg_context가 로드돼도 KG 개입 전체 skip (control).
+    """
+    return os.getenv("SITEKG_MODE", "full").strip().lower()
 
 from .browser import observe_page, try_click_target, try_fill_target, try_search
 from .llm import LLMClient, SubGoal, build_observation_message, build_plan, build_tool_use_system_prompt
@@ -143,6 +155,7 @@ async def execute_with_llm(
     """
     t_start = time.time()
     system = build_tool_use_system_prompt()
+    _mode = _sitekg_mode()
 
     # Wrap LLM client with call counter. Task 내 모든 LLM 호출이 자동으로 counter 증가 +
     # 한도 초과 시 _LLMCallLimitExceeded 예외로 loop 탈출.
@@ -163,11 +176,24 @@ async def execute_with_llm(
     # Phase 2C C2: 초기 URL에서 path slot auto-fill → runtime_context 주입.
     # Hook A가 놓친 path slot을 agent의 현재 페이지 URL에서 자동 추출.
     # Hook B rewrite가 emit_target_url 생성 시 이 slot을 활용.
-    if kg_context is not None:
+    if kg_context is not None and _mode != "disabled":
         _update_runtime_context_from_url(observation.url, kg_context)
 
-    # Hook B: KG-guided plan rewrite
-    if kg_context is not None and kg_lookup is not None:
+    # R3-α alpha mode: Hook A 결과를 system prompt에 passive context로 주입.
+    # Hook B/C는 skip. agent가 KG 지식을 보지만 URL 강제 이동·early SUCCESS는 없음.
+    if kg_context is not None and kg_lookup is not None and _mode == "alpha":
+        try:
+            from site_adaptive_webagent.agent.kg_integration import format_kg_context_for_prompt
+            kg_block = format_kg_context_for_prompt(kg_context, kg_lookup)
+            if kg_block:
+                system = system + "\n\n" + kg_block
+                logger.info("[KG] alpha mode: kg_context block injected (%d chars, infotype=%s)",
+                            len(kg_block), kg_lookup.infotype)
+        except Exception:
+            logger.exception("[KG] alpha mode: format_kg_context_for_prompt raised — no injection")
+
+    # Hook B: KG-guided plan rewrite (full mode only — R3-α에선 skip)
+    if kg_context is not None and kg_lookup is not None and _mode == "full":
         try:
             from site_adaptive_webagent.kg import rewrite_plan as _kg_rewrite_plan
             rewritten = _kg_rewrite_plan(sub_goals, kg_lookup, kg_context)
@@ -521,11 +547,14 @@ async def _try_sub_goal(
         (ExecutionOutcome, steps_used) — extract/failure/timeout 결과
         status="SUB_GOAL_FAILED"이면 retry 가능한 실패
     """
-    # Hook C helper — kg_context·kg_lookup이 모두 있을 때만 활성.
+    # Hook C helper — kg_context·kg_lookup이 모두 있을 때 + SITEKG_MODE=full 때만 활성.
+    # R3-α에선 alpha/disabled 모드에서 skip (false positive 원인이었음).
     # task_type 전달: NAVIGATE만 URL 도달로 early-termination 허용.
     # RETRIEVE (data 추출 필요) / MUTATE (form submit 필요)는 validator에서 suppress.
     def _kg_target_reached() -> bool:
         if kg_context is None or kg_lookup is None:
+            return False
+        if _sitekg_mode() != "full":
             return False
         try:
             from site_adaptive_webagent.kg import target_reached as _kg_target_reached_fn
