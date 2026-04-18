@@ -54,6 +54,13 @@ def emit_target_url(
 
     # binding_map 적용: infotype binding → state_pattern binding
     state_bindings = _apply_binding_map_to_pattern(bindings, edge.binding_map, pattern)
+    # Phase 2C C2: runtime_context의 path_slots로 빈 slot 보완 (bindings 우선).
+    # agent가 현재 페이지 URL에서 자동 추출한 path slot이 있으면 emit_url 호출 전 inject.
+    if runtime_context:
+        path_slots_ctx = runtime_context.get("path_slots") or {}
+        for slot_name, slot_val in path_slots_ctx.items():
+            if slot_name in pattern.path_params and slot_name not in state_bindings:
+                state_bindings[slot_name] = slot_val
     return emit_url(pattern, state_bindings, site_config)
 
 

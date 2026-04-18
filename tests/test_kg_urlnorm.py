@@ -11,6 +11,7 @@ from site_adaptive_webagent.kg import (
     match_pattern,
     normalize_url,
 )
+from site_adaptive_webagent.kg.urlnorm import extract_path_slots_from_url
 
 
 def _gitlab_config() -> SiteConfig:
@@ -284,6 +285,55 @@ class UrlnormEdgeCaseTests(unittest.TestCase):
         ok2, b2 = match_pattern(u2, self.pattern, self.config)
         self.assertTrue(ok1 and ok2)
         self.assertEqual(b1, b2)
+
+
+class ExtractPathSlotsTests(unittest.TestCase):
+    """Phase 2C C2: URL에서 path slot 추출."""
+
+    def setUp(self) -> None:
+        self.config = _gitlab_config()
+        self.pattern = _issues_filtered_pattern()
+
+    def test_extract_path_slots_matching(self) -> None:
+        """URL이 pattern에 매칭되면 path_params slot dict 반환."""
+        slots = extract_path_slots_from_url(
+            "/byteblaze/cloud-to-butt/-/issues",
+            self.pattern, self.config,
+        )
+        self.assertIsNotNone(slots)
+        assert slots is not None
+        self.assertEqual(slots.get("project_path"), "byteblaze/cloud-to-butt")
+
+    def test_extract_path_slots_no_match(self) -> None:
+        """URL이 pattern과 불일치 시 None."""
+        slots = extract_path_slots_from_url(
+            "/completely/different/path",
+            self.pattern, self.config,
+        )
+        self.assertIsNone(slots)
+
+    def test_extract_path_slots_preserves_case(self) -> None:
+        """URL 원본 case 보존 (Y-code-4 호환 — slug는 case-sensitive)."""
+        slots = extract_path_slots_from_url(
+            "/ByteBlaze/Cloud-To-Butt/-/issues",
+            self.pattern, self.config,
+        )
+        self.assertIsNotNone(slots)
+        assert slots is not None
+        # path_segments는 segment 분리해 저장. case 보존 기대.
+        self.assertIn("ByteBlaze", slots.get("project_path", ""))
+
+    def test_extract_path_slots_only_returns_path_params(self) -> None:
+        """query param은 제외, path_params만 반환."""
+        slots = extract_path_slots_from_url(
+            "/a/b/-/issues?state=closed&label_name[]=bug",
+            self.pattern, self.config,
+        )
+        self.assertIsNotNone(slots)
+        assert slots is not None
+        self.assertIn("project_path", slots)
+        self.assertNotIn("state", slots)
+        self.assertNotIn("label_name", slots)
 
 
 if __name__ == "__main__":

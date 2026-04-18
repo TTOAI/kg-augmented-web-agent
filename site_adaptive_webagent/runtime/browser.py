@@ -28,7 +28,9 @@ _SELECT_SELECTORS = ("select",)
 
 async def observe_page(page: Any) -> PageObservation:
     """현재 보이는 페이지 상태를 간결하게 수집한다."""
-    url = normalize_text(getattr(page, "url", ""))
+    # URL은 원본 그대로 (.lower() 등 정규화하지 않음) — case-sensitive path·query
+    # 보존. _sub_goal_start_url 비교에도 원본 기반이 안전 (Y-code-4 fix).
+    url = (getattr(page, "url", "") or "").strip()
     title, headings, text_lines, ax_links, dropdown_options, buttons, inputs, readonly_values = await asyncio.gather(
         safe_title(page),
         extract_texts(page, HEADING_SELECTORS),

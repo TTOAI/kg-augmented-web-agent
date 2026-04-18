@@ -1,0 +1,67 @@
+%% Figure 1: SiteKG-augmented Web Agent Architecture
+%% Render: mermaid-cli (mmdc) or draw.io import
+%% mmdc -i skg_architecture.mmd -o skg_architecture.png -t neutral -b transparent
+
+flowchart LR
+    subgraph Site["Web Site (GitLab)"]
+        direction TB
+        DOM[Live DOM pages]
+    end
+
+    subgraph Build["2-stage KG Construction (offline, build-time)"]
+        direction TB
+        Crawl["Stage 1: Playwright Crawl<br/>(seeded, 0 LLM,<br/>source=crawl,<br/>trust=verified)"]
+        LLMD["Stage 2: Multi-call LLM Derivation<br/>(3-call decomposition,<br/>gpt-5.4 + reasoning_effort=low,<br/>source=llm, trust=inferred)"]
+        PE["Stage 2.5: Heuristic<br/>Post-enrichment<br/>(D1-D6 rules,<br/>LLM calls=0)"]
+        Crawl -->|"CrawlResult"| LLMD
+        LLMD -->|"DerivationResult"| PE
+    end
+
+    subgraph KG["Site-specific Knowledge Graph<br/>(frozen, immutable)"]
+        direction TB
+        IT["InfoType<br/>(domain noun)"]
+        SP["StatePattern<br/>(URL template +<br/>identity params)"]
+        LT["LeadsToEdge<br/>(action transition)"]
+        Trust["Trust layer<br/>verified / declared / inferred"]
+        IT -- realizes --> SP
+        SP -- leads_to --> SP
+        SP -- via action --> LT
+        Trust -.-> IT
+        Trust -.-> SP
+        Trust -.-> LT
+    end
+
+    subgraph Agent["LLM Web Agent (ReAct loop)"]
+        direction TB
+        Intent[User intent]
+        A["Hook A<br/>plan_to_info"]
+        Plan[build_plan]
+        B["Hook B<br/>rewrite<br/>(trust-adaptive)"]
+        Loop["Observe → Tool-use → Verify<br/>per sub-goal"]
+        C["Hook C<br/>validator<br/>(early termination)"]
+        D["Hook D<br/>trust update<br/>(logging only)"]
+        Result[AgentRunResult]
+        Intent --> A
+        A --> Plan
+        Plan --> B
+        B --> Loop
+        Loop --> C
+        C --> Loop
+        Loop --> D
+        D --> Result
+    end
+
+    Site -->|"observe"| Crawl
+    PE ==>|"frozen artifact"| KG
+    KG -->|"(InfoType, bindings)"| A
+    KG -->|"route_to, final_state"| B
+    KG -->|"state_matches"| C
+    KG <-. "path + result<br/>(disabled in evaluation)" .- D
+
+    classDef buildStage fill:#e8f4f8,stroke:#2c6da8,stroke-width:1.5px
+    classDef kgNode fill:#f0f0e0,stroke:#7a6a00,stroke-width:1.5px
+    classDef hookNode fill:#ffe8cc,stroke:#d06000,stroke-width:1.5px
+
+    class Crawl,LLMD,PE buildStage
+    class IT,SP,LT,Trust kgNode
+    class A,B,C,D hookNode

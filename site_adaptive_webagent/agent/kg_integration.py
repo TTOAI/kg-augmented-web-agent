@@ -36,6 +36,12 @@ def build_plan_to_info_tool(kg: SiteKG) -> dict[str, Any]:
 
     - target_infotype: enum (KG에 등록된 InfoType 이름)
     - bindings: free-form object (InfoType별 required/optional에 맞춰 LLM이 채움)
+
+    (Phase 2C C1 rollback 2026-04-18: path_slot hint가 prompt에 포함될 때 Hook A가
+    rich-but-wrong bindings를 생성해 agent를 잘못된 URL로 유도하는 사례 관찰됨.
+    따라서 path_slot 정보 embed는 제외하고 InfoType 기본 정보만 유지. C2 runtime
+    context auto-fill은 독립적으로 유지됨 — agent URL에서 path_slots 자동 추출하여
+    emit_target_url이 bindings 부족 시 fallback으로 사용.)
     """
     infotype_names = list(kg.infotypes.keys())
     # enum 설명에 각 InfoType의 description + required/optional 요약 포함
@@ -159,11 +165,19 @@ def load_kg_context(
     호환 JSON)만 로드하고, SiteConfig는 같은 site config 디렉토리에서 fallback 로드.
     이는 baseline 측정 시 catalog freeze 보장(M4-C, docs/kg_design/07 §14)을 위함.
     """
+    import json
     import os
+
+    import yaml
 
     from site_adaptive_webagent.kg.seed import load_site_kg_from_dir
     from site_adaptive_webagent.kg.seed.manual_config import load_site_config
     from site_adaptive_webagent.kg.store import SiteKGStore
+
+    # Expected structural errors (silent fallback OK — 재현성 영향 없음).
+    # 그 외 예외는 re-raise (fail-loud) — 측정 도중 silent 오염 방지.
+    _EXPECTED_LOAD_ERRORS = (FileNotFoundError, json.JSONDecodeError, yaml.YAMLError,
+                             KeyError, PermissionError, IsADirectoryError)
 
     dir_path = Path(config_root) / site
 
@@ -175,8 +189,9 @@ def load_kg_context(
             return None
         try:
             kg = SiteKGStore.load(frozen_path).kg
-        except Exception:
-            logger.exception("[KG] failed to load frozen snapshot %s — KG disabled", frozen_path)
+        except _EXPECTED_LOAD_ERRORS as e:
+            logger.error("[KG] frozen snapshot %s structural error: %s — KG disabled",
+                         frozen_path, e)
             return None
         site_config_path = dir_path / "site_config.yaml"
         if not site_config_path.exists():
@@ -187,8 +202,9 @@ def load_kg_context(
             return None
         try:
             site_config = load_site_config(site_config_path)
-        except Exception:
-            logger.exception("[KG] failed to load site_config %s — KG disabled", site_config_path)
+        except _EXPECTED_LOAD_ERRORS as e:
+            logger.error("[KG] site_config %s structural error: %s — KG disabled",
+                         site_config_path, e)
             return None
         logger.info("[KG] loaded frozen snapshot %s (git_rev=%s)", frozen_path, kg.git_rev)
         return KGContext(
@@ -202,8 +218,9 @@ def load_kg_context(
         return None
     try:
         site_config, kg = load_site_kg_from_dir(dir_path)
-    except Exception:
-        logger.exception("[KG] failed to load site dir %s — KG disabled", dir_path)
+    except _EXPECTED_LOAD_ERRORS as e:
+        logger.error("[KG] site dir %s structural error: %s — KG disabled",
+                     dir_path, e)
         return None
     return KGContext(
         kg=kg,

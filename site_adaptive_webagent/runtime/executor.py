@@ -25,6 +25,38 @@ _DECLARE_ERROR_STATUSES: frozenset[str] = frozenset({
 _TASK_NOTES_MAX = 50
 
 
+def _update_runtime_context_from_url(page_url: str, kg_context: Any) -> None:
+    """Phase 2C C2: agent의 현재 page URL에서 path slot을 자동 추출해
+    kg_context.runtime_context["path_slots"]에 병합.
+
+    모든 StatePattern 순회, 매칭되는 패턴의 path_params 값을 통합 dict에 수집.
+    여러 패턴이 매칭되면 각 slot을 union (충돌은 last-write-wins).
+    emit_target_url이 bindings에서 slot을 못 찾으면 runtime_context에서 fallback.
+    """
+    if kg_context is None or not getattr(kg_context, "kg", None):
+        return
+    if not page_url:
+        return
+    try:
+        from site_adaptive_webagent.kg.urlnorm import extract_path_slots_from_url
+    except Exception:
+        return
+    merged: dict[str, Any] = {}
+    for pattern in kg_context.kg.state_patterns.values():
+        try:
+            slots = extract_path_slots_from_url(
+                page_url, pattern, kg_context.site_config, kg_context.runtime_context,
+            )
+        except Exception:
+            continue
+        if slots:
+            merged.update(slots)
+    if merged:
+        existing = kg_context.runtime_context.setdefault("path_slots", {})
+        existing.update(merged)
+        logger.info("[KG] updated runtime_context path_slots: %s", merged)
+
+
 def _append_task_note(task_notes: list[str] | None, note: str) -> None:
     """task_notes에 중복 제거 + 상한 유지하며 추가한다."""
     if task_notes is None:
@@ -49,9 +81,16 @@ _MAX_RETRIES_PER_GOAL = 8
 # Global LLM call limit per task — task 748 같은 retry loop 폭발 방지.
 # Standard ReAct web agent는 step budget (max_steps)으로 제어하지만, 본 agent는 tool
 # call 재시도 등 parasitic LLM call이 누적될 수 있다. Task당 LLM call을 명시적으로
-# 상한해 wall-time 예측성을 확보한다. 350 = max_steps(50) × ~7 call/step 여유치
-# (Phase 0c smoke에서 max 275 관찰, 어려운 MUTATE task 대비 15% 추가 버퍼).
-_MAX_LLM_CALLS_PER_TASK = 350
+# 상한해 wall-time 예측성을 확보한다. 450 = max_steps(50) × ~9 call/step 여유치
+# (Phase 0c smoke에서 max 275 관찰, 어려운 MUTATE task + retry policy 대비 60% 버퍼).
+# env `LLM_CALL_LIMIT_PER_TASK`로 override 가능.
+import os as _os
+try:
+    _MAX_LLM_CALLS_PER_TASK = int(_os.getenv("LLM_CALL_LIMIT_PER_TASK", "450"))
+    if _MAX_LLM_CALLS_PER_TASK <= 0:
+        _MAX_LLM_CALLS_PER_TASK = 450
+except ValueError:
+    _MAX_LLM_CALLS_PER_TASK = 450
 
 
 class _LLMCallLimitExceeded(Exception):
@@ -120,6 +159,12 @@ async def execute_with_llm(
         )
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
+
+    # Phase 2C C2: 초기 URL에서 path slot auto-fill → runtime_context 주입.
+    # Hook A가 놓친 path slot을 agent의 현재 페이지 URL에서 자동 추출.
+    # Hook B rewrite가 emit_target_url 생성 시 이 slot을 활용.
+    if kg_context is not None:
+        _update_runtime_context_from_url(observation.url, kg_context)
 
     # Hook B: KG-guided plan rewrite
     if kg_context is not None and kg_lookup is not None:
@@ -476,13 +521,17 @@ async def _try_sub_goal(
         (ExecutionOutcome, steps_used) — extract/failure/timeout 결과
         status="SUB_GOAL_FAILED"이면 retry 가능한 실패
     """
-    # Hook C helper — kg_context·kg_lookup이 모두 있을 때만 활성
+    # Hook C helper — kg_context·kg_lookup이 모두 있을 때만 활성.
+    # task_type 전달: NAVIGATE만 URL 도달로 early-termination 허용.
+    # RETRIEVE (data 추출 필요) / MUTATE (form submit 필요)는 validator에서 suppress.
     def _kg_target_reached() -> bool:
         if kg_context is None or kg_lookup is None:
             return False
         try:
             from site_adaptive_webagent.kg import target_reached as _kg_target_reached_fn
-            return _kg_target_reached_fn(current_obs.url, kg_lookup, kg_context)
+            return _kg_target_reached_fn(
+                current_obs.url, kg_lookup, kg_context, task_type=task_type,
+            )
         except Exception:
             logger.exception("[KG] target_reached raised")
             return False
@@ -646,20 +695,23 @@ async def _try_sub_goal(
 
             # Warning mode: 재시도 이력이 부족하면 declare_error를 거절하고 다시 탐색하게 한다.
             # done이 _verify_done으로 검증되는 것과 대칭 — declare_error도 "충분한 시도" 검증.
+            # 단, 강한 impossibility 신호 (NOT_FOUND_ERROR, ACTION_NOT_ALLOWED_ERROR)는 1회
+            # 시도만으로도 수용 — 명백한 401/403/404 페이지에 3회 retry 강제는 step 낭비.
             prior_attempts = len(previous_failures)
-            if prior_attempts < 3:
+            _STRONG_SIGNAL_STATUSES = {"NOT_FOUND_ERROR", "ACTION_NOT_ALLOWED_ERROR"}
+            _required_attempts = 1 if status in _STRONG_SIGNAL_STATUSES else 3
+            if prior_attempts < _required_attempts:
                 logger.info(
-                    "[LLM] declare_error REJECTED (attempts=%d/3): status=%s reason=%r",
-                    prior_attempts, status, reason[:120],
+                    "[LLM] declare_error REJECTED (attempts=%d/%d): status=%s reason=%r",
+                    prior_attempts, _required_attempts, status, reason[:120],
                 )
                 rejection_msg = (
-                    f"declare_error rejected: only {prior_attempts} prior attempt(s). "
-                    f"Before declaring {status}, try at least 3 meaningfully different "
-                    "strategies (different query terms, filter combinations, alternative "
-                    "navigation paths, scrolling through paginated results). If the page "
-                    "text, headings, or lists already contain evidence of the answer, use "
-                    "observe/remember/done instead. If after 3+ distinct attempts the "
-                    "target is still unreachable, call declare_error again."
+                    f"declare_error rejected: only {prior_attempts} prior attempt(s) "
+                    f"(required: {_required_attempts}). Before declaring {status}, try "
+                    "meaningfully different strategies (different query terms, filter "
+                    "combinations, alternative navigation paths, scrolling through "
+                    "paginated results). If the page text already contains evidence, use "
+                    "observe/remember/done instead."
                 )
                 messages.append(format_tool_result(tool_id, rejection_msg))
                 last_action_feedback = (

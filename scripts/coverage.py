@@ -35,6 +35,15 @@ _HOOK_A_FULL_INFO = re.compile(r"\[KG\] Hook A \(full\): infotype=(\S+)\s+bindin
 _HOOK_A_FULL_DECLINED = re.compile(r"\[KG\] Hook A \(full\): classification declined")
 _HOOK_A_INFO_IGNORED = re.compile(r"\[KG\] Hook A \(info_ignored\)")
 
+# Hook B — rewrite_plan 호출 결과 (2026-04-18 Option B 이후)
+_HOOK_B_CONSIDERING = re.compile(r"\[KG\] rewrite considering: edge\.trust=(\S+), url_template_trust=(\S+)")
+_HOOK_B_APPLIED = re.compile(r"\[KG\] plan rewritten (\d+) → (\d+) sub-goals")
+_HOOK_B_SKIPPED_TRUST = re.compile(r"\[KG\] rewrite skipped: trust=(\S+)")
+_HOOK_B_SKIPPED_INCOMPLETE = re.compile(r"\[KG\] rewrite skipped: incomplete_url")
+
+# Hook C — target_reached early SUCCESS (NAVIGATE에서만 trigger, RET/MUT는 suppressed)
+_HOOK_C_REACHED = re.compile(r"\[KG\] target_reached at step=(\d+) — early SUCCESS \(infotype=(\S+)\)")
+
 
 def collect_variant_coverage(variant_dir: Path) -> dict:
     """Variant의 N=3 run 모두 훑어 Hook A 통계."""
@@ -57,6 +66,11 @@ def collect_variant_coverage(variant_dir: Path) -> dict:
                 "hook_a_classified": 0,
                 "hook_a_declined": 0,
                 "hook_a_info_ignored": 0,
+                "hook_b_considering": 0,
+                "hook_b_applied": 0,
+                "hook_b_skipped_trust": 0,
+                "hook_b_skipped_incomplete": 0,
+                "hook_c_reached": 0,
                 "infotypes": Counter(),
             })
             if _HOOK_A_LINE.search(text):
@@ -68,8 +82,27 @@ def collect_variant_coverage(variant_dir: Path) -> dict:
                 stats["hook_a_declined"] += 1
             if _HOOK_A_INFO_IGNORED.search(text):
                 stats["hook_a_info_ignored"] += 1
+            # Hook B
+            for _ in _HOOK_B_CONSIDERING.finditer(text):
+                stats["hook_b_considering"] += 1
+            for _ in _HOOK_B_APPLIED.finditer(text):
+                stats["hook_b_applied"] += 1
+            for _ in _HOOK_B_SKIPPED_TRUST.finditer(text):
+                stats["hook_b_skipped_trust"] += 1
+            for _ in _HOOK_B_SKIPPED_INCOMPLETE.finditer(text):
+                stats["hook_b_skipped_incomplete"] += 1
+            # Hook C
+            for _ in _HOOK_C_REACHED.finditer(text):
+                stats["hook_c_reached"] += 1
 
-    # Aggregate
+    # Aggregate — mutually exclusive 분류 규칙:
+    # (1) any run classified → classified_tasks  (우선)
+    # (2) no run classified but any run declined → declined_tasks
+    # (3) Hook A 호출 자체가 0건 → not_called_tasks
+    # (4) 나머지 (called but neither classified nor declined) → other_tasks
+    # 기존 조건 "classified > 0"과 "declined > 0 AND classified == 0"은 (1)+(2) 배타
+    # 보장. not_called는 hook_a_called=0만. 세 집합의 합이 total과 일치하는지 검증
+    # (coverage 수치 정확성).
     total_tasks = len(by_task)
     if total_tasks == 0:
         return {"total_tasks": 0}
@@ -77,18 +110,33 @@ def collect_variant_coverage(variant_dir: Path) -> dict:
     declined_tasks = sum(1 for s in by_task.values()
                          if s["hook_a_declined"] > 0 and s["hook_a_classified"] == 0)
     not_called = sum(1 for s in by_task.values() if s["hook_a_called"] == 0)
+    other_tasks = total_tasks - classified_tasks - declined_tasks - not_called
 
     # Top infotype distribution
     all_infotypes: Counter = Counter()
     for s in by_task.values():
         all_infotypes.update(s["infotypes"])
 
+    # Hook B/C per-task aggregate
+    b_applied = sum(1 for s in by_task.values() if s["hook_b_applied"] > 0)
+    b_skipped_trust = sum(1 for s in by_task.values()
+                          if s["hook_b_skipped_trust"] > 0 and s["hook_b_applied"] == 0)
+    b_skipped_incomplete = sum(1 for s in by_task.values()
+                               if s["hook_b_skipped_incomplete"] > 0
+                               and s["hook_b_applied"] == 0)
+    c_reached = sum(1 for s in by_task.values() if s["hook_c_reached"] > 0)
+
     return {
         "total_tasks": total_tasks,
         "classified_tasks": classified_tasks,
         "declined_tasks": declined_tasks,
         "not_called_tasks": not_called,
+        "other_tasks": other_tasks,
         "coverage_pct": 100 * classified_tasks / total_tasks if total_tasks else 0.0,
+        "hook_b_applied_tasks": b_applied,
+        "hook_b_skipped_trust_tasks": b_skipped_trust,
+        "hook_b_skipped_incomplete_tasks": b_skipped_incomplete,
+        "hook_c_reached_tasks": c_reached,
         "top_infotypes": all_infotypes.most_common(10),
         "by_task": by_task,
     }
@@ -168,25 +216,47 @@ def render_report(
         return "\n".join(lines)
 
     lines += [
-        "| variant | tasks | classified | declined | not_called | coverage |",
-        "|---|---|---|---|---|---|",
+        "| variant | tasks | classified | declined | not_called | other | coverage |",
+        "|---|---|---|---|---|---|---|",
     ]
     all_data: dict[str, dict] = {}
     for name, vdir in variants.items():
         if not vdir.exists():
-            lines.append(f"| `{name}` | ⚠️ missing dir `{vdir}` | | | | |")
+            lines.append(f"| `{name}` | ⚠️ missing dir `{vdir}` | | | | | |")
             continue
         data = collect_variant_coverage(vdir)
         all_data[name] = data
         if data["total_tasks"] == 0:
-            lines.append(f"| `{name}` | 0 (no logs) | | | | |")
+            lines.append(f"| `{name}` | 0 (no logs) | | | | | |")
             continue
         lines.append(
             f"| `{name}` | {data['total_tasks']} | "
             f"{data['classified_tasks']} | {data['declined_tasks']} | "
-            f"{data['not_called_tasks']} | "
+            f"{data['not_called_tasks']} | {data.get('other_tasks', 0)} | "
             f"**{data['coverage_pct']:.1f}%** |"
         )
+    lines.append("")
+    lines.append("분류 규칙: any run classified → classified, 그외 any run declined → declined, "
+                 "Hook A 호출 0건 → not_called, 그외 → other. 4 집합 배타.")
+    lines.append("")
+
+    # Per-variant Hook B/C stats (Option B 이후)
+    lines += ["## Hook B/C 발동 통계", "",
+              "| variant | B applied | B skipped(trust) | B skipped(incomplete_url) | C early SUCCESS |",
+              "|---|---|---|---|---|"]
+    for name, data in all_data.items():
+        if data.get("total_tasks", 0) == 0:
+            continue
+        lines.append(
+            f"| `{name}` | {data.get('hook_b_applied_tasks', 0)} | "
+            f"{data.get('hook_b_skipped_trust_tasks', 0)} | "
+            f"{data.get('hook_b_skipped_incomplete_tasks', 0)} | "
+            f"{data.get('hook_c_reached_tasks', 0)} |"
+        )
+    lines.append("")
+    lines.append("집계 규칙: per task 기준. B는 applied 우선, 나머지 skip 사유는 "
+                 "applied=0일 때만 집계. C는 `target_reached at step=X — early SUCCESS` "
+                 "로그가 나온 task 수 (task_type=NAVIGATE만 발동, RET/MUT는 validator에서 suppress).")
     lines.append("")
 
     # Top infotype distribution per variant

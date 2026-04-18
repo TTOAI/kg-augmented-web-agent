@@ -8,11 +8,47 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import random
 import re
-from typing import Any, Protocol, runtime_checkable
+import time
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from .tools import LLMToolResponse, ToolCall
+
+logger = logging.getLogger("webarena_verified")
+
+
+def _retry_transient(fn: Callable, *, max_attempts: int = 3, base_delay: float = 1.0,
+                     max_delay: float = 10.0):
+    """Exponential backoff retry for transient OpenAI errors.
+
+    RateLimitError / APIConnectionError / APITimeoutError만 retry.
+    insufficient_quota 류는 persistent이므로 즉시 propagate (측정 중단 트리거).
+    """
+    import openai
+    TRANSIENT = (openai.APIConnectionError, openai.APITimeoutError)
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except openai.RateLimitError as e:
+            # insufficient_quota는 재시도 불가 — 즉시 raise
+            if "insufficient_quota" in str(e) or "quota" in str(e).lower():
+                raise
+            if attempt == max_attempts - 1:
+                raise
+            delay = min(max_delay, base_delay * (2 ** attempt)) + random.uniform(0, 0.5)
+            logger.warning("[LLM] RateLimitError (attempt %d/%d) — retry in %.1fs",
+                           attempt + 1, max_attempts, delay)
+            time.sleep(delay)
+        except TRANSIENT as e:
+            if attempt == max_attempts - 1:
+                raise
+            delay = min(max_delay, base_delay * (2 ** attempt)) + random.uniform(0, 0.5)
+            logger.warning("[LLM] %s (attempt %d/%d) — retry in %.1fs",
+                           type(e).__name__, attempt + 1, max_attempts, delay)
+            time.sleep(delay)
 
 
 # ---------------------------------------------------------------------------
@@ -135,12 +171,12 @@ class OpenAILLMClient:
 
     def complete(self, *, system: str, messages: list[dict[str, str]]) -> str:
         all_messages = [{"role": "system", "content": system}, *messages]
-        response = self._client.chat.completions.create(
+        response = _retry_transient(lambda: self._client.chat.completions.create(
             model=self._model,
             messages=all_messages,  # type: ignore[arg-type]
             max_completion_tokens=1024,
             **self._extra_kwargs(),
-        )
+        ))
         return response.choices[0].message.content or ""
 
     def complete_with_tools(
@@ -173,14 +209,14 @@ class OpenAILLMClient:
         oai_messages = [{"role": "system", "content": system}]
         for msg in messages:
             oai_messages.extend(_to_openai_messages(msg))
-        response = self._client.chat.completions.create(
+        response = _retry_transient(lambda: self._client.chat.completions.create(
             model=self._model,
             messages=oai_messages,  # type: ignore[arg-type]
             tools=oai_tools,  # type: ignore[arg-type]
             max_completion_tokens=max_tokens,
             parallel_tool_calls=False,
             **self._extra_kwargs(),
-        )
+        ))
         choice = response.choices[0]
         thought = choice.message.content
         tool_calls: list[ToolCall] = []
@@ -225,7 +261,7 @@ class OpenAILLMClient:
         # 주의: reasoning model (gpt-5*, o-series)는 temperature 파라미터 미지원.
         # determinism은 reasoning model 자체 특성으로 보장된다 (default temp=1, 단
         # 동일 input + reasoning 결정성으로 안정 cluster 결과).
-        response = self._client.responses.create(**kwargs)
+        response = _retry_transient(lambda: self._client.responses.create(**kwargs))
 
         thought: str | None = None
         tool_calls: list[ToolCall] = []

@@ -107,8 +107,12 @@ def collect(baseline_dir: Path) -> tuple[list[dict], dict[int, str]]:
             if not task_dir.is_dir() or not task_dir.name.isdigit():
                 continue
             task_id = int(task_dir.name)
-            resp = _load_agent_response(task_dir / "agent_response.json")
-            ev = _load_eval_result(task_dir / "eval_result.json")
+            agent_path = task_dir / "agent_response.json"
+            eval_path = task_dir / "eval_result.json"
+            resp = _load_agent_response(agent_path)
+            ev = _load_eval_result(eval_path)
+            agent_missing = not agent_path.exists()
+            eval_missing = not eval_path.exists()
             steps, wall, env_err, llm_calls = _parse_log_metrics(
                 task_dir / "webarena_verified.log",
             )
@@ -123,8 +127,10 @@ def collect(baseline_dir: Path) -> tuple[list[dict], dict[int, str]]:
                 "run": run,
                 "task_type": task_types.get(task_id, resp.get("task_type", "")),
                 "agent_status": resp.get("status", ""),
+                "agent_missing": agent_missing,
                 "agent_error": (resp.get("error_details") or "").replace("\n", " ")[:240],
                 "eval_status": ev.get("status", ""),
+                "eval_missing": eval_missing,
                 "eval_score": ev.get("score", ""),
                 "failed_evaluators": "|".join(failed_evaluators),
                 "step_count": steps if steps is not None else "",
@@ -138,8 +144,8 @@ def collect(baseline_dir: Path) -> tuple[list[dict], dict[int, str]]:
 def write_raw_csv(rows: list[dict], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
-        "task_id", "run", "task_type", "agent_status", "agent_error",
-        "eval_status", "eval_score", "failed_evaluators",
+        "task_id", "run", "task_type", "agent_status", "agent_missing", "agent_error",
+        "eval_status", "eval_missing", "eval_score", "failed_evaluators",
         "step_count", "wall_time_sec", "llm_calls", "env_error_in_log",
     ]
     with path.open("w", encoding="utf-8", newline="") as f:

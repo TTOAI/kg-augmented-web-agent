@@ -1,0 +1,60 @@
+%% Figure 2: 2-stage Automated KG Construction Pipeline
+%% Render: mermaid-cli (mmdc) or draw.io import
+%% mmdc -i pipeline.mmd -o pipeline.png -t neutral -b transparent
+
+flowchart TB
+    Site["GitLab site<br/>(Docker: webarena/gitlab-v1.15-verified)"]
+
+    subgraph S1["Stage 1 — Playwright Seeded Crawl"]
+        direction LR
+        SEED["8 Seed URLs<br/>(official navigation<br/>entry points)"]
+        CR["playwright_crawler.py<br/>• DOM parse<br/>• URL schema detect<br/>• Form action_url<br/>• Dedupe by signature<br/>• Download-ext blocklist"]
+        CR_OUT["CrawlResult<br/>• 3040 StatePatterns (literal)<br/>• leads_to edges<br/>• form actions<br/>source=crawl, trust=verified<br/><i>0 LLM calls</i>"]
+        SEED --> CR --> CR_OUT
+    end
+
+    subgraph S2["Stage 2 — Multi-call LLM Derivation"]
+        direction TB
+        C1["Call 1:<br/>derive_state_pattern_groups<br/>(tokens=65536)"]
+        C2["Call 2:<br/>derive_infotypes<br/>(tokens=32768)"]
+        C3["Call 3:<br/>derive_action_renames<br/>(tokens=16384)"]
+        C1_OUT["StatePatternGroups<br/>(49-105 groups)"]
+        C2_OUT["InfoTypes + realize edges"]
+        C3_OUT["Action renames"]
+        C1 --> C1_OUT --> C2 --> C2_OUT --> C3 --> C3_OUT
+
+        MODEL["gpt-5.4 + Responses API<br/>reasoning_effort=low"]
+        MODEL -.-> C1
+        MODEL -.-> C2
+        MODEL -.-> C3
+    end
+
+    subgraph S25["Stage 2.5 — Heuristic Post-enrichment<br/>(LLM calls = 0)"]
+        direction TB
+        D1["D1: binding_map<br/>(bindings ↔ slot/query exact match<br/>+ [] variant)"]
+        D2["D2: path_params<br/>(*_path → path_segments, else segment)"]
+        D3["D3: query_params<br/>(optional_bindings → query backfill)"]
+        D6["D6: InfoType category<br/>(prefix-based taxonomy clustering)"]
+    end
+
+    FROZEN["Frozen SiteKG<br/><b>2026-04-16T16-46-55Z.json</b><br/>• 37 InfoTypes<br/>• 3040 StatePatterns<br/>• manual=0<br/>• ARI=0.9264 (3-run)<br/><i>immutable artifact</i>"]
+
+    ARI["ARI Check<br/>3 independent runs<br/>group-level Rand Index"]
+
+    Site -->|"live observation"| S1
+    S1 -->|"CrawlResult"| S2
+    S2 -->|"DerivationResult"| S25
+    S25 --> FROZEN
+
+    S2 -.->|"3 independent runs"| ARI
+    ARI -.->|"≥ 0.85 gate"| FROZEN
+
+    classDef stage1 fill:#d6eaff,stroke:#1b5a9d,stroke-width:1.5px
+    classDef stage2 fill:#ffe8cc,stroke:#b45f00,stroke-width:1.5px
+    classDef stage25 fill:#e6f5d0,stroke:#4a7a1f,stroke-width:1.5px
+    classDef frozen fill:#f5d5e5,stroke:#8a2060,stroke-width:2px
+
+    class SEED,CR,CR_OUT stage1
+    class C1,C2,C3,C1_OUT,C2_OUT,C3_OUT,MODEL stage2
+    class D1,D2,D3,D6 stage25
+    class FROZEN frozen

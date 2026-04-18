@@ -118,20 +118,17 @@ class RewritePlanEdgeCaseTests(unittest.TestCase):
         lookup = KGLookup(infotype="nonexistent", bindings={})
         self.assertIsNone(rewrite_plan(sub_goals, lookup, self.ctx))
 
-    def test_missing_required_binding_returns_none(self) -> None:
-        """required binding 부족 → emit_target_url이 불완전 URL을 낼 수 있어도 rewrite 정책은
-        일단 URL을 얻으면 진행. 완전 실패하면 (path slot unfilled) None.
+    def test_missing_required_binding_skipped_by_incomplete_url_guard(self) -> None:
+        """Option B (2026-04-18): required binding 부족으로 unfilled slot이 남는 URL은
+        rewrite skip (malformed URL navigation 방지).
 
-        현 구현에서는 path slot이 채워지지 않으면 {project_path} 같은 literal이 남지만
-        그래도 URL 문자열이 반환되므로 rewrite는 진행됨. 이 테스트는 현 동작을 고정.
+        이전 동작: `{project_path}` literal 남긴 URL로 rewrite 진행 (agent가 404로 이동 가능).
+        현재 동작: _UNFILLED_SLOT_RE guard가 감지 → None 반환 → baseline plan 유지.
         """
         sub_goals = [SubGoal("x", "navigation")]
-        # project_path 누락 → path에 "{project_path}" 리터럴이 남음
         lookup = KGLookup(infotype="issues_list", bindings={})
         result = rewrite_plan(sub_goals, lookup, self.ctx)
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertIn("{project_path}", result[0].goal)
+        self.assertIsNone(result)
 
     def test_empty_sub_goals_returns_none(self) -> None:
         """빈 plan이 들어오면 rewrite 실패."""
@@ -157,7 +154,10 @@ class RewritePlanEdgeCaseTests(unittest.TestCase):
 
 
 class TrustAwareRewriteTests(unittest.TestCase):
-    """02 §3-7: url_template_trust == 'inferred' 이면 rewrite 보류 (원 plan 유지)."""
+    """Option B (2026-04-18): trust 기반 skip 제거. verified / declared / inferred 전부 허용.
+    이전 정책 (inferred skip)은 Hook B 사실상 비활성 유발 → LLM derivation inferred edge를
+    활용하기 위해 trust 필터 제거. Malformed URL은 별도 guard로 처리.
+    """
 
     def _ctx_with_trust(self, url_trust: str, edge_trust: str) -> KGContext:
         kg = SiteKG(site="gitlab")
@@ -183,19 +183,34 @@ class TrustAwareRewriteTests(unittest.TestCase):
         kg.realizes_edges.extend(it.realizes)
         return KGContext(kg=kg, site_config=SiteConfig(site="gitlab"))
 
-    def test_inferred_url_template_skips_rewrite(self) -> None:
+    def test_inferred_url_template_allows_rewrite(self) -> None:
+        """Option B: inferred url_template_trust도 rewrite 진행."""
         ctx = self._ctx_with_trust(url_trust="inferred", edge_trust="declared")
         sub_goals = [SubGoal("nav", "navigation")]
         lookup = KGLookup(infotype="issues_list", bindings={"project_path": "a/b"})
-        self.assertIsNone(rewrite_plan(sub_goals, lookup, ctx))
+        result = rewrite_plan(sub_goals, lookup, ctx)
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIn("/a/b/-/issues", result[0].goal)
 
-    def test_inferred_realizes_edge_skips_rewrite(self) -> None:
+    def test_inferred_realizes_edge_allows_rewrite(self) -> None:
+        """Option B: inferred edge.trust도 rewrite 진행."""
         ctx = self._ctx_with_trust(url_trust="declared", edge_trust="inferred")
         sub_goals = [SubGoal("nav", "navigation")]
         lookup = KGLookup(infotype="issues_list", bindings={"project_path": "a/b"})
-        self.assertIsNone(rewrite_plan(sub_goals, lookup, ctx))
+        result = rewrite_plan(sub_goals, lookup, ctx)
+        self.assertIsNotNone(result)
+
+    def test_verified_inferred_hybrid_allows_rewrite(self) -> None:
+        """verified url + inferred edge 혼합도 rewrite 진행."""
+        ctx = self._ctx_with_trust(url_trust="verified", edge_trust="inferred")
+        sub_goals = [SubGoal("nav", "navigation")]
+        lookup = KGLookup(infotype="issues_list", bindings={"project_path": "a/b"})
+        result = rewrite_plan(sub_goals, lookup, ctx)
+        self.assertIsNotNone(result)
 
     def test_declared_trust_allows_rewrite(self) -> None:
+        """declared도 여전히 허용 (본 연구 frozen KG에는 없지만 schema 상 유효)."""
         ctx = self._ctx_with_trust(url_trust="declared", edge_trust="declared")
         sub_goals = [SubGoal("nav", "navigation")]
         lookup = KGLookup(infotype="issues_list", bindings={"project_path": "a/b"})
@@ -204,6 +219,37 @@ class TrustAwareRewriteTests(unittest.TestCase):
         assert result is not None
         self.assertEqual(len(result), 1)
         self.assertIn("/a/b/-/issues", result[0].goal)
+
+
+class IncompleteUrlGuardTests(unittest.TestCase):
+    """Option B: emit_target_url이 unfilled slot을 남기면 rewrite skip (malformed URL 방지)."""
+
+    def test_unfilled_path_slot_skips_rewrite(self) -> None:
+        """path slot이 binding 없이 literal로 남으면 rewrite 진행 안 함."""
+        kg = SiteKG(site="gitlab")
+        kg.state_patterns["p1"] = StatePattern(
+            id="p1",
+            url_template="/{namespace}/{project}/-/{section}",
+            path_params={
+                "namespace": {"type": "segment"},
+                "project": {"type": "segment"},
+                "section": {"type": "segment"},
+            },
+            url_template_trust="inferred",
+        )
+        it = InfoType(
+            name="t1",
+            required_bindings=["namespace", "project"],
+            realizes=[RealizesEdge(
+                infotype="t1", state_pattern_id="p1", condition="default", trust="inferred",
+            )],
+        )
+        kg.infotypes["t1"] = it
+        kg.realizes_edges.extend(it.realizes)
+        ctx = KGContext(kg=kg, site_config=SiteConfig(site="gitlab"))
+        lookup = KGLookup(infotype="t1", bindings={"namespace": "a", "project": "b"})
+        # section binding 누락 → URL에 {section} 남음 → rewrite skip
+        self.assertIsNone(rewrite_plan([SubGoal("x", "navigation")], lookup, ctx))
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ H1a_overall × H1b_overall (each +/null/−, 주요 4 case):
 |---|---|---|
 | **Uniform positive** | 3 types 모두 significant +  | "KG가 task type에 무관하게 개선" |
 | **Uniform null** | 3 types 모두 null | "KG 효과 미관측, methodology + failure mode가 contribution" |
-| **Heterogeneous (예: NAV+, MUT−)** | NAV 개선, MUT 손실 | "KG의 이득은 task type에 의존 — emit_url/rewrite이 NAVIGATE에 유리, MUTATE form interaction에는 over-rewrite risk. schema/hook 설계 가이드" |
+| **Heterogeneous (예: NAV+, MUT−)** | NAV 개선, MUT 손실 | "KG의 이득은 task type에 의존 — emit_url/rewrite이 NAVIGATE에 유리, MUTATE form interaction에는 over-rewrite risk. schema/hook 설계 가이드. **Phase 2C Hook A path-slot guidance + runtime context auto-fill**로 MUT Hook B activation 증가 시도" |
 | **Selective positive** | 1 type만 significant | "KG effect가 특정 task kind에 집중 — 어느 hook이 어느 task에 기여하는지 qualitative 분석" |
 
 Per-type heterogeneous pattern은 **단순 "KG > baseline"보다 훨씬 informative** —
@@ -78,26 +78,32 @@ Our contributions are:
 측정 후 어떤 시나리오로 결정나도 다음 구조 유지:
 
 ### §3.1 H1a (정확도)
-- Table 1 cell: 3 variant × success rate (Wilson 95% CI)
-- McNemar test result (Baseline ↔ Full KG) + (Baseline ↔ KG-Info-Ignored) +
-  (KG-Info-Ignored ↔ Full KG)
+- Table 1 cell: 2 variant × success rate (Wilson 95% CI) × 4 row (overall + NAV/RET/MUT)
+- McNemar exact test (Baseline ↔ Full KG), overall α=0.05, per-type α=0.0167 (Bonferroni 3)
 - *결과 부호와 무관하게* 같은 표 구조.
 
 ### §3.2 H1b (효율)
-- Table 1 cell: 3 variant × token / step / wall-time 평균 (per task)
+- Table 1 cell: 2 variant × token / step / wall-time 평균 (per task)
 - Wilcoxon signed-rank test (paired)
 
-### §3.3 KG 정보 vs 추가 compute (confounding 분리)
-- KG-Info-Ignored ↔ Full KG의 차이 = KG 정보의 순수 기여
-- Baseline ↔ KG-Info-Ignored의 차이 = 추가 LLM call의 reasoning step 효과
+### §3.3 KG 정보 vs 추가 compute (confounding 분리) — future work
+- 3rd variant KG-Info-Ignored는 scope 축소로 future work (`07 §11`)
+- 본 연구는 Baseline ↔ Full KG 2-variant 비교로 한정
+- Compute confounding은 token/step 수치 보고로 partial 차단
 
 ### §3.4 Failure mode 분석
-- P/R/G/A/O 분포 × 3 variant
+- P/R/G/A/O 분포 × 2 variant
 - 각 variant가 어느 카테고리 실패를 줄였는지/늘렸는지
 
 ### §3.5 KG-addressable coverage
-- 50 task 중 Hook A `plan_to_info` 성공률
+- 30 task 중 Hook A `plan_to_info` 성공률
 - task_type subset별
+
+### §3.6 Hook 세분 발동 통계 (2026-04-18 Option B 이후)
+- Hook A classified / declined / not_called / other (기존)
+- **Hook B applied / skipped (trust) / skipped (incomplete_url)** — Option B 활성 후 신규
+- **Hook C early SUCCESS** — NAVIGATE에서만 (RET/MUT suppressed by task_type gate)
+- `scripts/coverage.py` 자동 집계 → `output/phase_c_180/coverage.md` 참조
 
 ---
 
@@ -151,7 +157,9 @@ Our contributions are:
 
 - [x] Triple contribution (C1/C2/C3) framing — `07 §1`
 - [x] Dual H1 (H1a/H1b) two-tailed — `06 §4-4`
-- [x] 3 variants (Baseline / KG-Info-Ignored / Full KG) — `07 §5`
+- [x] 2 variants (Baseline / Full KG) — `07 §5` (2026-04-17 scope reduction, KG-Info-Ignored future work)
+- [x] Trust policy Option B (verified/declared/inferred 전부 수용) — `07 §14` (2026-04-18)
+- [x] Hook C early-termination NAVIGATE-only gate — `05 §5` (2026-04-18)
 - [x] Statistical test (McNemar paired binary, Wilcoxon paired continuous) — `06 §4`
 - [x] Statistical test: overall α=0.05 (single pairwise), per-type α=0.0167 (Bonferroni 3) — `06 §4-3`
 - [x] Per-run paired binarization rule (majority vote) — `06 §4-5`

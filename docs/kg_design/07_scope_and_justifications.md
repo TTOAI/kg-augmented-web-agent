@@ -472,6 +472,72 @@ labeling*이 아니라 *generic web-engineering knowledge*:
   **방어**: ARI mean=0.926 (3 runs) 보고. group 수 변동(49~105)은 cluster 세분화 차이로
   member-level 일관성은 강함.
 
+### Hook A prompt guidance + runtime context auto-fill (2026-04-18 Phase 2C)
+
+Hook A `plan_to_info` tool schema + system prompt에 각 InfoType의 path_slots를 명시하고,
+agent의 현재 페이지 URL에서 path slot을 자동 추출해 `runtime_context["path_slots"]`에
+주입. Hook B `emit_target_url`이 bindings 부족 시 runtime_context로 fallback.
+
+- **동기**: Phase 2B smoke에서 MUT task 2건이 `rewrite skipped: incomplete_url` (unfilled
+  path slot)로 Hook B 비활성. Hook A가 `bindings={}` 반환하는 것이 근본 원인.
+- **C1 (prompt)**: 각 InfoType에 `path_slots=[namespace, project_path, ...]` 표기 + "Path
+  slot extraction" rule로 LLM이 path slot을 bindings에 포함하도록 유도.
+- **C2 (runtime context)**: `executor._update_runtime_context_from_url`이 현재 URL을
+  모든 StatePattern과 매칭, path_params slot을 `runtime_context["path_slots"]` dict에
+  병합. `emit_target_url`이 bindings 우선 → runtime_context fallback 순으로 state_bindings
+  채움.
+- **원칙 유지**: C1/C2 모두 task-independent generic rule. `07 §14 no per-task manual
+  labeling` 원칙 위반 아님. 모든 InfoType에 동일 규칙 적용.
+- **Reviewer 방어**: Phase 2C smoke에서 MUT에서 Hook B applied 증가 관찰 예정. Phase 3
+  본 측정의 MUT SR 개선 여부는 `docs/08` heterogeneous scenario narrative로 기록.
+
+### Trust policy (2026-04-18 Option B — verified/declared/inferred 전부 수용)
+
+Hook B `rewrite_plan`의 trust threshold 정책:
+
+- **변경 전 (2026-04-17까지)**: `url_template_trust == "inferred"` 또는 `edge.trust == "inferred"`
+  이면 rewrite skip → verified-only 보수 정책. Frozen KG가 LLM derivation (inferred)
+  source 상당 포함이라 kg_full smoke 시 **Hook B가 모든 case에서 비활성** 관찰.
+- **변경 후 (2026-04-18 Option B)**: trust 기반 skip 조건 제거. verified / declared /
+  inferred 전부 rewrite 진행. 단 emit_target_url이 `{slot}` unfilled 상태로 반환 시
+  (LLM derivation의 incomplete binding)는 별도 guard로 skip (malformed URL navigation
+  방지).
+- **근거**: `07 §1` triple contribution C1/C2 검증에 Hook B의 실제 효과 측정 필요. 비활성
+  Hook은 논문 narrative 약화. Trust policy 변경은 **task-independent generic rule 변경**
+  이므로 `07 §14` "no per-task manual labeling" 원칙 위반 아님.
+- **Reporting 의무**: `scripts/coverage.py`에 Hook B applied / skipped (trust) /
+  skipped (incomplete_url) / Hook C early SUCCESS count per task를 포함 (`06 §3-4` 연동).
+- **Future work**: Trust adaptive thresholding (context-dependent dynamic threshold)는
+  본 연구 1단계 (fixed threshold) 넘어선 후속 연구.
+
+### Phase 2 개선사항 공식 기재 (2026-04-16 ~ 2026-04-18)
+
+Baseline·KG 공통 engineering fix로 본 측정 직전 적용. 모든 수정은 `07 §5-1` 분류 중
+Standard adherence / Justified deviation / Engineering necessity 중 하나. 자세한 rationale은
+각 commit log 및 `docs/kg_design/10_phase_c_postmortem.md` 참조.
+
+| ID | 파일 | 카테고리 | 요약 |
+|---|---|---|---|
+| R1 | run_analysis.sh | Engineering | eval-tasks 자동 배치 호출 |
+| Y-code-1 | kg_integration.py | Engineering | KG load exception 구체화 (silent fallback 축소) |
+| Y-code-2 | executor.py | Engineering | LLM call budget 350→450 + env override |
+| Y-code-3 | llm.py | Engineering | OpenAI APIConnectionError/APITimeoutError retry (expo backoff) |
+| Y-code-4 | browser.py | Standard | URL `.lower()` 정규화 제거 (원본 case 보존) |
+| Y-code-5 | executor.py | Justified | declare_error gate NOT_FOUND/ACTION_NOT_ALLOWED는 1회 허용 |
+| Y-pipe-1 | monitor_phase_c.py | Engineering | ENV_ERROR 토큰 정밀화 (false positive 제거) |
+| Y-pipe-2 | analyze_baseline.py | Engineering | eval_missing / agent_missing flag |
+| Y-pipe-3 | coverage.py | Engineering | Hook A 상태 머신 (classified/declined/not_called/other) |
+| Y-pipe-4 | run_analysis.sh | Engineering | task_types.txt 동기화 abort-on-mismatch |
+| Rev-1 | run_*.sh | Standard | LLM_TEMPERATURE=0 전 script 일관성 |
+| P2-A12 | run_*.sh | Engineering | `.env` OPENAI_MODEL main.log 명시 기록 (재현성) |
+| P2B-A1 | rewrite.py | Justified | Trust-based skip 제거 (Option B, verified+declared+inferred 수용) |
+| P2B-A2 | rewrite.py | Engineering | Malformed URL (unfilled slot) guard |
+| P2B-A3 | validator.py | Justified | Hook C early-termination을 NAVIGATE로 제한 (RET/MUT false positive 방지) |
+| P2C-A1 | kg_integration.py | Justified | Hook A prompt/schema에 path_slots 정보 embed + extraction rule |
+| P2C-A2 | urlnorm.py | Engineering | extract_path_slots_from_url helper (C2 기반) |
+| P2C-A3 | executor.py | Justified | _update_runtime_context_from_url 초기 1회 호출 (agent URL → path_slots) |
+| P2C-A4 | query.py | Engineering | emit_target_url이 runtime_context.path_slots로 unfilled slot 보완 (bindings 우선) |
+
 ---
 
 ## 15. 이 문서의 후속 동작

@@ -31,7 +31,7 @@ class TargetReachedTests(unittest.TestCase):
         )
         self.assertTrue(target_reached(
             "/a11yproject/a11yproject.com/-/issues?state=opened&label_name[]=bug",
-            lookup, self.ctx,
+            lookup, self.ctx, task_type="NAVIGATE",
         ))
 
     def test_wrong_project_not_reached(self) -> None:
@@ -41,7 +41,7 @@ class TargetReachedTests(unittest.TestCase):
         )
         self.assertFalse(target_reached(
             "/other/project/-/issues?state=opened&label_name[]=bug",
-            lookup, self.ctx,
+            lookup, self.ctx, task_type="NAVIGATE",
         ))
 
     def test_missing_filter_not_reached(self) -> None:
@@ -56,7 +56,7 @@ class TargetReachedTests(unittest.TestCase):
         )
         self.assertFalse(target_reached(
             "/p/-/issues?state=opened",
-            lookup, self.ctx,
+            lookup, self.ctx, task_type="NAVIGATE",
         ))
 
     def test_decorative_param_ignored(self) -> None:
@@ -71,7 +71,7 @@ class TargetReachedTests(unittest.TestCase):
         )
         self.assertTrue(target_reached(
             "/p/-/issues?state=opened&label_name[]=bug&page=2",
-            lookup, self.ctx,
+            lookup, self.ctx, task_type="NAVIGATE",
         ))
 
     def test_unknown_infotype_returns_false(self) -> None:
@@ -85,6 +85,45 @@ class TargetReachedTests(unittest.TestCase):
             bindings={"project_path": "primer/design"},
         )
         self.assertTrue(target_reached(
+            "/primer/design/-/graphs/main", lookup, self.ctx, task_type="NAVIGATE",
+        ))
+
+    def test_target_reached_suppressed_for_retrieve(self) -> None:
+        """RETRIEVE task는 URL 도달만으로 SUCCESS 선언 안 함 (data 추출 필요)."""
+        lookup = KGLookup(
+            infotype="issues_list",
+            bindings={
+                "project_path": "a11yproject/a11yproject.com",
+                "state": "opened",
+                "label_name": ["bug"],
+            },
+        )
+        # URL match는 True이지만 task_type=RETRIEVE → False
+        self.assertFalse(target_reached(
+            "/a11yproject/a11yproject.com/-/issues?state=opened&label_name[]=bug",
+            lookup, self.ctx, task_type="RETRIEVE",
+        ))
+
+    def test_target_reached_suppressed_for_mutate(self) -> None:
+        """MUTATE task도 URL 도달만으로 SUCCESS 선언 안 함 (form submit 필요)."""
+        lookup = KGLookup(
+            infotype="issues_list",
+            bindings={
+                "project_path": "p", "state": "opened", "label_name": ["bug"],
+            },
+        )
+        self.assertFalse(target_reached(
+            "/p/-/issues?state=opened&label_name[]=bug",
+            lookup, self.ctx, task_type="MUTATE",
+        ))
+
+    def test_target_reached_none_task_type_suppressed(self) -> None:
+        """task_type=None (미지정)이면 보수적으로 suppress."""
+        lookup = KGLookup(
+            infotype="project_commits_contributors",
+            bindings={"project_path": "primer/design"},
+        )
+        self.assertFalse(target_reached(
             "/primer/design/-/graphs/main", lookup, self.ctx,
         ))
 

@@ -199,11 +199,39 @@ scope 근거: `07_scope_and_justifications.md §1`. 탑티어용 세분 기여(p
 
 이 full 주장은 KG-retrieval ablation 및 URL-emission-only ablation이 뒷받침하며, 본 논문의 scope 밖이다. 이 관련 연구 맵(§1~§3)은 두 framing 모두를 지원한다.
 
-## 5. 남은 조사 항목 (우선순위 낮음)
+## 5. 남은 조사 항목 (우선순위 낮음) + Concurrent work hedge
 
 - **Knowledge graph for web tasks 직접 검색**: "site-specific KG" + "web agent" 2025~2026 arxiv.
 - **API-based web agents** (Beyond Browsing 계열)와의 관계: API KG도 일종의 structured 지식.
 - **WebVoyager 및 멀티모달 계열**: 본 연구의 text-centric scope 정당성 보강.
+
+### Future Work Roadmap (본 연구를 1단계로 한 후속 연구)
+
+본 연구는 **1단계: Site-specific state-transition KG** — URL target 기반. 본 연구에서
+관찰된 per-type heterogeneous effect (MUT 제한)는 2단계 연구의 motivation.
+
+**2단계 (후속 논문 scope)**:
+- **Action-sequence InfoType schema (C8)** — current state-transition → state + action
+  sequence hybrid. AWM (workflow-level memory)와 통합 가능. MUT task에서 "form submit →
+  commit" 순차 action hint 제공.
+- **Hook-level ablation (H3)** — 4-5 variants (Baseline, A only, A+B, A+B+C, A+B+C+D)로
+  각 Hook의 individual contribution 정량화.
+- **Trust adaptive thresholding** — current fixed policy (verified+declared+inferred
+  accept)를 context-dependent로 확장.
+
+1단계 결과 (특히 per-type heterogeneous MUT-) 가 2단계 연구의 direct evidence 역할.
+
+### Concurrent work disclosure (논문 본문 Related Work 문단 말미 권장)
+
+> "The web agent literature is evolving rapidly with concurrent work in 2025-2026 on
+> memory-augmented, hierarchical, and tool-use hybrid agents. We position our contribution
+> within the trajectory-memory (AWM [14]) and KG-based retrieval (GraphRAG [8]) lines;
+> parallel developments in self-supervised site adaptation and multi-modal grounding are
+> complementary directions beyond our 3-page scope."
+
+**목적**: "최근 연구 누락" reviewer 반박에 대한 pre-emptive 방어. 본 3-page scope는
+text-centric + single-site로 제한되므로 multi-modal / multi-site concurrent work를 모두
+다룰 수 없음을 명시.
 
 본 논문 3-page에 들어갈 Related Work 섹션은 약 0.3 page. 현 §1~§3 12개 접근 중 **논문 Related Work에서 언급할 핵심 3~4개만 선별** 필요:
 - **AWM** (trajectory memory): 가장 가까운 비교군, 필수 언급

@@ -269,15 +269,15 @@ Reviewer가 이 중 한 항목을 지적해도 "우리가 먼저 future work로 
 [KG 구현]
   2. M1~M6 (05 참고). 구현 + KG-Info-Ignored variant 분기 추가
 
-[본 실험 — 3 variants]
-  3. Baseline × N=3 × 50 task = 150 runs (1과 재사용 가능)
-  4. KG-Info-Ignored × N=3 × 50 task = 150 runs
-  5. Full KG × N=3 × 50 task = 150 runs
-  6. McNemar/Wilcoxon 검정:
-     - H1a: Baseline ↔ Full KG (success rate)
-     - H1b: Baseline ↔ Full KG (token/step/time)
-     - Confounding 분리: KG-Info-Ignored ↔ Full KG (KG 정보 기여)
-  7. Failure classification (단일 저자 intra-rater agreement)
+[본 실험 — 2 variants (2026-04-17 scope reduction, 07 §5)]
+  3. Baseline × N=3 × 30 task = 90 runs (KG off)
+  4. Full KG × N=3 × 30 task = 90 runs (Hook A/B/C on, D logging only)
+  5. 총 180 runs. 3rd variant KG-Info-Ignored (compute-matched control)는 future work (07 §11).
+  6. McNemar/Wilcoxon 검정 (Baseline ↔ Full KG만):
+     - H1a: 성공률 paired McNemar, overall α=0.05 + per-type α=0.0167 (Bonferroni 3)
+     - H1b: token/step/wall-time paired Wilcoxon
+  7. Failure classification (P/R/G/A/O) + Cohen's κ (2-rater)
+  8. Hook B/C 발동 통계 (coverage.py 확장, Option B 활성 후)
 
 [논문 작성]
   8. Introduction / Method / Experiment / Discussion / Limitation / References

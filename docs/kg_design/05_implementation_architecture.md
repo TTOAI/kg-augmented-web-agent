@@ -212,7 +212,31 @@ HOOK D:
 | variant | HOOK A | HOOK B | HOOK C | HOOK D |
 |---|---|---|---|---|
 | **Baseline** | ✗ | ✗ | ✗ | ✗ |
-| **Full KG** (본 연구) | ✓ | ✓ (adaptive) | ✓ | ✓ (로깅 전용, trust 변동 없음) |
+| **Full KG** (본 연구) | ✓ | ✓ (trust=verified/declared/inferred, Option B) | ✓ (NAVIGATE only) | ✓ (로깅 전용, trust 변동 없음) |
+
+### Hook A path-slot guidance (2026-04-18 Phase 2C)
+- `build_plan_to_info_tool` + `build_plan_to_info_system_prompt`가 각 InfoType별
+  path_slots (namespace, project_path, ref 등)을 명시
+- LLM에게 "Path slot extraction" rule 제공 → MUT task에서도 path slot을 bindings에 포함
+- 기존 required/optional_bindings + 신규 path_slots 3단 표기
+
+### Runtime context auto-fill (2026-04-18 Phase 2C, C2)
+- `executor._update_runtime_context_from_url(page.url, kg_context)` 초기 1회 호출
+- 모든 StatePattern에 대해 URL → path_params slot 추출 (`urlnorm.extract_path_slots_from_url`)
+- `kg_context.runtime_context["path_slots"]` dict에 병합
+- `emit_target_url`이 bindings 우선, runtime_context.path_slots fallback
+- 목적: Hook A가 bindings={} 반환해도 agent 현재 URL의 slot으로 Hook B가 rewrite 가능
+
+### Hook B trust policy (2026-04-18 Option B)
+- verified / declared / inferred 전부 수용 (2026-04-17 verified-only 정책에서 확장)
+- Malformed URL (unfilled `{slot}`) 만 skip (Incomplete URL guard in `kg/rewrite.py`)
+- 자세한 규칙: `07 §14 Trust policy` 참조
+
+### Hook C early-termination gate (2026-04-18 Issue #1 fix)
+- `kg/validator.py:target_reached(..., task_type)`에 task_type 인자 추가
+- NAVIGATE: URL 도달만으로 SUCCESS 선언 → early-termination 활성
+- RETRIEVE / MUTATE: URL 도달만으로 불충분 (data 추출 / form submit 필요) → suppress
+- `executor.py`의 Hook C caller가 현 task_type 명시 전달
 
 하나의 `kg_integration.py`에 `enabled_hooks: set[Hook]` 파라미터로 control:
 - Baseline: `enabled_hooks = set()`
@@ -229,6 +253,91 @@ HOOK D:
 | KG-retrieval | A + B(facts prompt 주입) | retrieval vs structural operator 분리 |
 
 코드베이스 설계는 이 확장을 수용하도록 만들되, 본 논문 실험에선 **Baseline / Full KG** 두 개만 돌림. 후속 연구에서 `enabled_hooks` 조합만 바꿔 확장 가능.
+
+---
+
+## 5-1. Multi-call LLM derivation — 3-call decomposition 상세
+
+Stage 2 (LLM derivation)는 reasoning model의 single-call context overflow + tool-call
+complexity 문제를 피하기 위해 **3개의 독립 tool call**로 분할한다. `site_adaptive_webagent/
+kg/seed/llm_derivation.py`에 구현됨.
+
+### Pipeline
+
+```
+CrawlResult
+    │ (StatePattern 3040개, literal URL)
+    ▼
+┌──────────────────────────────────────────────────┐
+│ Call 1 — derive_state_pattern_groups             │
+│   Input:  literal StatePattern list              │
+│   Output: {group_id: [pattern_id, ...]} +        │
+│           semantic template (path/query slot)     │
+│   _TOOL_GROUPS tool schema, max_tokens=65536      │
+└──────────────────────────────────────────────────┘
+    │ (StatePatternGroup, 49-105개 — run-to-run)
+    ▼
+┌──────────────────────────────────────────────────┐
+│ Call 2 — derive_infotypes                        │
+│   Input:  StatePatternGroup list + group_id      │
+│   Output: InfoType 명명 + realize edges          │
+│           (InfoType → StatePatternGroup)          │
+│   _TOOL_INFOTYPES tool schema, max_tokens=32768   │
+└──────────────────────────────────────────────────┘
+    │ (InfoType ~37개)
+    ▼
+┌──────────────────────────────────────────────────┐
+│ Call 3 — derive_action_renames                   │
+│   Input:  LeadsToEdge 후보 목록                  │
+│   Output: action 이름 표준화                     │
+│   _TOOL_ACTIONS tool schema, max_tokens=16384     │
+└──────────────────────────────────────────────────┘
+    │
+    ▼
+DerivationResult → derivation_to_kg → inferred-trust SiteKG
+    │
+    ▼
+post_enrich.py (LLM 재호출 0)
+    │ D1: binding_map (bindings ↔ slot/query name exact match + [] variant)
+    │ D2: path_params (*_path → path_segments, else segment)
+    │ D3: query_params (optional_bindings → query param backfill)
+    │ D6: InfoType category (prefix-based taxonomy clustering)
+    ▼
+Frozen SiteKG (immutable)
+```
+
+### Reasoning model settings
+
+- Model: `gpt-5.4` (Reasoning model, `responses` API)
+- `reasoning_effort="low"` — 3-call 분할 후 각 call의 tokens-in-context가 충분히 작아
+  low effort로도 안정적 (ARI mean = 0.9264, N=3 runs)
+- 각 call의 tool schema는 strict JSON schema validation으로 응답 구조 보장
+- Retry 없음 — tool_call 실패 시 즉시 hard failure (derivation 재시작)
+
+### 왜 3-call인가 (decomposition 설계 근거)
+
+1. **Context overflow 방지**: single-call로 3040개 literal StatePattern + groupig +
+   InfoType + action renames을 모두 출력시키면 reasoning context가 폭발해 quality degrade
+   + timeout 빈도 증가. 각 call을 한 task에 집중시켜 context 효율 확보.
+2. **Tool schema granularity**: 3 subtask는 출력 구조가 근본적으로 다름 (group_id map,
+   realize edges, action renames). Single tool로 묶으면 schema complexity가 높아져
+   validation 실패 빈번.
+3. **Error recovery**: 특정 call만 실패 시 부분 재시도 가능 (현 코드는 전체 재시작이나,
+   확장 여지 설계).
+
+### Reproducibility
+
+3회 독립 derivation run (seed 변경 없음 — LLM 자체 비결정성만):
+- ARI (group-level, 3-run Adjusted Rand Index mean) = **0.9264**
+- Group 수 variance: 49~105 (cluster 세분화 차이는 있되 member 일관성 강함)
+- 최종 InfoType count (post_enrich 후): 37
+
+Pipeline CLI:
+```bash
+.venv/bin/python -m site_adaptive_webagent.kg.seed.run_derivation \
+    --crawl-dir output/crawl/<timestamp> \
+    --output output/derivation/<timestamp>
+```
 
 ---
 

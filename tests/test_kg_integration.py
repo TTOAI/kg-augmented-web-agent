@@ -45,6 +45,22 @@ class PlanToInfoToolTests(unittest.TestCase):
         for name in self.kg.infotypes:
             self.assertIn(name, prompt)
 
+    def test_tool_enum_excludes_path_slots_hint(self) -> None:
+        """Phase 2C C1 rollback: path_slot 힌트는 prompt/schema에 포함 안 함.
+
+        C1 smoke에서 path_slot embed가 Hook A에게 rich-but-wrong bindings 유도 →
+        agent를 잘못된 URL로 보내는 사례 관찰됨. C1은 rollback, C2 runtime
+        context auto-fill로만 bindings 부족을 보완.
+        """
+        tool = build_plan_to_info_tool(self.kg)
+        enum_desc = tool["input_schema"]["properties"]["target_infotype"]["description"]
+        self.assertNotIn("path_slots=[", enum_desc)
+
+    def test_system_prompt_no_path_slot_rule(self) -> None:
+        """Phase 2C C1 rollback: prompt Rules에 path_slot extraction 문구 없음."""
+        prompt = build_plan_to_info_system_prompt(self.kg)
+        self.assertNotIn("Path slot extraction", prompt)
+
 
 class ClassifyIntentTests(unittest.TestCase):
     def setUp(self) -> None:

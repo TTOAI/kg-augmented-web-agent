@@ -3,9 +3,10 @@
 __pycache__/
 *.pyc
 
+.codex/
+.claude/
 /output/
 /output_master_compare/
-.codex/
 /docs/archive/
 /docs/weekly_reports/
 /docs/research_proposal/

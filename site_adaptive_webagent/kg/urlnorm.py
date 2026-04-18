@@ -253,6 +253,29 @@ def match_pattern(
     return True, bindings
 
 
+def extract_path_slots_from_url(
+    url: str,
+    pattern: StatePattern,
+    site_config: SiteConfig,
+    runtime_context: dict | None = None,
+) -> dict[str, Any] | None:
+    """URL이 StatePattern과 매칭되면 path_params slot 값만 dict로 반환.
+
+    Phase 2C C2 helper: agent가 현재 보고 있는 URL에서 path slot을 추출해
+    runtime_context에 주입하기 위해 사용. emit_target_url이 다음 Hook B call에서
+    이 slot들을 재사용.
+
+    Returns:
+        매칭 성공 시 {"namespace": "byteblaze", "project_path": "cloud-to-butt", ...}
+        매칭 실패 시 None
+    """
+    ok, bindings = match_pattern(url, pattern, site_config, runtime_context)
+    if not ok:
+        return None
+    path_bindings = {k: v for k, v in bindings.items() if k in pattern.path_params}
+    return path_bindings if path_bindings else None
+
+
 def _match_path_template(path: str, pattern: StatePattern) -> tuple[bool, dict[str, Any]]:
     """url_template의 {slot}을 path의 실제 값으로 추출.
 
