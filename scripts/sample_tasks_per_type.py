@@ -1,9 +1,9 @@
-"""WebArena-Verified GitLab 180 task 모집단에서 task_type별 N개를 random sampling.
+"""WebArena-Verified GitLab task 모집단에서 task_type별 N개를 random sampling.
 
-정당화 (docs/kg_design/07 §3):
-- 연구 질문이 "KG의 task type별 heterogeneous effect" → per-type equal sampling
-- seed=42 고정으로 재현성 보장
-- task_type 분류는 `run_baseline_n3.sh` 라인 37~45의 정규식 재사용 (사이트 공통 heuristic)
+원칙:
+- task type 별 heterogeneous effect 분석을 위한 per-type equal sampling
+- seed 고정으로 재현성 보장
+- task_type 분류는 사이트 공통 heuristic 정규식 (intent 문자열 기반)
 
 사용:
   python scripts/sample_tasks_per_type.py \\
