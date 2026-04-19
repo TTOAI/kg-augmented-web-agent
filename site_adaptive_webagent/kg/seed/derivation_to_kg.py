@@ -1,4 +1,4 @@
-"""DerivationResult → SiteKG (source=llm) 변환 — M4-B 후처리.
+"""DerivationResult → SiteKG (source=llm) 변환 (LLM derivation 후처리).
 
 LLM derivation 결과를 source=llm/trust=inferred SiteKG로 만들어 manual seed +
 crawl SiteKG와 별개로 보관한다. 호출자가 SiteKGStore.merge로 합치며,

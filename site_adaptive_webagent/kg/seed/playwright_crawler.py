@@ -1,6 +1,6 @@
-"""Playwright auto-crawl — 3단계 hybrid 구축의 단계 1 (M4-A).
+"""Playwright auto-crawl (collector 1단계).
 
-docs/kg_design/07 §14의 `source=crawl` / `trust=verified` layer를 생산한다.
+`source=crawl` / `trust=verified` layer를 생산한다.
 
 입력:
 - base_url: 사이트 루트 URL (예: "http://localhost:8023")

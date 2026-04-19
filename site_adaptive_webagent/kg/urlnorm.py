@@ -261,9 +261,8 @@ def extract_path_slots_from_url(
 ) -> dict[str, Any] | None:
     """URL이 StatePattern과 매칭되면 path_params slot 값만 dict로 반환.
 
-    Phase 2C C2 helper: agent가 현재 보고 있는 URL에서 path slot을 추출해
-    runtime_context에 주입하기 위해 사용. emit_target_url이 다음 Hook B call에서
-    이 slot들을 재사용.
+    현재 URL에서 path slot을 추출하는 helper. emit_target_url에서 bindings
+    미제공 slot의 fallback 값으로 재사용 가능.
 
     Returns:
         매칭 성공 시 {"namespace": "byteblaze", "project_path": "cloud-to-butt", ...}

@@ -1,4 +1,4 @@
-"""M4-B CLI: M4-A crawl 산출물에 LLM derivation을 적용해 derived_kg.json 생성.
+"""LLM derivation CLI: crawl 산출물에 LLM derivation을 적용해 derived_kg.json 생성.
 
 실행 예 (.env 또는 환경변수에 OPENAI_API_KEY + 아래 설정):
   export LLM_PROVIDER=openai
@@ -73,9 +73,9 @@ def _load_crawl_results(path: Path) -> list[CrawlResult]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="M4-B: LLM-assisted KG derivation")
+    parser = argparse.ArgumentParser(description="LLM-assisted KG derivation")
     parser.add_argument("--crawl-dir", required=True, type=Path,
-                        help="M4-A 산출 디렉토리 (crawl_results.json + crawled_kg.json 포함)")
+                        help="crawler 산출 디렉토리 (crawl_results.json + crawled_kg.json 포함)")
     parser.add_argument("--site", required=True, help="site key (e.g., gitlab)")
     parser.add_argument("--output", required=True, type=Path,
                         help="derivation 산출 디렉토리")

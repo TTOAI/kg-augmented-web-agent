@@ -15,7 +15,7 @@ Source = Literal["crawl", "llm", "manual"]
 ParamType = Literal["enum", "string", "multi_string", "int"]
 RealizesCondition = Literal["default", "has_filter"]
 
-# Source → TrustLevel 기본 매핑 (docs/kg_design/02 §3-7)
+# Source → TrustLevel 기본 매핑
 _SOURCE_TO_TRUST: dict[Source, TrustLevel] = {
     "crawl": "verified",
     "manual": "declared",
@@ -190,30 +190,3 @@ class SiteKG:
     git_rev: str | None = None  # freeze 시점 git HEAD (재현성)
 
 
-# ---------------------------------------------------------------------------
-# M2b: Runtime 호출용 container
-# ---------------------------------------------------------------------------
-
-@dataclass(slots=True)
-class KGLookup:
-    """LLM tool use(`plan_to_info`) 결과를 묶은 container.
-
-    agent가 intent를 LLM에게 classify시켜 받은 (InfoType, bindings)가 여기 들어간다.
-    rewrite / validator 호출의 공통 입력.
-    """
-
-    infotype: str
-    bindings: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class KGContext:
-    """KG 호출의 정적 컨텍스트.
-
-    runtime_context: identity token 치환용 dict (예: {"current_user": {"username": "byteblaze"}}).
-    task 별 agent 실행 전에 한 번 구성 → rewrite/validator가 공유.
-    """
-
-    kg: SiteKG
-    site_config: SiteConfig
-    runtime_context: dict[str, Any] = field(default_factory=dict)

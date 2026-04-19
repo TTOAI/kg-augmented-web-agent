@@ -45,13 +45,13 @@ __all__ = [
     "load_site_kg_from_dir",
     "compute_source_mix",
     "BUILDER_VERSION",
-    # M4-A crawler
+    # Crawler
     "crawl_site",
     "CrawlResult",
     "FormElementMeta",
     "crawl_results_to_sitekg",
     "extract_url_template",
-    # M4-B LLM derivation
+    # LLM derivation
     "derive_infotypes_and_actions",
     "DerivationResult",
     "StatePatternGroup",
@@ -62,7 +62,7 @@ __all__ = [
     "auto_fill_path_params",
     "auto_fill_query_params",
     "assign_infotype_category",
-    # M4-C review + freeze
+    # Review + freeze
     "DiffEntry",
     "diff_state_patterns",
     "diff_actions",

@@ -1,4 +1,4 @@
-"""CrawlResult → SiteKG 변환 — M4-A의 offline 후처리.
+"""CrawlResult → SiteKG 변환 (crawler의 offline 후처리).
 
 `playwright_crawler.crawl_site`가 만든 list[CrawlResult]를 받아
 `source="crawl"` / `trust="verified"` 노드·엣지로 구성된 SiteKG를 생산한다.
@@ -49,7 +49,7 @@ def extract_url_template(
          {"slot_0": {"type": "segment"}, "slot_1": {"type": "segment"}})
 
     슬롯 이름은 generic (`slot_N`). 의미 있는 이름(예: `project_path`)은
-    LLM derivation(M4-B) 또는 manual verification(M4-C)에서 부여.
+    LLM derivation 또는 manual verification 단계에서 부여.
     """
     if not urls:
         return ("", {})
@@ -104,7 +104,7 @@ def crawl_results_to_sitekg(
     - form_elements → Action 후보 (action_name=`crawl:form:<path>`)
 
     이 단계는 미세 분류(InfoType, enum 값, default)를 수행하지 않는다 —
-    M4-B(LLM derivation), M4-C(수동 검증)의 책임.
+    LLM derivation과 수동 검증 단계의 책임.
     """
     crawl_results = list(crawl_results)
     kg = SiteKG(site=site)

@@ -1,4 +1,4 @@
-"""3-source SiteKG diff helper — M4-C 수동 검증 보조.
+"""3-source SiteKG diff helper — 수동 검증 보조.
 
 manual / crawl / derived(llm) SiteKG 간 항목별 비교 결과를 markdown 표로 생성.
 사람이 이를 보면서 config/sites/<site>/{infotypes.yaml, kg_seed.json}을 직접

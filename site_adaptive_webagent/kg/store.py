@@ -1,7 +1,6 @@
 """In-memory KG 저장소 + JSON round-trip.
 
-M2 범위: CRUD + lookup + JSON serialize/deserialize.
-M2b 이후에서 trust 업데이트, 수동 패치 API 등이 추가될 수 있음.
+CRUD + lookup + JSON serialize/deserialize.
 
 의미론:
 - SiteKG dataclass가 저장 구조. Store는 얇은 wrapper로 조회·검증 편의 제공.

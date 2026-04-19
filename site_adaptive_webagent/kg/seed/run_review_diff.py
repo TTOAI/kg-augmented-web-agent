@@ -1,4 +1,4 @@
-"""M4-C CLI: manual seed + crawl + derived(llm) 3-source SiteKG diff를 markdown으로.
+"""Review diff CLI: manual seed + crawl + derived(llm) 3-source SiteKG diff를 markdown으로.
 
 실행 예:
   python -m site_adaptive_webagent.kg.seed.run_review_diff \\
@@ -25,14 +25,14 @@ from .seed_loader import load_site_kg_from_dir
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="M4-C: 3-source SiteKG diff helper")
+    parser = argparse.ArgumentParser(description="3-source SiteKG diff helper")
     parser.add_argument("--site", required=True, help="site key (e.g., gitlab)")
     parser.add_argument("--site-config-dir", type=Path, default=Path("config/sites"),
                         help="parent dir containing <site>/")
     parser.add_argument("--crawl-dir", type=Path, default=None,
-                        help="M4-A 출력 디렉토리 (crawled_kg.json)")
+                        help="crawler 출력 디렉토리 (crawled_kg.json)")
     parser.add_argument("--derivation-dir", type=Path, default=None,
-                        help="M4-B 출력 디렉토리 (derived_kg.json)")
+                        help="LLM derivation 출력 디렉토리 (derived_kg.json)")
     parser.add_argument("--output", type=Path, default=None,
                         help="markdown 출력 파일 (생략 시 stdout)")
     args = parser.parse_args(argv)

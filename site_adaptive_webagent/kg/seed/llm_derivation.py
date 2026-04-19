@@ -1,13 +1,11 @@
-"""LLM-assisted InfoType + Action derivation — 3단계 hybrid의 단계 2 (M4-B).
+"""LLM-assisted InfoType + Action derivation (collector 2단계).
 
-docs/kg_design/07 §14의 `source=llm` / `trust=inferred` layer를 생산한다.
-M4-A(crawler)가 만든 SiteKG와 raw CrawlResult를 한 번의 LLM tool call로 넘겨
-의미적 InfoType과 의미적 Action 이름(rename map)을 도출한다.
+`source=llm` / `trust=inferred` layer를 생산한다. crawler가 만든 SiteKG와 raw
+CrawlResult를 LLM tool call로 넘겨 의미적 InfoType과 의미적 Action 이름
+(rename map)을 도출한다.
 
 산출 SiteKG는 `derivation_to_kg.derivation_to_sitekg`에서 구성되며,
 manual seed + crawl SiteKG와 별개로 만들어져 호출자가 SiteKGStore.merge로 합친다.
-
-설계는 `agent/kg_integration.py`의 plan_to_info(Hook A) 패턴을 모방.
 """
 from __future__ import annotations
 

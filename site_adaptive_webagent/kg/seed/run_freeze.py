@@ -1,18 +1,16 @@
-"""M4-C CLI: manual seed (수동 검증 후) + crawl + derived를 단일 immutable snapshot으로 freeze.
+"""Freeze CLI: manual seed (수동 검증 후) + crawl + derived를 단일 immutable snapshot으로 통합.
 
-실행 예 (M4-A·M4-B 산출물이 있고 사람이 manual seed 편집을 마친 후):
+실행 예 (crawl + derivation 산출물이 있고 수동 seed 편집을 마친 후):
   python -m site_adaptive_webagent.kg.seed.run_freeze \\
       --site gitlab \\
       --crawl-dir output/crawl/<ts>/ \\
       --derivation-dir output/derivation/<ts>/ \\
-      --note "M5 baseline 측정 직전 freeze"
+      --note "<freeze 설명>"
 
 산출:
   config/sites/<site>/frozen_kg/<ISO_ts>.json       — SiteKG 통합 snapshot
   config/sites/<site>/frozen_kg/<ISO_ts>.meta.json  — note + git rev + source_mix
   config/sites/<site>/frozen_kg/INDEX.md            — 한 줄 append (최근 freeze)
-
-baseline 실행 시 SITEKG_FROZEN=<snapshot path> env로 단일 snapshot 로드.
 """
 from __future__ import annotations
 
@@ -133,13 +131,13 @@ def freeze(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="M4-C: freeze KG catalog into immutable snapshot")
+    parser = argparse.ArgumentParser(description="Freeze KG catalog into immutable snapshot")
     parser.add_argument("--site", required=True, help="site key (e.g., gitlab)")
     parser.add_argument("--site-config-dir", type=Path, default=Path("config/sites"))
     parser.add_argument("--crawl-dir", type=Path, default=None,
-                        help="M4-A 출력 디렉토리 (선택)")
+                        help="crawler 출력 디렉토리 (선택)")
     parser.add_argument("--derivation-dir", type=Path, default=None,
-                        help="M4-B 출력 디렉토리 (선택)")
+                        help="LLM derivation 출력 디렉토리 (선택)")
     parser.add_argument("--note", default="", help="freeze 사유 한 줄")
     args = parser.parse_args(argv)
 

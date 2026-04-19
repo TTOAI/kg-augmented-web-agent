@@ -1,4 +1,4 @@
-"""M4-A CLI: site config 기준 base_url을 읽어 crawl 수행 후 SiteKG 산출.
+"""Crawler CLI: site config 기준 base_url을 읽어 crawl 수행 후 SiteKG 산출.
 
 실행 예 (GitLab Docker가 떠 있고 storage_state가 준비된 상태):
   python -m site_adaptive_webagent.kg.seed.run_crawl \\
@@ -30,8 +30,8 @@ from .playwright_crawler import crawl_site
 
 
 # 사이트 공식 기능 표면 기준 default seed URL (사이트별로 분기).
-# **금지 사항**: 실험 task ID·실험 task 분포에 맞춘 URL을 추가하지 말 것
-# (docs/kg_design/07 §14 hindsight bias 차단 + memory feedback_no_task_site_bias).
+# **금지 사항**: 실험 task ID·task 분포에 맞춘 URL을 추가하지 말 것
+# (hindsight bias 차단 + memory feedback_no_task_site_bias).
 _DEFAULT_SEEDS: dict[str, list[str]] = {
     "gitlab": [
         "/",
@@ -75,7 +75,7 @@ def _setup_logging(log_path: Path) -> logging.Logger:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="M4-A: Playwright crawler for KG construction")
+    parser = argparse.ArgumentParser(description="Playwright crawler for KG construction")
     parser.add_argument("--site", required=True, help="site key (e.g., gitlab)")
     parser.add_argument("--config", required=True, type=Path, help="webarena_verified.json path")
     parser.add_argument("--site-config-dir", type=Path,

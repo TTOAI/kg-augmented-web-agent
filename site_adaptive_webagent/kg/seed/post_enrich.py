@@ -1,8 +1,8 @@
 """Post-derivation enrichment — LLM 재호출 없이 구조 결함을 자동 채움.
 
 Smoke 분석에서 발견된 결함(0-entries fields, fallback-only schema)을 post-processing
-코드로 보강한다. M4-A(crawl) + M4-B(LLM derivation) 결과를 받아, schema가 요구하는
-필드를 name·regex 기반 heuristic으로 채워 reviewer-proof를 강화한다.
+코드로 보강한다. crawl + LLM derivation 결과를 받아, schema가 요구하는 필드를
+name·regex 기반 heuristic으로 채운다.
 
 결함 매핑:
 - D1 (binding_map 공백): auto_fill_binding_map
