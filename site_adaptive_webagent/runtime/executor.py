@@ -1,22 +1,10 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import Any
 
 logger = logging.getLogger("webarena_verified")
-
-
-def _sitekg_mode() -> str:
-    """R3-α: `SITEKG_MODE` env var로 Hook 세트 전환.
-
-    - `full` (default): Hook A + B (rewrite) + C (validator) 모두 활성. 기존 동작.
-    - `alpha`: Hook A만 활성. kg_lookup 결과는 system prompt에 passive context로 주입.
-               Hook B/C는 skip (Phase 2C β smoke에서 관찰된 false positive 해소 목적).
-    - `disabled`: kg_context가 로드돼도 KG 개입 전체 skip (control).
-    """
-    return os.getenv("SITEKG_MODE", "full").strip().lower()
 
 from .browser import observe_page, try_click_target, try_fill_target, try_search
 from .llm import LLMClient, SubGoal, build_observation_message, build_plan, build_tool_use_system_prompt
@@ -35,38 +23,6 @@ _DECLARE_ERROR_STATUSES: frozenset[str] = frozenset({
 # task_notes 누적 상한. LLM이 매 step memo를 뿌리면 prompt 크기가 쉽게 수십 KB로 부풀어
 # context를 압박한다. 중복 문자열은 drop, 총량이 상한을 넘으면 가장 오래된 항목부터 제거.
 _TASK_NOTES_MAX = 50
-
-
-def _update_runtime_context_from_url(page_url: str, kg_context: Any) -> None:
-    """Phase 2C C2: agent의 현재 page URL에서 path slot을 자동 추출해
-    kg_context.runtime_context["path_slots"]에 병합.
-
-    모든 StatePattern 순회, 매칭되는 패턴의 path_params 값을 통합 dict에 수집.
-    여러 패턴이 매칭되면 각 slot을 union (충돌은 last-write-wins).
-    emit_target_url이 bindings에서 slot을 못 찾으면 runtime_context에서 fallback.
-    """
-    if kg_context is None or not getattr(kg_context, "kg", None):
-        return
-    if not page_url:
-        return
-    try:
-        from site_adaptive_webagent.kg.urlnorm import extract_path_slots_from_url
-    except Exception:
-        return
-    merged: dict[str, Any] = {}
-    for pattern in kg_context.kg.state_patterns.values():
-        try:
-            slots = extract_path_slots_from_url(
-                page_url, pattern, kg_context.site_config, kg_context.runtime_context,
-            )
-        except Exception:
-            continue
-        if slots:
-            merged.update(slots)
-    if merged:
-        existing = kg_context.runtime_context.setdefault("path_slots", {})
-        existing.update(merged)
-        logger.info("[KG] updated runtime_context path_slots: %s", merged)
 
 
 def _append_task_note(task_notes: list[str] | None, note: str) -> None:
@@ -145,17 +101,10 @@ async def execute_with_llm(
     observation: PageObservation,
     llm: LLMClient,
     max_steps: int = 50,
-    kg_context: Any = None,   # Optional[KGContext]; None이면 baseline 동작
-    kg_lookup: Any = None,    # Optional[KGLookup]; Hook A 결과
 ) -> ExecutionOutcome:
-    """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다.
-
-    kg_context / kg_lookup이 주어지면 Hook B (rewrite) + Hook C (validator) 활성.
-    둘 중 하나라도 None이면 baseline 동작.
-    """
+    """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
     t_start = time.time()
     system = build_tool_use_system_prompt()
-    _mode = _sitekg_mode()
 
     # Wrap LLM client with call counter. Task 내 모든 LLM 호출이 자동으로 counter 증가 +
     # 한도 초과 시 _LLMCallLimitExceeded 예외로 loop 탈출.
@@ -172,37 +121,6 @@ async def execute_with_llm(
         )
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
-
-    # Phase 2C C2: 초기 URL에서 path slot auto-fill → runtime_context 주입.
-    # Hook A가 놓친 path slot을 agent의 현재 페이지 URL에서 자동 추출.
-    # Hook B rewrite가 emit_target_url 생성 시 이 slot을 활용.
-    if kg_context is not None and _mode != "disabled":
-        _update_runtime_context_from_url(observation.url, kg_context)
-
-    # R3-α alpha mode: Hook A 결과를 system prompt에 passive context로 주입.
-    # Hook B/C는 skip. agent가 KG 지식을 보지만 URL 강제 이동·early SUCCESS는 없음.
-    if kg_context is not None and kg_lookup is not None and _mode == "alpha":
-        try:
-            from site_adaptive_webagent.agent.kg_integration import format_kg_context_for_prompt
-            kg_block = format_kg_context_for_prompt(kg_context, kg_lookup)
-            if kg_block:
-                system = system + "\n\n" + kg_block
-                logger.info("[KG] alpha mode: kg_context block injected (%d chars, infotype=%s)",
-                            len(kg_block), kg_lookup.infotype)
-        except Exception:
-            logger.exception("[KG] alpha mode: format_kg_context_for_prompt raised — no injection")
-
-    # Hook B: KG-guided plan rewrite (full mode only — R3-α에선 skip)
-    if kg_context is not None and kg_lookup is not None and _mode == "full":
-        try:
-            from site_adaptive_webagent.kg import rewrite_plan as _kg_rewrite_plan
-            rewritten = _kg_rewrite_plan(sub_goals, kg_lookup, kg_context)
-            if rewritten is not None:
-                logger.info("[KG] plan rewritten %d → %d sub-goals", len(sub_goals), len(rewritten))
-                logger.info("[KG] new plan=%s", rewritten)
-                sub_goals = rewritten
-        except Exception:
-            logger.exception("[KG] rewrite_plan raised — falling back to original plan")
 
     checkpoint_stack = [page.url]  # goal별 checkpoint 스택 (index 0 = task 시작 URL)
     task_notes: list[str] = []  # LLM이 수집한 정보 (전체 태스크 동안 유지)
@@ -231,8 +149,6 @@ async def execute_with_llm(
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
                     start_url=checkpoint_stack[0],
-                    kg_context=kg_context,
-                    kg_lookup=kg_lookup,
                 )
             except _LLMCallLimitExceeded as exc:
                 elapsed = time.time() - t_start
@@ -486,8 +402,6 @@ async def execute_with_llm(
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
                     start_url=checkpoint_stack[0],
-                    kg_context=kg_context,
-                    kg_lookup=kg_lookup,
                 )
                 steps_used += used
                 if result is not None and result.status != "SUB_GOAL_FAILED":
@@ -537,8 +451,6 @@ async def _try_sub_goal(
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
     start_url: str = "",
-    kg_context: Any = None,   # Optional[KGContext]
-    kg_lookup: Any = None,    # Optional[KGLookup]
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
@@ -547,23 +459,6 @@ async def _try_sub_goal(
         (ExecutionOutcome, steps_used) — extract/failure/timeout 결과
         status="SUB_GOAL_FAILED"이면 retry 가능한 실패
     """
-    # Hook C helper — kg_context·kg_lookup이 모두 있을 때 + SITEKG_MODE=full 때만 활성.
-    # R3-α에선 alpha/disabled 모드에서 skip (false positive 원인이었음).
-    # task_type 전달: NAVIGATE만 URL 도달로 early-termination 허용.
-    # RETRIEVE (data 추출 필요) / MUTATE (form submit 필요)는 validator에서 suppress.
-    def _kg_target_reached() -> bool:
-        if kg_context is None or kg_lookup is None:
-            return False
-        if _sitekg_mode() != "full":
-            return False
-        try:
-            from site_adaptive_webagent.kg import target_reached as _kg_target_reached_fn
-            return _kg_target_reached_fn(
-                current_obs.url, kg_lookup, kg_context, task_type=task_type,
-            )
-        except Exception:
-            logger.exception("[KG] target_reached raised")
-            return False
     messages: list[dict] = []
     last_action_feedback = ""
     current_obs = await observe_page(page)
@@ -604,15 +499,6 @@ async def _try_sub_goal(
 
     for step in range(step_budget):
         _log_step_observation(step, current_obs, sub_goals, goal_index)
-
-        # Hook C (KG validator): target 도달 시 early-termination
-        if _kg_target_reached():
-            logger.info("[KG] target_reached at step=%d — early SUCCESS (infotype=%s)",
-                        step + 1, getattr(kg_lookup, "infotype", "?"))
-            return (
-                ExecutionOutcome(task_type=task_type, status="SUCCESS"),
-                step + 1,
-            )
 
         # Bug 28 방어: URL이 동일 페이지에서 계속 멈춰 있으면 stuck 경고를 주입해
         # LLM이 다른 경로를 시도하도록 유도한다.

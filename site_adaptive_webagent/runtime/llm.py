@@ -141,9 +141,9 @@ class OpenAILLMClient:
     재현성 있는 실험을 위해 env var LLM_TEMPERATURE로 보통 0을 지정한다.
 
     모델 분기:
-    - **Agent task 실행** (baseline + KG variants): 기본 `gpt-5.4-mini` (.env OPENAI_MODEL).
-      모델명이 `gpt-5*`로 시작해 Responses API로 자동 분기. `reasoning_effort`는 넘기지
-      않으므로 provider default 사용. 본 연구의 baseline/Full KG 측정은 이 경로.
+    - **Agent task 실행**: 기본 `gpt-5.4-mini` (.env OPENAI_MODEL). 모델명이 `gpt-5*`로
+      시작해 Responses API로 자동 분기. `reasoning_effort`는 넘기지 않으므로 provider
+      default 사용.
     - **KG derivation** (`kg/seed/llm_derivation.py`): `gpt-5.4` (full) + `reasoning_effort=
       "low"` 명시. Multi-call decomposition 안정성 확보용. Baseline agent와는 독립 경로.
 
@@ -186,7 +186,7 @@ class OpenAILLMClient:
     ) -> LLMToolResponse:
         # Responses API는 multi-turn tool_calls 포맷이 chat.completions와 달라 agent의
         # ReAct loop (assistant tool_call → tool_result → assistant ...)를 그대로 못 받음.
-        # 따라서 `reasoning_effort`가 명시됐을 때만 Responses API 경로 (주로 KG derivation
+        # 따라서 `reasoning_effort`가 명시됐을 때만 Responses API 경로 (주로 derivation
         # single-turn tool call). agent task는 reasoning_effort 없이 호출되므로 chat.completions
         # 경로로 분기되어 multi-turn ReAct가 정상 작동.
         if self._use_responses_api and reasoning_effort is not None:

@@ -267,33 +267,6 @@ async def open_start_pages(context: BrowserContext, start_urls: list[str]) -> li
     return pages
 
 
-def _maybe_load_kg_context(sites: list[str]) -> Any:
-    """SITEKG_ENABLED=1이면 config/sites/<site>/에서 KGContext를 로드.
-
-    Baseline 측정(env 미설정)에선 None 반환 → run_agent가 baseline 경로로 동작.
-    KG 측정(SITEKG_ENABLED=1)에선 첫 site의 KG를 로드.
-    로드 실패(설정 디렉토리 없음 등)는 로그만 남기고 None 반환(이중 안전).
-    """
-    import os
-    if os.getenv("SITEKG_ENABLED") != "1":
-        return None
-    if not sites:
-        return None
-    try:
-        from site_adaptive_webagent.agent.kg_integration import load_kg_context
-        site = sites[0]
-        ctx = load_kg_context(site)
-        if ctx is None:
-            logger.info("[KG] SITEKG_ENABLED=1 but no config for site=%s", site)
-        else:
-            logger.info("[KG] loaded KGContext for site=%s (infotypes=%d)",
-                        site, len(ctx.kg.infotypes))
-        return ctx
-    except Exception:
-        logger.exception("[KG] _maybe_load_kg_context failed — falling back to baseline")
-        return None
-
-
 def write_agent_response(task_output_dir: Path, result: AgentRunResult) -> Path:
     """최종 agent response를 benchmark 기대 형식으로 저장한다."""
     output_path = task_output_dir / "agent_response.json"
@@ -538,10 +511,6 @@ class WebArenaVerifiedAdapter:
                 )
                 pages = await open_start_pages(context, agent_input["start_urls"])
 
-                # SITEKG_ENABLED=1이면 KG-guided 동작, 아니면 baseline.
-                # KG config는 config/sites/<site>/ 디렉토리에서 로드.
-                kg_context = _maybe_load_kg_context(agent_input["sites"])
-
                 result = await run_agent(
                     intent=agent_input["intent"],
                     sites=agent_input["sites"],
@@ -550,7 +519,6 @@ class WebArenaVerifiedAdapter:
                     context=context,
                     pages=pages,
                     task_output_dir=task_output_dir,
-                    kg_context=kg_context,
                 )
                 # NAVIGATE 성공 시 최종 URL을 다시 로드하여 HAR에 GET 요청 기록
                 # (SPA의 pushState는 HAR에 기록되지 않으므로)
