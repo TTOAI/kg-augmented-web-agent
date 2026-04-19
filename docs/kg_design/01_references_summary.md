@@ -178,58 +178,47 @@
 
 ---
 
-## 4. Introduction 초안 주장별 대비표
+## 4. Introduction 초안 주장별 문헌 대비
 
-Introduction 초안은 확정안이 아니라 아이디어 스케치. 각 주장에 대해 (a) 문헌 근거, (b) 본 연구에서 따로 입증해야 할 공백을 구분한다.
+각 주장에 대해 (a) 문헌 근거, (b) 본 연구에서 따로 입증해야 할 공백을 구분한다. 향후 재설계 시 각 주장의 scope·포함 여부는 별도 판단.
 
-> **⚠️ Scope 축소 반영**: 본 연구는 국내 3-page 논문(`07_scope_and_justifications.md` 참조) scope로 축소됨에 따라 아래 주장 중 일부(특히 5, 7, 8)는 본 논문에서 검증 대상이 아니라 **future work**로 유예된다. 각 주장 항목의 **[scope]** 표시로 구분:
-> - **[IN]**: 본 3-page 논문에서 다룸
-> - **[FW]**: future work로 이관 (본 논문 주장·실험 안 함)
-> - **[CONTEXT]**: 논문 Introduction의 배경 서술용만 인용
-
-### 주장 1. "Web agent 병목은 grounding보다 planning에 있다" **[CONTEXT]**
+### 주장 1. "Web agent 병목은 grounding보다 planning에 있다"
 - **근거**: web_01, Introduction 주석 [5](From Grounding to Planning).
-- **용도**: 본 논문 Introduction 배경 서술로 인용. 본 연구가 자체 측정으로 입증하지는 않음.
+- **성격**: 배경 서술용.
 
-### 주장 2. "KG는 외부 명시 지식 장치로 LLM과 보완 관계" **[CONTEXT]**
+### 주장 2. "KG는 외부 명시 지식 장치로 LLM과 보완 관계"
 - **근거**: kg_02(5가지 이유), agent_01(augmented LLM), agent_02(long-term memory).
-- **용도**: 본 논문 Introduction에 "왜 KG를 web agent에 붙이는가"의 motivation.
+- **성격**: "왜 KG를 web agent에 붙이는가"의 motivation.
 
-### 주장 3. "기존 web agent 연구는 KG를 action planning에 쓴 사례가 거의 없다" **[IN — narrow]**
+### 주장 3. "기존 web agent 연구는 KG를 action planning에 쓴 사례가 거의 없다"
 - **근거**: web_03의 6 갈래에 KG 기반 planning이 독립 축으로 등장하지 않음.
-- **본 논문 사용**: Related Work 섹션에 간략 언급 (3-page scope). 철저한 survey mapping은 future work.
+- **성격**: Related Work 섹션 공백 주장.
 
-### 주장 4. "natural language intent → executable graph query" **[IN — KG 내부 메커니즘]**
+### 주장 4. "natural language intent → executable graph query"
 - **근거**: kg_03의 KG-QA 전통.
-- **본 논문 사용**: Method 섹션에 JSON tool-use 기반 query 설명. 결정 근거는 `02 쟁점 #1` 참조.
+- **성격**: KG 내부 메커니즘 설계 근거.
 
-### 주장 5. "KG를 retrieval backend가 아닌 planning substrate로" **[FW]**
+### 주장 5. "KG를 retrieval backend가 아닌 planning substrate로"
 - **근거**: 이 구분이 문헌에서 명확히 정식화되어 있지 않음.
-- **유예 이유**: "planning substrate" 주장은 **KG-retrieval ablation**이 뒷받침해야 설득력 가짐. 3-page scope에서 해당 ablation 수행 불가. 본 논문 주장을 "site-specific KG 도입"으로 narrow (`07 §1`). Future work.
+- **주의**: "planning substrate" vs retrieval의 empirical 구분은 **KG-retrieval ablation**이 뒷받침해야 설득력 가짐. 강한 주장 전에 ablation 설계 필수.
 
-### 주장 6. "site 구조·행동 제약·네비게이션 관계·검증 규칙을 모두 KG에 담자" **[IN — KG 스키마]**
+### 주장 6. "site 구조·행동 제약·네비게이션 관계·검증 규칙을 모두 KG에 담자"
 - **근거**: web_02(5 블록의 memory/tools), web_01(웹의 relational 특성).
-- **본 논문 사용**: Method 섹션의 KG 스키마 설명. StatePattern / InfoType / Action / Trust 기반(`02 쟁점 #3`).
+- **성격**: KG 스키마 설계 근거.
 
-### 주장 7. "incremental KG update로 continual site adaptation" **[FW]**
+### 주장 7. "incremental KG update로 continual site adaptation"
 - **근거**: kg_02(업데이트 가능성), web_02(AWM의 continual memory).
-- **유예 이유**: longitudinal empirical 검증 (3-round replay)은 3-page scope 밖. Architecture에만 trust evolution을 포함하고 실험은 future work. `07 §11`의 Limitation에 명시.
+- **주의**: longitudinal empirical 검증 (multi-round replay)이 있어야 주장 성립. 실험 없이 architecture만으로는 근거 약함.
 
-### 주장 8. "baseline + 여러 ablation variants로 효과 분리" **[FW 대부분]**
+### 주장 8. "baseline + 여러 ablation variants로 효과 분리"
 - **근거**: agent_03(compute-matched의 필요성), web_03(AgentOccam식 단순 baseline).
-- **본 논문 사용**: Baseline vs Full KG 2-variant 비교만. 세분 ablation(compute-matched / URL-emission-only / KG-retrieval / scaling)은 **전부 future work**로 분리(`02 쟁점 #4`, `07 §1`). 대신 본 실험 Method에 token/step 수치를 함께 보고해 compute confound 사전 차단.
+- **성격**: 실험 설계 원칙.
 
 ---
 
-## 5. 이 요약이 다음 작업에 주는 입력
+## 5. 이 요약의 용도
 
-- **Paper Introduction 배경 서술 (CONTEXT)**: 주장 1, 2 — web agent planning 병목 + KG의 LLM 보완 역할.
-- **Paper Related Work (IN)**: 주장 3 — 기존 web agent × KG 교차 연구 공백.
-- **Paper Method (IN)**: 주장 4, 6 — Intent → query 구조, site-specific KG 스키마.
-- **Paper Limitation / Future Work (FW)**: 주장 5, 7, 8 — planning substrate 구분, continual adaptation, fine-grained ablation.
-
-- **02_open_questions.md 쟁점들은 설계 결정의 내부 근거** — 본 논문 본문에는 대부분 명시적으로 들어가지 않음. 단 Method 섹션에서 "왜 이런 tool schema인가"를 간단히 설명할 때 참조.
-- 주장 3("기존 연구 부재")의 공백은 별도 related-work 매핑 작업으로 뺀다(`03_related_work_mapping.md`).
-- 주장 1(병목)은 본 연구 실험의 선결 확인 항목으로 분리(`04_baseline_failure_analysis.md`).
-
-이 세 후속 문서의 초안을 여기서 바로 이어갈 필요는 없다. 먼저 02의 4 쟁점에 대한 답을 쌓아야 나머지 문서의 방향이 정해진다.
+- **Introduction 배경 서술**: 주장 1, 2 — web agent planning 병목 + KG의 LLM 보완 역할.
+- **Related Work**: 주장 3 — 기존 web agent × KG 교차 연구 공백.
+- **Method 설계 근거**: 주장 4, 6 — Intent → query 구조, site-specific KG 스키마.
+- **실험 설계 원칙**: 주장 5, 7, 8 — empirical 뒷받침이 필요한 강한 주장, continual adaptation 검증, ablation 필요성.
