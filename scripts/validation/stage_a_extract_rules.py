@@ -98,7 +98,29 @@ def derive_templates(paths: list[str]) -> list[tuple[str, dict[str, dict]]]:
 
 
 def _derive_from_single(path: str) -> tuple[str, dict[str, dict]]:
-    """Single instance — heuristic identification of path params."""
+    """Single instance → template + path_params derivation.
+
+    **Scope note (CDIP positioning)**: 이 함수는 **CDIP protocol의 GitLab realization**
+    이다. Protocol skeleton (single URL instance로부터 template inference)은 site-
+    agnostic이나, 아래 if/elif 분기들은 GitLab URL scheme에 직결되어 있다:
+
+    - `/-/` prefix (GitLab's repo-internal route marker)
+    - `/-/ide/project/{ns}/{proj}` (Web IDE)
+    - `/users/{username}` (user profile)
+    - Ref keywords: `tree`, `blob`, `raw`, `commits`, `blame`, `find_file` → `{branch_path}`
+    - `/-/releases/{tag}`, `/-/tags/{tag_name}`
+    - Topic explore: `/explore/projects/topics/{topic_name}`
+    - `/help/{service}/...`
+
+    다른 site 이식 시점에는:
+      1. 이 함수를 해당 site용 버전으로 교체 (예: `_derive_from_single_github`)
+      2. 또는 plugin-style interface (SitePlugin.derive_path_template) 도입.
+
+    현재 Phase 3.H Tier 1-2 scope에서는 **값 이관 (entities / crawl / cascade / prompts)만** 완료.
+    Algorithm-level 일반화 (SitePlugin)는 Cross-site 실증 시점에 수행 (future work).
+
+    Returns: (template_path, path_params dict)
+    """
     segments = path.strip("/").split("/")
     if not segments or segments == [""]:
         return "/", {}

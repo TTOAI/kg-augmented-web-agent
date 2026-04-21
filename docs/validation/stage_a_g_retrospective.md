@@ -188,3 +188,33 @@ Narrow selector (`button, a[role=button], .gl-button`)가 sidebar anchor miss �
 - 138 class 각각의 top-N action 목록 완성
 - Action → target class 매핑 정확도 ≥ X% (pre-commit TBD)
 - 문서: `docs/validation/stage_b_action_catalog_report.md`
+
+---
+
+## 후속 업데이트 — Phase 3.H (Site-bias neutralization)
+
+`stage_a_g_retrospective.md §Limitations`에서 지적되었던 "Site-specific constants hardcoded … Config 외부화는 future work"는 **Phase 3.H Tier 1-2에서 값 수준으로 해소**되었다 (2026-04-22).
+
+### 이관 결과 (값 수준 외부화 완료 ✓)
+
+| 구성 요소 | 이전 위치 | 현 위치 |
+|---|---|---|
+| `KNOWN_NAMESPACES`, `KNOWN_USERNAMES`, `ACTION_KEYWORDS`, placeholder sample values | `stage_a_extract_rules.py` 상수 / `stage_a_classify.py` 리터럴 | `config/sites/gitlab/entities.yaml` |
+| `BASE_URL`, `SEEDS`, `FORBIDDEN_PATTERNS`, `allowed_hosts`, `site_global_routes` | `stage_a_f_crawl.py` 상수 | `config/sites/gitlab/crawl.yaml` |
+| Cascade scope_entries, hub (runtime) | `path_finder.py::DEFAULT_GITLAB_CONFIG` | `config/sites/gitlab/cascade.yaml` |
+| `_MUTATE_FORM_CHECKLIST`, filter template guidance, goto tool description (runtime) | `llm.py` / `hint_generator.py` / `tools.py` 상수 | `config/sites/gitlab/prompts.yaml` |
+
+### 잔존 (알고리즘 수준, 의도적 미이관)
+
+`_derive_from_single()` (stage_a_extract_rules.py)의 URL scheme 분기 (`/-/` prefix, `tree/blob/raw/commits/blame` ref keywords, `/users/`, `/help/`, `/releases/` 등)는 **GitLab realization 그대로 잔존**한다. 이 함수의 docstring(§Scope note)에 "CDIP protocol의 GitLab realization"으로 명시되어 있으며, 다른 site 이식 시 **플러그인 교체 대상**이다.
+
+### Framing 원칙 (논문)
+
+- CDIP **개념**: site-agnostic protocol (step loop, frontier-BFS, compression-by-rule-expansion, site_config 기반 URL 정규화).
+- CDIP **본 구현**: WebArena-Verified GitLab에 대한 **구체화 (concrete realization)**. `scripts/validation/` 및 `config/sites/gitlab/`에 해당.
+- Cross-site generalization: 명시적 **future work**. 단일 site에 대한 worked example로 protocol 실효성을 입증했다는 것이 본 연구의 기여 범위.
+
+### Reviewer 방어
+
+- "소스 코드가 GitLab entity 이름 하드코드" 공격각 → Tier 1+2 config 이관으로 해소 ✓
+- "CDIP가 실제로 site-agnostic이냐"는 algorithm-level 질문 → framing으로 방어 (conceptual vs concrete realization). Paper에 limitation 섹션으로 투명 보고.

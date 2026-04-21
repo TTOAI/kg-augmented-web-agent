@@ -141,21 +141,30 @@ verify_unmatched_stable(fresh, rules)
 
 ## Site-agnostic vs site-specific 요소
 
+**Positioning 원칙**: CDIP는 **개념적으로 site-agnostic 프로토콜**이며, 현 구현은 **WebArena-Verified GitLab에 대한 구체화(concrete realization)**이다. Protocol skeleton (step loop, BFS + cluster + rule extract + validate의 순환, compression-by-rule-expansion, frontier-BFS 개념)은 site에 의존하지 않으나, 각 stage 내부의 **구성 상수와 일부 URL scheme 휴리스틱**은 GitLab에 결합되어 있다.
+
 | 요소 | 종류 | 현재 위치 | 추후 site 이식 시 |
 |---|---|---|---|
 | BFS 알고리즘 | **generic** | `scripts/validation/stage_a_f_crawl.py` | 재사용 |
 | URL 정규화 | **generic** | `site_adaptive_webagent/kg/urlnorm.py` (단 site_config.yaml 필요) | config 교체 |
 | Clustering 알고리즘 (placeholder 치환) | **generic** | `stage_a_f_cluster.py` | 재사용 |
-| Rule 도출 알고리즘 | **generic** | `stage_a_extract_rules.py` | 재사용 |
-| 명명 convention | **generic** | `V1_protocol_spec.md` v0.6 | 재사용 |
+| Rule 도출 알고리즘 skeleton (template inference, specificity) | **generic** | `stage_a_extract_rules.py` | 재사용 |
+| URL scheme 휴리스틱 (`_derive_from_single`) | **GitLab realization** | `stage_a_extract_rules.py::_derive_from_single()` | **site-specific 함수 교체 필요** (예: GitHub의 다른 path 구조) — 다른 site 이식 시 이 함수를 override |
+| 명명 convention (scope/family/type) | **generic** | `V1_protocol_spec.md` v0.6 | 재사용 |
 | Class criterion (action equivalence) | **generic** | `V1_protocol_spec.md` Step 2 | 재사용 |
-| Seed URLs | **site-specific** | 스크립트 내 hardcoded | 입력 parameter |
-| KNOWN_NAMESPACES, KNOWN_USERNAMES | **site-specific** | `stage_a_extract_rules.py` (hardcoded) | site config로 외부화 (future work) |
-| Forbidden URL patterns (`/admin`, `/sign_out` 등) | **일부 site-specific** | `stage_a_f_crawl.py` (hardcoded) | 일반 패턴은 generic, 사이트 고유는 config |
-| URL 관례 (GitLab의 `-/` prefix, `tags/new` 등) | **site-specific** | `stage_a_extract_rules.py` `_derive_from_single` heuristic | site 플러그인으로 외부화 (future work) |
-| site_config.yaml (decorative_params, identity_tokens 등) | **site-specific** | `config/sites/<site>/site_config.yaml` | 이미 외부화됨 ✓ |
+| Seed URLs | **site-specific** | `config/sites/<site>/crawl.yaml` | config 교체 (Phase 3.H Tier 1 완료 ✓) |
+| KNOWN_NAMESPACES, KNOWN_USERNAMES, ACTION_KEYWORDS, sample_values | **site-specific** | `config/sites/<site>/entities.yaml` | config 교체 (Phase 3.H Tier 1 완료 ✓) |
+| Forbidden URL patterns + allowed_hosts + base_url | **일부 site-specific** | `config/sites/<site>/crawl.yaml` | config 교체 (Phase 3.H Tier 1 완료 ✓) |
+| `site_config.yaml` (decorative_params, identity_tokens 등) | **site-specific** | `config/sites/<site>/site_config.yaml` | config 교체 (기존 ✓) |
+| Cascade config (scope_entries, hub) — runtime | **site-specific** | `config/sites/<site>/cascade.yaml` | config 교체 (Phase 3.H Tier 2 완료 ✓) |
+| MUTATE checklist + filter preamble + tool desc — runtime | **site-specific** | `config/sites/<site>/prompts.yaml` | config 교체 (Phase 3.H Tier 2 완료 ✓) |
 
-**결론**: 현재 scripts는 GitLab에 coupling된 상수 포함. **config 외부화는 future work** — 다른 사이트 적용 시점에 수행.
+**현 이식 대가**:
+
+- **Config 계층 (값 이관)**: Tier 1-2 완료. 다른 site로 옮길 때 `config/sites/<site>/*.yaml` 6개 파일만 작성하면 protocol skeleton이 그대로 동작.
+- **Algorithm 계층 (GitLab 휴리스틱)**: `_derive_from_single()`의 URL scheme 분기 (`/-/` prefix, `tree/blob/raw/commits/blame` ref keywords 등)는 **GitLab 구체화 그대로 잔존**. 다른 site 이식 시 해당 함수를 site-specific 버전으로 교체해야 한다. Protocol paper에서는 이 함수를 "GitLab realization of the template derivation step" 으로 소개하는 것이 정직.
+
+**결론 (framing)**: CDIP **개념** = site-agnostic, CDIP **GitLab 구현** = 본 repo의 `scripts/validation/` 계열. 논문에서는 protocol의 추상적 procedure를 기술하고, 구체화는 GitLab worked example로 제시. Cross-site generalization은 explicit future work (plugin 교체 + config 작성 + 재측정).
 
 ---
 
