@@ -266,6 +266,95 @@ else:
 
 ---
 
+## 11. Current class action exposure (Phase 3 smoke로 발견)
+
+**동기**: Task 168 ("personal project with >100 stars") smoke에서 hint가 edge path만 렌더링하고 current class의 filter/sort link를 노출하지 않음이 드러남. Agent는 페이지 관찰만으로 Personal filter를 찾아야 했고 sort state는 파악 못함.
+
+**핵심 관찰**: Action catalog (`stage_b/action_catalog.json`)가 class별로 `navigation_actions` (filter tab, sort link 포함) + `internal_actions` (sort dropdown button 등)을 이미 보유. Class taxonomy 변경 없이 KG의 기존 layer를 hint에 노출하면 됨.
+
+### 설계
+
+- `KGSession.action_catalog`: 전체 catalog 로드 (graceful fallback — 로드 실패 시 빈 dict)
+- `KGSession.get_class_actions(class)`: class entry 조회
+- `hint_generator._render_class_actions(actions, exclude_labels, limit_nav=10, limit_int=5)`: top-N by `instance_freq`, path에 이미 있는 label은 제외 (중복 방지)
+- 모든 template (`exact`, `stay_and_explore`, fallback)에 actions 섹션 append
+
+### Hint 포맷 예시
+
+```
+[KG navigation hint — advisory]
+Current page class: dashboard/project_list/yours
+Inferred target: user/project_list
+Suggested path (1 hop):
+  1. Click "Explore" → user/profile
+Available navigation on this page (from KG):
+  - [Personal] → dashboard/project_list/yours [/dashboard?personal=true&sort=created_desc]
+  - [Starred 3] → dashboard/project_list/starred
+  - [All] → dashboard/project_list/yours
+  - [New project] → global/new_project_form
+In-page controls (buttons/dropdowns on this page):
+  - [Last created] (button)
+  - [Updated date] (button)
+(Structural suggestion — verify against the observed page.)
+```
+
+### Token 영향
+
+Hint당 +200-300 token 예상 (top 10 nav + top 5 internal). 50 step × 250 ≈ 12K extra / task (~10% cost 증가). 수용 가능.
+
+### Flag
+
+`KG_EXPOSE_ACTIONS=0`으로 off 가능 — ablation candidate V1e "no-action-list" 준비. Pilot 후 필요 시 측정.
+
+### 효과 (task 168 smoke)
+
+- Action exposure 전: 63 step (agent가 filter/sort 용어 미인지)
+- Action exposure 후: agent thought에 `"Most stars sort"`, `"personal projects list"` 명시적 사용 → 11 step
+
+### Reviewer 방어
+
+- Class taxonomy level이 filter/sort state를 포함 안 하는 설계적 제한은 여전히 유효 (page identity 수준). 하지만 **class별 action catalog layer**가 in-class control을 hint에 노출함으로써 그 간격을 메움.
+- "Class-level KG = navigation(edge graph) + intra-class action awareness (action catalog)" 두 layer claim 가능.
+
+---
+
+## 12. Agent terminal signal 보존 (Phase 3 smoke로 발견)
+
+**동기**: Task 168 smoke에서 KG가 정확한 target class를 지목했고 model이 step 4에서 이미 정답 conclusion ("no personal project over 100 stars")을 산출했음에도 agent scaffolding이 이 signal을 보존·수용하지 못해 final extract에서 hallucinate했음. Model capability 이슈 아닌 architecture 이슈.
+
+### 발견된 3건의 구조적 결함 (executor.py)
+
+1. **Sub-goal `declare_error` strong signal 거부**: 주석은 "NOT_FOUND / ACTION_NOT_ALLOWED는 1회 시도로 수용" 의도였으나 `_required_attempts = 1` (=prior 실패 1회 필요)로 구현되어 첫 시도 항상 거부. Agent가 명확한 "empty state" 페이지에서 NOT_FOUND 선언해도 계속 거부됨.
+2. **Terminal thought 손실**: `done` / `declare_error` 호출 시 agent의 thought은 conclusion 성격 강함 ("Confirmed no match"). 그러나 기존 코드는 `memo` 파라미터만 task_notes에 저장. Agent가 explicitly memo로 conclusion을 기록하지 않으면 final extract stage는 intention 수준의 memo만 보게 되어 답을 "생성"하도록 압력 받음.
+3. **Final extract `declare_error` 거부 대칭 결함**: Final extract stage에서도 첫 declare_error 거부 로직이 있음. Strong signal (NOT_FOUND)에 대해 re-prompt 후 agent가 placeholder extract ("None" 문자열)로 유회 → `retrieved_data=["None"]` → evaluator error.
+
+### 수정 (commit 395299c)
+
+1. `_required_attempts = 0` for `{NOT_FOUND_ERROR, ACTION_NOT_ALLOWED_ERROR}` — 첫 declare_error 수용 (의도-구현 일치)
+2. `done`/`declare_error` thought → task_notes 자동 저장 (`[sub-goal N done/declare_error] ...` prefix로 sub-goal 경로 보존)
+3. Final extract stage에서 NOT_FOUND / ACTION_NOT_ALLOWED 첫 declare_error 즉시 수용 (일반 status는 기존 rejection 로직 유지)
+
+### Empty extract re-prompt (부차 수정)
+
+`_handle_extract`가 empty value를 즉시 UNKNOWN_ERROR로 반환하던 것을, final extract stage에서 첫 empty value에 대해 NOT_FOUND 가이드로 re-prompt. 두 번째 empty에는 기존 UNKNOWN_ERROR 유지 (protocol 위반 outcome).
+
+### 결과 (task 168 smoke)
+
+| Run | Steps | Outcome | Note |
+|---|---:|---|---|
+| Pre-fixes, action list 없음 | 63 | SUCCESS (NOT_FOUND) | Agent가 긴 탐색 끝 declare_error |
+| Action list 있음, terminal fix 없음 | 17 | UNKNOWN_ERROR | done → empty extract |
+| Action list + extract-fix만 | 33 | ERROR | Agent hallucinate ("a11yproject.com, design") |
+| Action list + 3-way fix | **11** | **SUCCESS (NOT_FOUND)** | Clean termination step 5 |
+
+### Reviewer 방어
+
+- Model conclusion이 이미 step 4에 정확했다는 로그 증거 보유. "Agent scaffolding"의 signal 전달 실패가 failure 원인임을 분리 주장 가능.
+- Fix는 "의도-구현 일치화" + "conclusion 보존" 성격으로 설계 confabulation 아닌 bug fix.
+- 본 수정은 KG와 독립적으로 baseline V0에도 적용됨 → V0 재측정 필요 (baseline_n3 후). Pilot 전 선결.
+
+---
+
 ## 관련 문서
 
 - `docs/validation/stage_c_edge_graph_report.md` — edge graph (2,813 edges, adjacency)
