@@ -631,6 +631,10 @@ def build_observation_message(
 
     if task_type == "MUTATE" and getattr(observation, "inputs", None):
         sections.append(_MUTATE_FORM_CHECKLIST)
+    # NOTE: NAVIGATE filter checklist 추가 시도 (Phase 3.E P3.1) — 역효과 확인.
+    # Agent가 "search 회피" 해석을 우선해 label dropdown 탐색 중 deadlock.
+    # 근본 해결엔 observation layer 개선 (collapsed dropdown 항목 노출) 또는
+    # KG의 filter URL 템플릿 제공이 필요. Prompt-level 단독 guidance로는 regression.
 
     if sub_goals and current_goal_index < len(sub_goals):
         current_goal = sub_goals[current_goal_index].goal

@@ -124,4 +124,43 @@ Sub-menu discovery는 P1 (MUTATE form submission)과 P3 (NAVIGATE URL state) 모
 
 ---
 
-## Iter P3.1 — (next: Task 339 NAVIGATE search-vs-filter)
+## Iter P3.1 — Task 339 (NAVIGATE "opened issues that report bugs")
+
+### 진단
+- Intent: "Go to the list of all opened issues that report bugs"
+- Evaluator expects referer URL query_params: `{state: 'opened', label_name[]: 'bug'}` — ONLY these two, no extras
+- Actual (3 baseline runs): URL has `search=bug`(or `label:bug state:opened`) + `state=opened` + `label_name[]=bug` + `sort=created_date` + `first_page_size=20`. `label_name[]=bug` is present (good), but `search=`와 extras 때문에 evaluator strict query_params match 실패.
+- 원인: Agent가 상단 검색 바에 filter 구문 타이핑 → GitLab이 filter params로 parse + raw `search=` 보존
+
+### Fix 시도: NAVIGATE filter checklist 주입 (UI dropdown 우선 가이드)
+
+Prompt에 "검색 바 대신 Label dropdown / status tab 사용" 가이드 추가.
+
+### 재측정 결과 (revert 사유)
+- N1: agent "label widget is not exposed" → declare_error (더 나빠짐)
+- N2: state=opened만 tab으로 적용, label dropdown 사용 실패 → `label_name[]=bug` 없음
+- N3: filter 전혀 적용 안 됨, /-/issues 블랭크
+
+**근본 원인**: `observation.dropdown_options`는 OPEN 상태의 dropdown 항목만 노출. Collapsed Label dropdown은 agent에게 보이지 않음. Checklist가 "dropdown 사용" 권장했으나 agent가 dropdown을 찾을 수 없음 → search 회피 + dropdown 미사용 → URL 빈 상태 → evaluator 실패. Regression.
+
+### Revert
+
+NAVIGATE checklist 제거. Observation layer (collapsed dropdown 노출) 또는 KG의 filter URL 템플릿 제공 없이는 prompt-level 단독 guidance로 해결 불가.
+
+### 교훈
+
+- Prompt guidance는 **observation이 노출하는 범위 안에서만** 유효. "X 하라" 권장하면서 X 수단이 observation에 없으면 agent는 교착.
+- 이 task의 해결 경로:
+  1. **Observation 확장**: Collapsed dropdown 내 항목 사전 노출 (side-effect 위험)
+  2. **KG filter template**: Target class의 "정규 filter URL" 템플릿을 hint로 제공. 예: `/{ns}/{proj}/-/issues?state=opened&label_name[]=bug`. Agent가 직접 goto 가능.
+  3. **Stronger intent parsing**: "bugs" → label_name[]=bug, "opened" → state=opened 규칙 기반 URL 구성 후 goto.
+
+Option 2는 Solution 2 KG의 자연 확장 — 별도 phase에서 검토 가치.
+
+### 판정
+
+**이 iteration**: fix 없음 (revert). Finding 기록으로 Solution 2 (KG) 측 contribution 영역 확인.
+
+---
+
+## Iter P3.2 — (next: 상태 점검 후 결정)
