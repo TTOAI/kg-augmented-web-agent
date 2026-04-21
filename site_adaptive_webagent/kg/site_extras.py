@@ -49,6 +49,22 @@ class SiteEntities:
 
 
 @dataclass(frozen=True)
+class SiteCascadeEntries:
+    """Per-site cascade routing entries (used by path_finder fallback stages).
+
+    Phase 3.H Tier 2: 이전에 path_finder.py::DEFAULT_GITLAB_CONFIG로 하드코드된
+    값. scope_entries는 {scope_name: entry_class_path}, hub는 최후 fallback class.
+    """
+
+    scope_entries: dict[str, str]
+    hub: str
+
+    @classmethod
+    def empty(cls) -> "SiteCascadeEntries":
+        return cls(scope_entries={}, hub="")
+
+
+@dataclass(frozen=True)
 class SiteCrawlConfig:
     """Per-site crawl configuration."""
 
@@ -81,6 +97,19 @@ def load_site_entities(site: str = DEFAULT_SITE) -> SiteEntities:
         usernames=frozenset(raw.get("usernames", []) or []),
         action_keywords=frozenset(raw.get("action_keywords", []) or []),
         sample_values={str(k): str(v) for k, v in samples.items()},
+    )
+
+
+def load_site_cascade(site: str = DEFAULT_SITE) -> SiteCascadeEntries:
+    """Load `<site_dir>/cascade.yaml`. Returns empty instance if file missing."""
+    path = _site_dir(site) / "cascade.yaml"
+    if not path.exists():
+        return SiteCascadeEntries.empty()
+    raw: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    scope_entries = raw.get("scope_entries") or {}
+    return SiteCascadeEntries(
+        scope_entries={str(k): str(v) for k, v in scope_entries.items()},
+        hub=str(raw.get("hub", "")),
     )
 
 

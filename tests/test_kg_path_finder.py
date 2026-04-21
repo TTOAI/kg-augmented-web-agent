@@ -5,12 +5,19 @@ import json
 import unittest
 from pathlib import Path
 
+from site_adaptive_webagent.kg.site_extras import load_site_cascade
 from site_adaptive_webagent.kg_solution.path_finder import (
     CascadeConfig,
-    DEFAULT_GITLAB_CONFIG,
     PathResult,
     extract_family,
     find_path,
+)
+
+# Phase 3.H Tier 2: DEFAULT_GITLAB_CONFIG 제거 — cascade.yaml에서 로드해 test에서 사용
+_gitlab_cascade = load_site_cascade("gitlab")
+GITLAB_CASCADE = CascadeConfig(
+    scope_entries=dict(_gitlab_cascade.scope_entries),
+    hub=_gitlab_cascade.hub,
 )
 
 

@@ -98,18 +98,10 @@ def _render_filter_templates(
     if not filter_templates:
         return ""
     shown = list(filter_templates)[:limit]
-    lines = [
-        "## Filter/sort URL templates (from KG self-edges, cross-class)",
-        "These are query-param patterns observed in KG self-edges on this class "
-        "and its family/scope siblings. The same query-param names commonly "
-        "work across sibling list endpoints on the site, so a pattern seen on "
-        "one list endpoint can be reused on another endpoint of the same type.",
-        "**Prefer `goto(url)` with the exact param combination** over free-text "
-        "search — typing task-derived filter text into the search bar usually "
-        "adds an extraneous `search=<text>` parameter that strict URL-match "
-        "evaluators reject.",
-        "",
-    ]
+    # Phase 3.H Tier 2: preamble (header/body/emphasis)은 site prompts.yaml에서 로드
+    from site_adaptive_webagent.runtime.prompts import default_prompt_library
+
+    lines: list[str] = list(default_prompt_library().render_filter_template_preamble())
     for ft in shown:
         label = getattr(ft, "label", "") or "(no label)"
         path = getattr(ft, "path_template", "")

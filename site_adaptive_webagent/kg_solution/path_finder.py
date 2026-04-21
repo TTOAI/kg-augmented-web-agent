@@ -46,18 +46,11 @@ class CascadeConfig:
     hub: str
 
 
-DEFAULT_GITLAB_CONFIG = CascadeConfig(
-    scope_entries={
-        "project": "project/main",
-        "dashboard": "dashboard/project_list/yours",
-        "account": "account/account",
-        "global": "global/root_redirect",
-        "user": "user/profile",
-        "explore": "explore/project_list/all",
-        "ide": "ide/edit_view",
-    },
-    hub="dashboard/project_list/yours",
-)
+# Phase 3.H Tier 2: 이전 DEFAULT_GITLAB_CONFIG 제거. scope_entries/hub는
+# config/sites/<site>/cascade.yaml로 이관되어 `build_kg_session()`에서 로드되고
+# KGSession.cascade_config로 주입된다. 이 empty default는 direct `find_path()`
+# 호출 시 fail-safe (cascade stages 모두 skip → stay_and_explore) 제공.
+_EMPTY_CASCADE_CONFIG = CascadeConfig(scope_entries={}, hub="")
 
 
 @dataclass
@@ -152,7 +145,7 @@ def find_path(
     target: str,
     *,
     all_classes: set[str],
-    config: CascadeConfig = DEFAULT_GITLAB_CONFIG,
+    config: CascadeConfig = _EMPTY_CASCADE_CONFIG,
 ) -> PathResult:
     """Return a PathResult applying the 6-stage cascade.
 

@@ -140,26 +140,31 @@ def _goback_tool() -> dict:
 
 
 def _goto_tool() -> dict:
+    # Phase 3.H Tier 2: description을 site prompts.yaml에서 로드. Library에 없으면
+    # site-agnostic minimal description으로 fallback.
+    from .prompts import default_prompt_library
+
+    desc, url_desc = default_prompt_library().goto_tool_description()
+    if not desc:
+        desc = (
+            "Directly navigate to a URL. Prefer over clicking when you already "
+            "have a specific URL target. Relative paths are resolved against "
+            "the current page's origin."
+        )
+    if not url_desc:
+        url_desc = (
+            "Target URL. Accepts absolute or site-relative form. "
+            "Placeholders (e.g. {namespace}) must be filled in before calling."
+        )
     return {
         "name": "goto",
-        "description": (
-            "Directly navigate to a URL. Prefer over clicking when you already "
-            "have a specific URL target — e.g. a URL from KG hints "
-            "(filter/sort templates) or a known page path. Relative paths are "
-            "resolved against the current page's origin."
-        ),
+        "description": desc,
         "input_schema": {
             "type": "object",
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": (
-                        "Target URL. Accepts absolute (https://...) or "
-                        "site-relative (starts with /) form. Any placeholder "
-                        "segments (e.g. {namespace}) must be filled in before "
-                        "calling — the tool rejects URLs that still contain "
-                        "`{...}` patterns."
-                    ),
+                    "description": url_desc,
                 },
                 "memo": _MEMO_FIELD,
             },

@@ -566,33 +566,9 @@ def build_tool_use_system_prompt() -> str:
     return "\n".join(lines)
 
 
-_MUTATE_FORM_CHECKLIST = (
-    "## Form submission checklist (MUTATE)\n"
-    "Before clicking Create / Submit / Save / Invite on a form, "
-    "verify EACH field against the task intent — not just the name/title. "
-    "Intent qualifiers map to non-default form settings:\n"
-    "  - \"empty\" / \"without README\" / \"blank\" → uncheck "
-    "\"Initialize repository with a README\"\n"
-    "  - \"private\" / \"internal\" / \"public\" → set visibility radio accordingly\n"
-    "  - \"as guest\" / \"as developer\" / \"as maintainer\" → set role select\n"
-    "  - specific state text (e.g., \"Resting due to ...\") → type the exact text\n"
-    "  - specific reviewer / assignee / label → set the corresponding select\n"
-    "\n"
-    "### Verb routing — existing vs new resource\n"
-    "Task verbs imply whether the target resource should ALREADY exist:\n"
-    "  - \"change\" / \"update\" / \"modify\" / \"edit\" / \"rename\" / \"replace\" / \"delete\" "
-    "→ the target resource (file / project / issue / user) exists. LOCATE it "
-    "first (click on the existing item in the list / tree), then use its Edit / Update action. "
-    "Do NOT use Create-style actions; creating a new sibling (e.g. a new file "
-    "named \"license\" next to existing \"LICENSE\") leaves the original unchanged "
-    "and fails the task.\n"
-    "  - \"create\" / \"add\" / \"new\" / \"set up\" → no pre-existing resource; "
-    "use the Create form.\n"
-    "\n"
-    "If any default disagrees with the intent, change it BEFORE submitting. "
-    "After submit, verify the target state on the resulting page "
-    "(URL/message/state) rather than assuming navigation change = success."
-)
+# Phase 3.H Tier 2: _MUTATE_FORM_CHECKLIST는 config/sites/<site>/prompts.yaml로
+# 이관되었음 (mutate_checklist key). `build_observation_message`는 module-level
+# `default_prompt_library()`를 사용해 현 site의 checklist 렌더.
 
 
 def build_observation_message(
@@ -630,7 +606,12 @@ def build_observation_message(
         sections.append(kg_hint)
 
     if task_type == "MUTATE" and getattr(observation, "inputs", None):
-        sections.append(_MUTATE_FORM_CHECKLIST)
+        # Phase 3.H Tier 2: site별 checklist는 prompts.yaml에서 로드
+        from .prompts import default_prompt_library
+
+        checklist = default_prompt_library().render_mutate_checklist()
+        if checklist:
+            sections.append(checklist)
     # NOTE: NAVIGATE filter checklist 추가 시도 (Phase 3.E P3.1) — 역효과 확인.
     # Agent가 "search 회피" 해석을 우선해 label dropdown 탐색 중 deadlock.
     # 근본 해결엔 observation layer 개선 (collapsed dropdown 항목 노출) 또는

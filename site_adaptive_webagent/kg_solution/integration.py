@@ -22,10 +22,11 @@ from site_adaptive_webagent.runtime.llm import (
     OpenAILLMClient,
 )
 
+from site_adaptive_webagent.kg.site_extras import load_site_cascade
+
 from .class_descriptions import ClassCatalog, load_class_catalog
 from .hint_generator import generate_hint as _generate_hint
 from .path_finder import (
-    DEFAULT_GITLAB_CONFIG,
     CascadeConfig,
     PathResult,
     find_path as _find_path,
@@ -264,6 +265,7 @@ def build_kg_session(
     class_desc_path: Path = DEFAULT_CLASS_DESC_PATH,
     action_catalog_path: Path = DEFAULT_ACTION_CATALOG_PATH,
     *,
+    site_name: str = "gitlab",
     inferrer_temperature: float = 0.3,
     cascade_enabled: bool = True,
     replan_per_step: bool = True,
@@ -301,17 +303,31 @@ def build_kg_session(
             "[KG] LLM client unavailable (missing API key); KG disabled."
         )
         return None
+    # Phase 3.H Tier 2: cascade config를 site_name 기반으로 외부 YAML에서 로드.
+    # 이전엔 path_finder의 DEFAULT_GITLAB_CONFIG를 직접 주입했음.
+    site_cascade = load_site_cascade(site_name)
+    cascade_cfg = CascadeConfig(
+        scope_entries=dict(site_cascade.scope_entries),
+        hub=site_cascade.hub,
+    )
+    if not cascade_cfg.scope_entries:
+        logger.warning(
+            "[KG] cascade config empty for site=%s — cascade stages will "
+            "degrade to stay_and_explore; check config/sites/%s/cascade.yaml",
+            site_name, site_name,
+        )
     all_classes = set(edge_data["adjacency"].keys())
     for e in edge_data.get("edges", []):
         all_classes.add(e["target"])
     logger.info(
-        "[KG] session loaded: classes=%d edges=%d catalog_classes=%d cascade=%s replan=%s expose_actions=%s",
+        "[KG] session loaded: classes=%d edges=%d catalog_classes=%d cascade=%s replan=%s expose_actions=%s site=%s",
         len(all_classes),
         len(edge_data.get("edges", [])),
         len(action_catalog),
         cascade_enabled,
         replan_per_step,
         expose_actions,
+        site_name,
     )
     return KGSession(
         classifier=classifier,
@@ -320,7 +336,7 @@ def build_kg_session(
         catalog=catalog,
         inferrer_llm=inferrer_llm,
         hint_llm=inferrer_llm,
-        cascade_config=DEFAULT_GITLAB_CONFIG,
+        cascade_config=cascade_cfg,
         cascade_enabled=cascade_enabled,
         replan_per_step=replan_per_step,
         k_samples=k_samples,

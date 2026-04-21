@@ -14,7 +14,7 @@ from site_adaptive_webagent.kg_solution.integration import (
     SubGoalKGContext,
 )
 from site_adaptive_webagent.kg_solution.path_finder import (
-    DEFAULT_GITLAB_CONFIG,
+    CascadeConfig,
     PathResult,
     PathStep,
 )
@@ -58,7 +58,7 @@ def _make_session(
         catalog=catalog,
         inferrer_llm=llm,
         hint_llm=llm,
-        cascade_config=DEFAULT_GITLAB_CONFIG,
+        cascade_config=CascadeConfig(scope_entries={}, hub=""),
         cascade_enabled=cascade_enabled,
         replan_per_step=replan_per_step,
         action_catalog=action_catalog or {},

@@ -224,11 +224,11 @@ async def extract_toggle_states(page: Any) -> list[str]:
     """Checkbox / radio 상태를 label과 함께 수집한다.
 
     출력 포맷:
-      "[checked] Initialize repository with a README" (단일 checkbox)
-      "visibility_level: Private | Internal ✓ | Public" (radio group, ✓ 가 선택)
+      "[checked] <checkbox label>"
+      "<radio_group_name>: <option1> | <option2 selected> ✓ | <option3>"
 
-    이 신호 없이는 agent가 intent의 non-default 수식어 (empty / private / guest 등)를
-    form 필드와 매핑 못함 — default submit 이 고질적 실패 원인 (task 479 diagnosis).
+    이 신호 없이는 agent가 intent의 non-default 수식어 (site별 어휘)를 form 필드와
+    매핑 못함 — default submit이 고질적 실패 원인 (Phase 3.E P1.1 진단).
     """
     try:
         results: list[str] = await page.evaluate(

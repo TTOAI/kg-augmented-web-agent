@@ -1,0 +1,73 @@
+# Site-specific prompt library for GitLab (WebArena-Verified instance).
+#
+# Phase 3.H Tier 2: scaffold 여러 파일에 흩어져 있던 prompt fragment를 통합.
+# 각 key는 prompt 섹션이고, 값은 text 또는 구조화된 data (qualifier 매핑 등).
+#
+# 구조화된 경우 PromptLibrary의 render helper가 한 문자열로 합성한다.
+# 다른 site는 동일 schema로 본 파일의 대응 키를 자신의 필드명/역할명으로 교체.
+
+# MUTATE task의 form 제출 checklist. Agent는 Create/Submit/Save 누르기 전
+# intent qualifier → 비기본 form 필드 매핑을 확인해야 함.
+mutate_checklist:
+  header: "Form submission checklist (MUTATE)"
+  preamble: "Before clicking Create / Submit / Save / Invite on a form, verify EACH field against the task intent — not just the name/title. Intent qualifiers map to non-default form settings:"
+  # 각 entry: task intent 키워드 집합 → 대응 form 액션 문자열
+  qualifiers:
+    - keywords: ['"empty"', '"without README"', '"blank"']
+      action: 'uncheck "Initialize repository with a README"'
+    - keywords: ['"private"', '"internal"', '"public"']
+      action: "set visibility radio accordingly"
+    - keywords: ['"as guest"', '"as developer"', '"as maintainer"']
+      action: "set role select"
+    - keywords: ['specific state text (e.g., "Resting due to ...")']
+      action: "type the exact text"
+    - keywords: ['specific reviewer / assignee / label']
+      action: "set the corresponding select"
+
+  verb_routing:
+    header: "Verb routing — existing vs new resource"
+    preamble: "Task verbs imply whether the target resource should ALREADY exist:"
+    verbs:
+      - verb_set: ['"change"', '"update"', '"modify"', '"edit"', '"rename"', '"replace"', '"delete"']
+        guidance: >-
+          the target resource (file / project / issue / user) exists. LOCATE it
+          first (click on the existing item in the list / tree), then use its
+          Edit / Update action. Do NOT use Create-style actions; creating a new
+          sibling (e.g. a new file named "license" next to existing "LICENSE")
+          leaves the original unchanged and fails the task.
+      - verb_set: ['"create"', '"add"', '"new"', '"set up"']
+        guidance: "no pre-existing resource; use the Create form."
+
+  closing: >-
+    If any default disagrees with the intent, change it BEFORE submitting.
+    After submit, verify the target state on the resulting page
+    (URL/message/state) rather than assuming navigation change = success.
+
+# KG filter URL template 섹션의 guidance. hint_generator에서 렌더 시 앞부분에
+# 삽입됨. Filter URL 패턴을 agent가 어떻게 활용할지 안내.
+filter_template_preamble:
+  header: "Filter/sort URL templates (from KG self-edges, cross-class)"
+  body: >-
+    These are query-param patterns observed in KG self-edges on this class
+    and its family/scope siblings. The same query-param names commonly
+    work across sibling list endpoints on the site, so a pattern seen on
+    one list endpoint can be reused on another endpoint of the same type.
+  emphasis: >-
+    **Prefer `goto(url)` with the exact param combination** over free-text
+    search — typing task-derived filter text into the search bar usually
+    adds an extraneous `search=<text>` parameter that strict URL-match
+    evaluators reject.
+
+# goto tool의 description. runtime/tools.py::_goto_tool에서 로드.
+goto_tool:
+  description: >-
+    Directly navigate to a URL. Prefer over clicking when you already
+    have a specific URL target — e.g. a URL from KG hints
+    (filter/sort templates) or a known page path. Relative paths are
+    resolved against the current page's origin.
+  url_description: >-
+    Target URL. Accepts absolute (https://...) or
+    site-relative (starts with /) form. Any placeholder
+    segments (e.g. {namespace}) must be filled in before
+    calling — the tool rejects URLs that still contain
+    `{...}` patterns.

@@ -1,0 +1,22 @@
+# Cascade configuration for GitLab (WebArena-Verified instance).
+#
+# Phase 3.H Tier 2: 이전에는 site_adaptive_webagent/kg_solution/path_finder.py 에
+# DEFAULT_GITLAB_CONFIG 이름으로 하드코드되어 있던 값. path_finder의 fallback 6-stage
+# cascade (exact → family_sibling → scope_entry → hub_fallback → stay_and_explore → failed)
+# 중 scope_entry / hub_fallback 단계에서 참조.
+#
+# 다른 site 적용 시 동일 schema로 scope name → entry class path 매핑 작성.
+
+# 각 scope의 "entry point" class. cascade 시 target class의 scope에 해당하는 entry로
+# 우회 가능한지 확인.
+scope_entries:
+  project: project/main
+  dashboard: dashboard/project_list/yours
+  account: account/account
+  global: global/root_redirect
+  user: user/profile
+  explore: explore/project_list/all
+  ide: ide/edit_view
+
+# 모든 scope가 실패했을 때 최후 fallback hub. 일반적으로 site의 landing / 사용자 홈.
+hub: dashboard/project_list/yours
