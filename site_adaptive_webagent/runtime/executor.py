@@ -314,6 +314,7 @@ async def execute_with_llm(
             ]
             current_msg = extract_msg
             final_declare_rejected = False
+            empty_extract_rejected = False
             iter_limit = 4
             for iteration in range(iter_limit):
                 extract_response = llm.complete_with_tools(
@@ -327,8 +328,34 @@ async def execute_with_llm(
                 call = extract_response.tool_calls[0]
                 if call.name == "extract":
                     args = call.arguments
+                    value_raw = str(args.get("value") or "").strip()
+                    # Empty extract: agent likely meant "no match" but used the
+                    # wrong tool. Re-prompt once with explicit NOT_FOUND guidance
+                    # — symmetric with declare_error rejection below. Second empty
+                    # extract falls through to _handle_extract and yields
+                    # UNKNOWN_ERROR (the legitimate protocol-violation outcome).
+                    if not value_raw and not empty_extract_rejected:
+                        logger.info(
+                            "[LLM] final extract empty value REJECTED (first attempt) — re-prompting"
+                        )
+                        empty_extract_rejected = True
+                        notes_dump = "\n".join(f"- {n}" for n in task_notes) if task_notes else "(no notes)"
+                        current_msg = (
+                            "Your extract call had an EMPTY value. An empty extract "
+                            "is not a valid answer.\n"
+                            "- If the requested target DOES NOT EXIST (no matching "
+                            "records, no such entity), call declare_error with "
+                            "status=NOT_FOUND_ERROR and a short reason.\n"
+                            "- If the target DOES exist, look again at notes and the "
+                            "visible page, then call extract with the concrete value.\n"
+                            f"\nSaved notes:\n{notes_dump}\n"
+                            f"\nPage URL: {obs.url}\nTitle: {obs.title}\n"
+                            f"Visible text (first 20): {obs.text_lines[:20]}\n"
+                            f"Links (first 15): {obs.links[:15]}\n"
+                        )
+                        continue
                     result = _handle_extract(
-                        {"value": args.get("value", ""), "label": args.get("label", "")},
+                        {"value": value_raw, "label": args.get("label", "")},
                         task_type,
                     )
                     elapsed = time.time() - t_start
@@ -340,7 +367,12 @@ async def execute_with_llm(
                     if status not in _DECLARE_ERROR_STATUSES:
                         logger.info("[LLM] final declare_error invalid status=%r → UNKNOWN_ERROR", status)
                         status = "UNKNOWN_ERROR"
-                    if not final_declare_rejected:
+                    # Strong impossibility 신호(NOT_FOUND / ACTION_NOT_ALLOWED)는 sub-goal
+                    # loop까지 충분한 탐색을 거친 뒤 도달한 final extract stage에서
+                    # 첫 declare_error도 수용 — 그렇지 않으면 agent가 "None" 같은
+                    # placeholder를 extract해 잘못된 SUCCESS로 이어짐 (task 168 smoke).
+                    _FINAL_STRONG_ACCEPT = {"NOT_FOUND_ERROR", "ACTION_NOT_ALLOWED_ERROR"}
+                    if status not in _FINAL_STRONG_ACCEPT and not final_declare_rejected:
                         logger.info(
                             "[LLM] final declare_error REJECTED (first attempt); reason=%r",
                             reason[:120],
@@ -587,11 +619,17 @@ async def _try_sub_goal(
                         kg_context.cached_initial_path = path_result
                 else:
                     path_result = kg_context.cached_initial_path
+                current_class_actions = None
+                if kg_session.expose_actions:
+                    current_class_actions = kg_session.get_class_actions(
+                        current_class
+                    )
                 kg_hint = kg_session.generate_hint(
                     path_result,
                     current=current_class,
                     task=task,
                     bindings=kg_context.bindings,
+                    current_class_actions=current_class_actions,
                 )
 
         user_msg = build_observation_message(
@@ -617,6 +655,19 @@ async def _try_sub_goal(
         if memo_text:
             _append_task_note(task_notes, memo_text)
             logger.info("[LLM] step=%d  memo=%r", step + 1, memo_text)
+
+        # Terminal actions (done/declare_error)의 thought은 agent의 conclusion이다.
+        # memo와 달리 thought은 LLM이 항상 produce하므로 intention/conclusion 둘 다
+        # 잡힐 가능성이 있지만, terminal 시점의 thought은 "이 sub-goal에서 무엇을
+        # 확인했는가"에 대한 결론 성격이 강함. final extract stage가 task_notes만
+        # 보는 구조에서 이 conclusion을 보존해야 hallucination을 막는다 (task 168 smoke).
+        if action_name in ("done", "declare_error") and thought:
+            conclusion = thought.strip()
+            if conclusion:
+                _append_task_note(
+                    task_notes,
+                    f"[sub-goal {goal_index + 1} {action_name}] {conclusion[:240]}",
+                )
 
         # done-reject 연속 카운터: done 외 action이 호출되면 리셋 (실제 진전이 있었다고 간주).
         if action_name != "done":
@@ -687,11 +738,12 @@ async def _try_sub_goal(
 
             # Warning mode: 재시도 이력이 부족하면 declare_error를 거절하고 다시 탐색하게 한다.
             # done이 _verify_done으로 검증되는 것과 대칭 — declare_error도 "충분한 시도" 검증.
-            # 단, 강한 impossibility 신호 (NOT_FOUND_ERROR, ACTION_NOT_ALLOWED_ERROR)는 1회
-            # 시도만으로도 수용 — 명백한 401/403/404 페이지에 3회 retry 강제는 step 낭비.
+            # 단, 강한 impossibility 신호 (NOT_FOUND_ERROR, ACTION_NOT_ALLOWED_ERROR)는 prior
+            # attempt 없이도 수용 — 명백한 "empty state" 페이지에서 retry 강제는 step 낭비이고,
+            # agent의 correct conclusion을 버려 final extract에서 hallucinate로 이어짐 (task 168).
             prior_attempts = len(previous_failures)
             _STRONG_SIGNAL_STATUSES = {"NOT_FOUND_ERROR", "ACTION_NOT_ALLOWED_ERROR"}
-            _required_attempts = 1 if status in _STRONG_SIGNAL_STATUSES else 3
+            _required_attempts = 0 if status in _STRONG_SIGNAL_STATUSES else 3
             if prior_attempts < _required_attempts:
                 logger.info(
                     "[LLM] declare_error REJECTED (attempts=%d/%d): status=%s reason=%r",

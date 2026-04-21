@@ -39,6 +39,9 @@ DEFAULT_EDGE_GRAPH_PATH = Path("output/validation/stage_c/edge_graph.json")
 DEFAULT_CLASS_DESC_PATH = Path(
     "output/validation/kg_solution/class_descriptions.json"
 )
+DEFAULT_ACTION_CATALOG_PATH = Path(
+    "output/validation/stage_b/action_catalog.json"
+)
 
 
 @dataclass
@@ -66,6 +69,8 @@ class KGSession:
     replan_per_step: bool = True
     hint_cache: dict = field(default_factory=dict)
     k_samples: int = 3
+    action_catalog: dict = field(default_factory=dict)
+    expose_actions: bool = True
 
     def classify_url(self, url: str) -> Optional[str]:
         try:
@@ -136,6 +141,24 @@ class KGSession:
             )
         return result
 
+    def get_class_actions(self, class_name: str) -> Optional[dict]:
+        """Return the action catalog entry for class_name, or None if absent.
+
+        Catalog entry shape (from stage_b/action_catalog.json):
+            {"instance_count": int, "raw_action_count": int,
+             "navigation_actions": [{"label", "target_class", "sample_href",
+                                     "tag", "role", "instance_freq",
+                                     "self_edge"}, ...],
+             "internal_actions": [{"label", "tag", "role", "type",
+                                   "instance_freq"}, ...]}
+        """
+        if not class_name:
+            return None
+        entry = self.action_catalog.get(class_name)
+        if entry is None:
+            return None
+        return entry
+
     def generate_hint(
         self,
         path_result: PathResult,
@@ -143,6 +166,7 @@ class KGSession:
         current: str,
         task: str,
         bindings: dict[str, str],
+        current_class_actions: Optional[dict] = None,
     ) -> Optional[str]:
         try:
             return _generate_hint(
@@ -152,6 +176,7 @@ class KGSession:
                 bindings=bindings,
                 llm=self.hint_llm,
                 cache=self.hint_cache,
+                current_class_actions=current_class_actions,
             )
         except Exception as exc:
             logger.warning("[KG] generate_hint failed: %s", exc)
@@ -177,10 +202,12 @@ def build_kg_session(
     rules_path: Path = DEFAULT_RULES_PATH,
     edge_graph_path: Path = DEFAULT_EDGE_GRAPH_PATH,
     class_desc_path: Path = DEFAULT_CLASS_DESC_PATH,
+    action_catalog_path: Path = DEFAULT_ACTION_CATALOG_PATH,
     *,
     inferrer_temperature: float = 0.3,
     cascade_enabled: bool = True,
     replan_per_step: bool = True,
+    expose_actions: bool = True,
     k_samples: int = 3,
 ) -> Optional[KGSession]:
     """Build a KG session, or return None on any failure (graceful fallback)."""
@@ -199,6 +226,15 @@ def build_kg_session(
     except Exception as exc:
         logger.warning("[KG] class_descriptions load failed: %s", exc)
         return None
+    # Action catalog is advisory data; failure only disables action exposure.
+    action_catalog: dict = {}
+    try:
+        ac_data = json.loads(Path(action_catalog_path).read_text(encoding="utf-8"))
+        action_catalog = ac_data.get("catalog", {}) if isinstance(ac_data, dict) else {}
+    except Exception as exc:
+        logger.warning(
+            "[KG] action_catalog load failed: %s — proceeding without it", exc
+        )
     inferrer_llm = _make_inferrer_llm(inferrer_temperature)
     if inferrer_llm is None:
         logger.warning(
@@ -209,11 +245,13 @@ def build_kg_session(
     for e in edge_data.get("edges", []):
         all_classes.add(e["target"])
     logger.info(
-        "[KG] session loaded: classes=%d edges=%d cascade=%s replan=%s",
+        "[KG] session loaded: classes=%d edges=%d catalog_classes=%d cascade=%s replan=%s expose_actions=%s",
         len(all_classes),
         len(edge_data.get("edges", [])),
+        len(action_catalog),
         cascade_enabled,
         replan_per_step,
+        expose_actions,
     )
     return KGSession(
         classifier=classifier,
@@ -226,4 +264,6 @@ def build_kg_session(
         cascade_enabled=cascade_enabled,
         replan_per_step=replan_per_step,
         k_samples=k_samples,
+        action_catalog=action_catalog,
+        expose_actions=expose_actions,
     )

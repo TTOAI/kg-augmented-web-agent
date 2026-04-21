@@ -57,6 +57,7 @@ async def run_agent(  # noqa: PLR0913
         kg_session = build_kg_session(
             cascade_enabled=(os.getenv("KG_CASCADE", "1") != "0"),
             replan_per_step=(os.getenv("KG_REPLAN", "1") != "0"),
+            expose_actions=(os.getenv("KG_EXPOSE_ACTIONS", "1") != "0"),
         )
 
     outcome = await execute_with_llm(

@@ -41,6 +41,8 @@ def _make_session(
     responses: Optional[list[str]] = None,
     cascade_enabled: bool = True,
     replan_per_step: bool = True,
+    action_catalog: Optional[dict] = None,
+    expose_actions: bool = True,
 ) -> KGSession:
     adjacency = adjacency or {}
     all_classes = all_classes or set(adjacency.keys())
@@ -59,6 +61,8 @@ def _make_session(
         cascade_config=DEFAULT_GITLAB_CONFIG,
         cascade_enabled=cascade_enabled,
         replan_per_step=replan_per_step,
+        action_catalog=action_catalog or {},
+        expose_actions=expose_actions,
     )
 
 
@@ -219,6 +223,71 @@ class SubGoalKGContextTests(unittest.TestCase):
         self.assertEqual(ctx.bindings, {})
         self.assertIsNone(ctx.cached_initial_path)
         self.assertEqual(ctx.rejected_out_of_set, [])
+
+
+class GetClassActionsTests(unittest.TestCase):
+    def test_returns_entry_when_present(self):
+        session = _make_session(
+            action_catalog={
+                "A": {
+                    "instance_count": 3,
+                    "navigation_actions": [{"label": "X", "instance_freq": 1}],
+                    "internal_actions": [],
+                }
+            }
+        )
+        entry = session.get_class_actions("A")
+        assert entry is not None
+        self.assertEqual(entry["instance_count"], 3)
+
+    def test_returns_none_when_missing(self):
+        session = _make_session(action_catalog={})
+        self.assertIsNone(session.get_class_actions("A"))
+
+    def test_returns_none_for_empty_class_name(self):
+        session = _make_session(
+            action_catalog={"A": {"navigation_actions": []}}
+        )
+        self.assertIsNone(session.get_class_actions(""))
+
+
+class GenerateHintForwardsActionsTests(unittest.TestCase):
+    def test_generate_hint_includes_action_section(self):
+        from site_adaptive_webagent.kg_solution.path_finder import (
+            PathResult,
+            PathStep,
+        )
+
+        session = _make_session()
+        result = PathResult(
+            strategy="exact",
+            actual_target="A",
+            inferred_target="A",
+            path=[
+                PathStep(
+                    source="X", target="A", actions=["Go"], trust="high"
+                )
+            ],
+            hops=1,
+        )
+        actions = {
+            "navigation_actions": [
+                {"label": "Personal", "target_class": "A",
+                 "sample_href": "/dashboard?personal=true",
+                 "tag": "a", "role": None, "instance_freq": 3,
+                 "self_edge": True}
+            ],
+            "internal_actions": [],
+        }
+        hint = session.generate_hint(
+            result,
+            current="X",
+            task="t",
+            bindings={},
+            current_class_actions=actions,
+        )
+        assert hint is not None
+        self.assertIn("Personal", hint)
 
 
 if __name__ == "__main__":

@@ -172,6 +172,158 @@ class FallbackStrategyTests(unittest.TestCase):
         self.assertIn("routed to hub", hint)
 
 
+class RenderClassActionsTests(unittest.TestCase):
+    def _catalog(self):
+        return {
+            "navigation_actions": [
+                {"label": "Personal", "target_class": "dashboard/project_list/yours",
+                 "sample_href": "http://x/dashboard?personal=true&sort=created_desc",
+                 "tag": "a", "role": None, "instance_freq": 3, "self_edge": True},
+                {"label": "Starred 3", "target_class": "dashboard/project_list/starred",
+                 "sample_href": "http://x/dashboard/projects/starred",
+                 "tag": "a", "role": None, "instance_freq": 3, "self_edge": False},
+                {"label": "New project", "target_class": "global/new_project_form",
+                 "sample_href": "http://x/projects/new",
+                 "tag": "a", "role": None, "instance_freq": 2, "self_edge": False},
+            ],
+            "internal_actions": [
+                {"label": "Last created", "tag": "button", "role": None,
+                 "type": None, "instance_freq": 2},
+                {"label": "Updated date", "tag": "button", "role": None,
+                 "type": None, "instance_freq": 1},
+            ],
+        }
+
+    def test_empty_input_returns_empty(self):
+        from site_adaptive_webagent.kg_solution.hint_generator import (
+            _render_class_actions,
+        )
+        self.assertEqual(_render_class_actions(None), "")
+        self.assertEqual(_render_class_actions({}), "")
+
+    def test_renders_nav_and_internal(self):
+        from site_adaptive_webagent.kg_solution.hint_generator import (
+            _render_class_actions,
+        )
+        out = _render_class_actions(self._catalog())
+        self.assertIn("Personal", out)
+        self.assertIn("dashboard/project_list/yours", out)
+        self.assertIn("personal=true", out)  # query is preserved
+        self.assertIn("Last created", out)
+        self.assertIn("button", out)
+
+    def test_excludes_labels_already_in_path(self):
+        from site_adaptive_webagent.kg_solution.hint_generator import (
+            _render_class_actions,
+        )
+        out = _render_class_actions(
+            self._catalog(),
+            exclude_labels={"Personal"},
+        )
+        self.assertNotIn("Personal", out)
+        self.assertIn("Starred", out)  # other labels still rendered
+
+    def test_limits_respected(self):
+        from site_adaptive_webagent.kg_solution.hint_generator import (
+            _render_class_actions,
+        )
+        out = _render_class_actions(
+            self._catalog(), limit_nav=1, limit_int=1
+        )
+        # Only top-freq nav and internal included
+        self.assertIn("Personal", out)
+        self.assertNotIn("New project", out)
+        self.assertIn("Last created", out)
+        self.assertNotIn("Updated date", out)
+
+
+class ActionsInjectedIntoHintTests(unittest.TestCase):
+    def _catalog(self):
+        return {
+            "navigation_actions": [
+                {"label": "Personal", "target_class": "dashboard/project_list/yours",
+                 "sample_href": "http://x/dashboard?personal=true",
+                 "tag": "a", "role": None, "instance_freq": 3, "self_edge": True},
+            ],
+            "internal_actions": [
+                {"label": "Last created", "tag": "button", "role": None,
+                 "type": None, "instance_freq": 2},
+            ],
+        }
+
+    def test_exact_template_includes_actions(self):
+        hint = generate_hint(
+            _exact_result(),
+            current="dashboard/project_list/yours",
+            task="find my personal projects",
+            bindings={},
+            current_class_actions=self._catalog(),
+        )
+        assert hint is not None
+        self.assertIn("Personal", hint)
+        self.assertIn("Last created", hint)
+
+    def test_stay_template_includes_actions(self):
+        from site_adaptive_webagent.kg_solution.path_finder import PathResult
+        result = PathResult(
+            strategy="stay_and_explore",
+            actual_target="A",
+            inferred_target="B",
+            path=None,
+            note="n",
+        )
+        hint = generate_hint(
+            result,
+            current="A",
+            task="t",
+            bindings={},
+            current_class_actions=self._catalog(),
+        )
+        assert hint is not None
+        self.assertIn("Personal", hint)
+
+    def test_no_actions_dict_no_section(self):
+        hint = generate_hint(
+            _exact_result(),
+            current="dashboard/project_list/yours",
+            task="t",
+            bindings={},
+            current_class_actions=None,
+        )
+        assert hint is not None
+        self.assertNotIn("Available navigation on this page", hint)
+        self.assertNotIn("In-page controls", hint)
+
+    def test_path_labels_excluded_from_actions(self):
+        # exact path includes "Click 'a11yproject'"; if a11yproject is also
+        # a nav action label, it should not appear in actions section.
+        catalog = {
+            "navigation_actions": [
+                {"label": "a11yproject", "target_class": "project/main",
+                 "sample_href": "http://x/a11yproject", "tag": "a",
+                 "role": None, "instance_freq": 3, "self_edge": False},
+                {"label": "Starred", "target_class": "X",
+                 "sample_href": "http://x/s", "tag": "a",
+                 "role": None, "instance_freq": 2, "self_edge": False},
+            ],
+            "internal_actions": [],
+        }
+        hint = generate_hint(
+            _exact_result(),
+            current="dashboard/project_list/yours",
+            task="t",
+            bindings={},
+            current_class_actions=catalog,
+        )
+        assert hint is not None
+        # "a11yproject" is in path steps; should not be re-surfaced in action section
+        nav_section_idx = hint.find("Available navigation on this page")
+        if nav_section_idx >= 0:
+            nav_section = hint[nav_section_idx:]
+            self.assertNotIn("- [a11yproject]", nav_section)
+            self.assertIn("Starred", nav_section)
+
+
 class LabelNormalizationTests(unittest.TestCase):
     def test_strip_trailing_count(self):
         self.assertEqual(_normalize_label("Issues 5"), "Issues")
