@@ -694,6 +694,14 @@ def build_observation_message(
         )
     if observation.inputs:
         elements.append("**Input fields:**\n" + "\n".join(f"- {i}" for i in observation.inputs[:10]))
+    latent = getattr(observation, "latent_nav", None) or []
+    if latent:
+        shown = latent[:20]
+        elements.append(
+            "**Latent navigation (DOM-rendered but currently hidden — "
+            "click the parent toggle/menu to reach):**\n"
+            + "\n".join(f"- {item}" for item in shown)
+        )
     if elements:
         sections.append("## Interactive Elements\n" + "\n\n".join(elements))
 

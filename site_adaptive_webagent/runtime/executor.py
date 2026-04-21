@@ -1498,5 +1498,8 @@ def _log_step_observation(
     logger.info("[LLM] step=%d  buttons=%s", step + 1, obs.buttons[:10])
     if obs.dropdown_options:
         logger.info("[LLM] step=%d  dropdown=%s", step + 1, obs.dropdown_options[:15])
+    latent = getattr(obs, "latent_nav", None) or []
+    if latent:
+        logger.info("[LLM] step=%d  latent_nav=%s", step + 1, latent[:15])
     goal_desc = sub_goals[goal_index] if goal_index < len(sub_goals) else "ALL DONE"
     logger.info("[LLM] step=%d  goal=%d/%d %r", step + 1, goal_index + 1, len(sub_goals), goal_desc)

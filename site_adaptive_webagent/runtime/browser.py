@@ -31,7 +31,10 @@ async def observe_page(page: Any) -> PageObservation:
     # URL은 원본 그대로 (.lower() 등 정규화하지 않음) — case-sensitive path·query
     # 보존. _sub_goal_start_url 비교에도 원본 기반이 안전 (Y-code-4 fix).
     url = (getattr(page, "url", "") or "").strip()
-    title, headings, text_lines, ax_links, dropdown_options, buttons, inputs, readonly_values, toggle_states = await asyncio.gather(
+    (
+        title, headings, text_lines, ax_links, dropdown_options, buttons,
+        inputs, readonly_values, toggle_states, latent_nav,
+    ) = await asyncio.gather(
         safe_title(page),
         extract_texts(page, HEADING_SELECTORS),
         extract_texts(page, TEXT_BLOCK_SELECTORS),
@@ -41,6 +44,7 @@ async def observe_page(page: Any) -> PageObservation:
         extract_input_labels(page),
         extract_readonly_values(page),
         extract_toggle_states(page),
+        extract_latent_nav(page),
     )
     # AX tree가 빈 결과면 CSS selector 폴백
     links = ax_links if ax_links else await extract_texts(page, LINK_SELECTORS)
@@ -50,6 +54,13 @@ async def observe_page(page: Any) -> PageObservation:
     # Phase 3.E P1.1 (task 479): 기본 checkbox selector가 이들을 배제해 intent의
     # "empty" / "private" 등 qualifier가 form 필드로 매핑 안 되고 default로 submit.
     all_inputs = toggle_states + inputs
+    # Latent nav에서 visible link 중복 제거 — observation 표면에 이미 있는 것은 불필요
+    visible_link_texts = {l.split(" → ")[0].strip() for l in links if " → " in l}
+    latent_nav_dedup = [
+        item for item in latent_nav
+        if item.split(" → ")[0].replace("[collapsed] ", "").strip()
+        not in visible_link_texts
+    ]
     return PageObservation(
         url=url,
         title=normalize_text(title),
@@ -59,6 +70,7 @@ async def observe_page(page: Any) -> PageObservation:
         buttons=buttons,
         inputs=all_inputs,
         dropdown_options=dropdown_options,
+        latent_nav=latent_nav_dedup,
     )
 
 
@@ -128,6 +140,84 @@ async def extract_input_labels(page: Any) -> list[str]:
                 seen.add(cleaned)
                 labels.append(cleaned)
     return labels
+
+
+async def extract_latent_nav(page: Any) -> list[str]:
+    """DOM에 렌더되어 있지만 collapsed / aria-hidden으로 인해 visible extract에서
+    누락되는 navigation 항목을 사전 추출한다.
+
+    타겟:
+      1. aria-expanded='false'인 버튼/엘리먼트의 aria-controls 연결된 container 내부
+         <a href> 링크 (예: GitLab 사이드바 "Project information" 하위 Members 링크)
+      2. role='menu' / role='listbox'로 렌더된 dropdown의 menu/option 자식
+         (현재 closed 상태여도 DOM에 pre-rendered된 경우)
+
+    출력 형식: "[collapsed] label → /path" 또는 "[menu] option_text"
+    부수 효과 없음: DOM read만, 실제 expand 안 함.
+    """
+    try:
+        results: list[str] = await page.evaluate(
+            """() => {
+                const out = [];
+                const seen = new Set();
+                const push = (item) => {
+                    if (!item || seen.has(item)) return;
+                    seen.add(item);
+                    out.push(item);
+                };
+
+                // 1. aria-controls 연결 기반 collapsed container 링크
+                const toggles = Array.from(document.querySelectorAll(
+                    '[aria-expanded="false"][aria-controls]'
+                ));
+                for (const t of toggles) {
+                    const targetId = t.getAttribute('aria-controls');
+                    if (!targetId) continue;
+                    const container = document.getElementById(targetId);
+                    if (!container) continue;
+                    const toggleLabel = (t.innerText || t.getAttribute('aria-label') || '').trim().split('\\n')[0];
+                    const anchors = Array.from(container.querySelectorAll('a[href]')).slice(0, 20);
+                    for (const a of anchors) {
+                        const txt = (a.innerText || a.getAttribute('aria-label') || a.getAttribute('title') || '').trim();
+                        if (!txt) continue;
+                        const path = a.pathname || '';
+                        const entry = path
+                            ? `[collapsed:${toggleLabel}] ${txt} \\u2192 ${path}`
+                            : `[collapsed:${toggleLabel}] ${txt}`;
+                        push(entry);
+                    }
+                }
+
+                // 2. pre-rendered menu / listbox options (closed dropdown)
+                // visibility:hidden / display:none이 아니면서 offsetParent null인 case 포함
+                const menus = Array.from(document.querySelectorAll(
+                    '[role="menu"], [role="listbox"]'
+                ));
+                for (const m of menus) {
+                    const style = window.getComputedStyle(m);
+                    if (style.display === 'none') continue;
+                    // 이미 agent에게 visible (extract_dropdown_options로 잡힘)이면 skip
+                    if (m.offsetParent !== null && style.visibility !== 'hidden') continue;
+                    const items = Array.from(m.querySelectorAll(
+                        '[role="menuitem"], [role="option"], [role="menuitemradio"], [role="menuitemcheckbox"], a[href]'
+                    )).slice(0, 20);
+                    const trigger = m.getAttribute('aria-labelledby');
+                    const trigLabel = trigger
+                        ? (document.getElementById(trigger)?.innerText || '').trim().split('\\n')[0]
+                        : (m.getAttribute('aria-label') || '');
+                    for (const it of items) {
+                        const txt = (it.innerText || it.getAttribute('aria-label') || '').trim();
+                        if (!txt) continue;
+                        push(`[menu:${trigLabel}] ${txt}`);
+                    }
+                }
+
+                return out.slice(0, 40);
+            }"""
+        )
+        return [r for r in results if r]
+    except Exception:
+        return []
 
 
 async def extract_toggle_states(page: Any) -> list[str]:

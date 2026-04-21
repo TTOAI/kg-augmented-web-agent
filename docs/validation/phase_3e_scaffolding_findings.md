@@ -164,3 +164,47 @@ Option 2는 Solution 2 KG의 자연 확장 — 별도 phase에서 검토 가치.
 ---
 
 ## Iter P3.2 — (next: 상태 점검 후 결정)
+
+---
+
+## Phase 3.F α — Observation layer 확장 (latent_nav)
+
+### 구현
+
+- `PageObservation.latent_nav` 필드 추가 (browser observation 확장)
+- `browser.py::extract_latent_nav`: DOM에서 `[aria-expanded='false'][aria-controls]` 토글 + 대응 container 내부 `<a href>` 사전 추출. `role='menu'/'listbox'` pre-rendered 항목도 지원. DOM read only, side-effect 없음.
+- `llm.py::build_observation_message`: "Latent navigation (DOM-rendered but currently hidden ...)" 섹션으로 렌더.
+- Token bloat 방어: top-20 truncation + visible link 중복 제거.
+
+### Validation 결과
+
+**Task 742** (Members sub-menu 발견):
+- 진행: Agent가 **`/byteblaze/planner/-/project_members` 페이지 도달** (baseline에선 전혀 불가능했던 위치). latent_nav로 "Project information" 하위 Members 링크 노출됨 → click 가능 → 도달.
+- 한계: Members 페이지에서 Invite 모달은 열렸으나 **member 입력 필드 접근 실패** — 별개의 modal input targeting 이슈 (이 iteration 범위 밖). 최종 task는 timeout까지 진행 안 끝남.
+
+**Task 339** (Label dropdown 옵션 발견):
+- `latent_nav` 미기여: GitLab의 Label dropdown이 Vue component 기반으로 `aria-expanded` 패턴을 쓰지 않음.
+- 다만 기존 `extract_dropdown_options`가 열린 dropdown의 옵션 (bug, feature 등)을 이미 노출 — 339의 근본 문제는 observation 부족이 아닌 **agent의 search bar 선호**.
+- 결과: 기존 실패 패턴 (search= 포함 URL) 반복, evaluator strict match 실패.
+
+**Regression** (task 44 NAV):
+- SUCCESS 유지. Regression 없음.
+
+### 판정
+
+- **부분 성공**: 구조적 한계의 한 종류 (aria-expanded 기반 collapsed nav, e.g. Project sidebar의 Members) 해제. 저위험 fix로 sub-menu discovery 문제 해결.
+- **미해결**: Vue component 기반 UI (Label dropdown 등)는 aria-expanded 비사용 → latent_nav 미기여. 이런 component는 click-to-open 하면 기존 extraction이 캐치하므로 실제 한계는 "agent의 interaction 전략" 측.
+
+### 교훈
+
+- Observation 확장은 실제로 **aria-expanded + aria-controls 명시 패턴 (GitLab의 accessibility-first 서브메뉴)**에 정확히 매칭. Gitlab 등 mixed-pattern site에서 일부 component만 혜택.
+- Filter dropdown 사용 장려는 observation보다 **action-strategy 교정** (agent의 tool 선택) 영역. 이는 β (KG filter URL template)로 해결 방향 전환.
+
+### 다음 단계
+
+- α 성과는 commit (Members-type blocker 해제는 다른 task에도 파급 가능 — 예: audit/security 서브메뉴)
+- β (KG filter URL template)로 339-type failure 직접 공격. Agent가 `goto(filter_url)` 1 step로 강제해 search 회피.
+
+---
+
+## Phase 3.F β — (next: KG filter URL template)

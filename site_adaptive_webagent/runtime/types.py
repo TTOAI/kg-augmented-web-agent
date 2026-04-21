@@ -40,6 +40,10 @@ class PageObservation:
     buttons: list[str]
     inputs: list[str] = field(default_factory=list)  # placeholder / label 기반 입력 필드
     dropdown_options: list[str] = field(default_factory=list)  # 열린 드롭다운/메뉴 항목
+    # Phase 3.F α: DOM에 rendered되어 있지만 collapsed/aria-hidden 상태라 visible
+    # extraction에선 누락되는 navigation/option 항목. "[collapsed] label → path"
+    # 형태로 사전 노출해 agent의 구조적 한계(sub-menu/filter dropdown 미발견)를 해소.
+    latent_nav: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

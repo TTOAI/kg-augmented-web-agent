@@ -30,6 +30,7 @@ class RuntimeContractTests(unittest.TestCase):
                 "buttons",
                 "inputs",
                 "dropdown_options",
+                "latent_nav",
             },
         )
 
