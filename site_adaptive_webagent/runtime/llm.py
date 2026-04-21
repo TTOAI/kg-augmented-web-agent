@@ -574,8 +574,14 @@ def build_observation_message(
     sub_goals: list[SubGoal] | None = None,
     current_goal_index: int = 0,
     start_url: str = "",
+    kg_hint: str | None = None,
 ) -> str:
-    """페이지 상태를 마크다운 섹션으로 구조화한다 (Tool Use용)."""
+    """페이지 상태를 마크다운 섹션으로 구조화한다 (Tool Use용).
+
+    kg_hint: 선택적 KG 기반 advisory hint. 있으면 task 섹션 뒤, 관측 앞에 주입.
+    Agent는 이 hint를 advisory로 취급할 수 있으며, observation과 충돌하면
+    observation을 우선한다.
+    """
     from urllib.parse import urlparse, parse_qs
 
     sections: list[str] = []
@@ -584,6 +590,9 @@ def build_observation_message(
     if start_url:
         task_section += f"\n**Started from:** {start_url}"
     sections.append(task_section)
+
+    if kg_hint:
+        sections.append(kg_hint)
 
     if sub_goals and current_goal_index < len(sub_goals):
         current_goal = sub_goals[current_goal_index].goal

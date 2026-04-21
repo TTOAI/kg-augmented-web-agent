@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import Any, Optional, TYPE_CHECKING
 
 logger = logging.getLogger("webarena_verified")
 
@@ -10,6 +10,12 @@ from .browser import observe_page, try_click_target, try_fill_target, try_search
 from .llm import LLMClient, SubGoal, build_observation_message, build_plan, build_tool_use_system_prompt
 from .tools import format_assistant_tool_use, format_tool_result, replan_tool, tools_for_goal
 from .types import ExecutionOutcome, PageObservation
+
+if TYPE_CHECKING:
+    from site_adaptive_webagent.kg_solution.integration import (
+        KGSession,
+        SubGoalKGContext,
+    )
 
 
 _DECLARE_ERROR_STATUSES: frozenset[str] = frozenset({
@@ -101,10 +107,19 @@ async def execute_with_llm(
     observation: PageObservation,
     llm: LLMClient,
     max_steps: int = 50,
+    kg_session: Optional["KGSession"] = None,
 ) -> ExecutionOutcome:
-    """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다."""
+    """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다.
+
+    kg_session: Optional KG runtime context. 제공되면 sub-goal 시작마다
+    target_class를 추론하고, 매 step 관찰 전에 hint를 생성해 prompt에 주입한다.
+    None이면 baseline 동작.
+    """
     t_start = time.time()
     system = build_tool_use_system_prompt()
+
+    # Sub-goal별 KG 컨텍스트 캐시 (goal_idx → SubGoalKGContext). Infer 1회 후 재사용.
+    sub_goal_kg_contexts: dict[int, "SubGoalKGContext"] = {}
 
     # Wrap LLM client with call counter. Task 내 모든 LLM 호출이 자동으로 counter 증가 +
     # 한도 초과 시 _LLMCallLimitExceeded 예외로 loop 탈출.
@@ -136,6 +151,20 @@ async def execute_with_llm(
         failures: list[str] = []
         goal_succeeded = False
 
+        # KG target inference — per sub-goal, cached across retries.
+        kg_context: Optional["SubGoalKGContext"] = None
+        if kg_session is not None:
+            if goal_idx not in sub_goal_kg_contexts:
+                try:
+                    sub_goal_kg_contexts[goal_idx] = (
+                        kg_session.infer_target_for_sub_goal(sub_goal.goal, task)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[KG] infer_target_for_sub_goal error: %s", exc
+                    )
+            kg_context = sub_goal_kg_contexts.get(goal_idx)
+
         for attempt in range(_MAX_RETRIES_PER_GOAL):
             logger.info("[LLM] goal=%d/%d %r  attempt=%d  budget=%d",
                         goal_idx + 1, len(sub_goals), sub_goal, attempt + 1, step_budget)
@@ -149,6 +178,8 @@ async def execute_with_llm(
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
                     start_url=checkpoint_stack[0],
+                    kg_session=kg_session,
+                    kg_context=kg_context,
                 )
             except _LLMCallLimitExceeded as exc:
                 elapsed = time.time() - t_start
@@ -394,6 +425,21 @@ async def execute_with_llm(
                 sub_goal = sub_goals[goal_idx]
                 remaining_goals = len(sub_goals) - goal_idx
                 step_budget = max(6, (max_steps - steps_used) // remaining_goals)
+                kg_context_replan: Optional["SubGoalKGContext"] = None
+                if kg_session is not None:
+                    if goal_idx not in sub_goal_kg_contexts:
+                        try:
+                            sub_goal_kg_contexts[goal_idx] = (
+                                kg_session.infer_target_for_sub_goal(
+                                    sub_goal.goal, task
+                                )
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "[KG] infer_target_for_sub_goal error: %s",
+                                exc,
+                            )
+                    kg_context_replan = sub_goal_kg_contexts.get(goal_idx)
                 result, used = await _try_sub_goal(
                     task=task, task_type=task_type, sub_goal=sub_goal,
                     sub_goals=sub_goals, goal_index=goal_idx,
@@ -402,6 +448,8 @@ async def execute_with_llm(
                     is_last_goal=(goal_idx == len(sub_goals) - 1),
                     task_notes=task_notes,
                     start_url=checkpoint_stack[0],
+                    kg_session=kg_session,
+                    kg_context=kg_context_replan,
                 )
                 steps_used += used
                 if result is not None and result.status != "SUB_GOAL_FAILED":
@@ -451,6 +499,8 @@ async def _try_sub_goal(
     is_last_goal: bool = False,
     task_notes: list[str] | None = None,
     start_url: str = "",
+    kg_session: Optional["KGSession"] = None,
+    kg_context: Optional["SubGoalKGContext"] = None,
 ) -> tuple[ExecutionOutcome | None, int]:
     """단일 sub-goal을 step_budget 안에서 시도한다 (Tool Use 기반).
 
@@ -518,10 +568,37 @@ async def _try_sub_goal(
                 stall_warning if not last_action_feedback else last_action_feedback + "\n" + stall_warning
             )
 
+        kg_hint: str | None = None
+        if (
+            kg_session is not None
+            and kg_context is not None
+            and kg_context.target_class is not None
+        ):
+            current_class = kg_session.classify_url(current_obs.url)
+            if current_class:
+                if (
+                    kg_session.replan_per_step
+                    or kg_context.cached_initial_path is None
+                ):
+                    path_result = kg_session.find_path(
+                        current_class, kg_context.target_class
+                    )
+                    if kg_context.cached_initial_path is None:
+                        kg_context.cached_initial_path = path_result
+                else:
+                    path_result = kg_context.cached_initial_path
+                kg_hint = kg_session.generate_hint(
+                    path_result,
+                    current=current_class,
+                    task=task,
+                    bindings=kg_context.bindings,
+                )
+
         user_msg = build_observation_message(
             task=task, observation=current_obs, last_action_feedback=last_action_feedback,
             sub_goals=sub_goals, current_goal_index=goal_index,
             start_url=start_url,
+            kg_hint=kg_hint,
         )
         messages.append({"role": "user", "content": user_msg})
         if len(messages) > _MAX_MESSAGES:

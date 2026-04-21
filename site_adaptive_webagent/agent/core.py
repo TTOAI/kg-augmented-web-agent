@@ -6,6 +6,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from .types import AgentRunResult
+from site_adaptive_webagent.kg_solution.integration import build_kg_session
 from site_adaptive_webagent.runtime.browser import observe_page
 from site_adaptive_webagent.runtime.executor import execute_with_llm
 from site_adaptive_webagent.runtime.intent import analyze_intent
@@ -49,6 +50,15 @@ async def run_agent(  # noqa: PLR0913
     except ValueError:
         max_steps = 50
 
+    # KG session 로드 (실패 시 None → baseline 동작).
+    # env `KG_ENABLED=0`으로 완전 비활성화 가능 (ablation baseline 재측정용).
+    kg_session = None
+    if os.getenv("KG_ENABLED", "1") != "0":
+        kg_session = build_kg_session(
+            cascade_enabled=(os.getenv("KG_CASCADE", "1") != "0"),
+            replan_per_step=(os.getenv("KG_REPLAN", "1") != "0"),
+        )
+
     outcome = await execute_with_llm(
         task=intent,
         task_type=plan.task_type,
@@ -56,6 +66,7 @@ async def run_agent(  # noqa: PLR0913
         observation=observation,
         llm=llm,
         max_steps=max_steps,
+        kg_session=kg_session,
     )
 
     return AgentRunResult(

@@ -1,0 +1,229 @@
+"""KGSession — runtime wrapper tying classifier + KG + LLM for the agent.
+
+Built once at `run_agent()` entry via `build_kg_session()`. Returns None on
+any load/auth failure; callers treat None as "no-hint mode" and run baseline
+behavior. All per-call errors inside KGSession methods are caught and
+logged, returning graceful defaults so KG issues never break task execution.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Optional
+
+from scripts.validation.stage_a_classify import load_classifier
+
+from site_adaptive_webagent.runtime.llm import (
+    AnthropicLLMClient,
+    LLMClient,
+    OpenAILLMClient,
+)
+
+from .class_descriptions import ClassCatalog, load_class_catalog
+from .hint_generator import generate_hint as _generate_hint
+from .path_finder import (
+    DEFAULT_GITLAB_CONFIG,
+    CascadeConfig,
+    PathResult,
+    find_path as _find_path,
+)
+from .task_inferrer import InferResult, infer_target as _infer_target
+
+logger = logging.getLogger("webarena_verified")
+
+DEFAULT_RULES_PATH = Path("output/validation/rules/class_rules.json")
+DEFAULT_EDGE_GRAPH_PATH = Path("output/validation/stage_c/edge_graph.json")
+DEFAULT_CLASS_DESC_PATH = Path(
+    "output/validation/kg_solution/class_descriptions.json"
+)
+
+
+@dataclass
+class SubGoalKGContext:
+    """Per-sub-goal KG state: inferred target + cached path for no-replan variant."""
+
+    target_class: Optional[str]
+    bindings: dict[str, str] = field(default_factory=dict)
+    agreement: int = 0
+    rejected_out_of_set: list[str] = field(default_factory=list)
+    # Populated lazily on first find_path call; reused if replan disabled.
+    cached_initial_path: Optional[PathResult] = None
+
+
+@dataclass
+class KGSession:
+    classifier: Callable[[str], Optional[str]]
+    adjacency: dict
+    all_classes: set[str]
+    catalog: ClassCatalog
+    inferrer_llm: LLMClient
+    hint_llm: Optional[LLMClient]
+    cascade_config: CascadeConfig
+    cascade_enabled: bool = True
+    replan_per_step: bool = True
+    hint_cache: dict = field(default_factory=dict)
+    k_samples: int = 3
+
+    def classify_url(self, url: str) -> Optional[str]:
+        try:
+            return self.classifier(url)
+        except Exception as exc:
+            logger.warning("[KG] classifier failed for url=%s: %s", url, exc)
+            return None
+
+    def infer_target_for_sub_goal(
+        self, sub_goal: str, task: str
+    ) -> SubGoalKGContext:
+        try:
+            result: InferResult = _infer_target(
+                sub_goal=sub_goal,
+                task=task,
+                catalog=self.catalog,
+                llm=self.inferrer_llm,
+                k=self.k_samples,
+            )
+        except Exception as exc:
+            logger.warning("[KG] infer_target failed: %s", exc)
+            return SubGoalKGContext(target_class=None)
+        logger.info(
+            "[KG] inferred target=%s agreement=%d/%d rejected=%s",
+            result.target_class,
+            result.agreement,
+            self.k_samples,
+            result.rejected_out_of_set,
+        )
+        return SubGoalKGContext(
+            target_class=result.target_class,
+            bindings=result.bindings,
+            agreement=result.agreement,
+            rejected_out_of_set=result.rejected_out_of_set,
+        )
+
+    def find_path(self, current: str, target: str) -> PathResult:
+        try:
+            result = _find_path(
+                self.adjacency,
+                current,
+                target,
+                all_classes=self.all_classes,
+                config=self.cascade_config,
+            )
+        except Exception as exc:
+            logger.warning("[KG] find_path failed: %s", exc)
+            return PathResult(
+                strategy="failed",
+                actual_target=target,
+                inferred_target=target,
+                note=f"find_path exception: {exc}",
+            )
+        if not self.cascade_enabled and result.strategy in (
+            "family_sibling",
+            "scope_entry",
+            "hub_fallback",
+        ):
+            return PathResult(
+                strategy="stay_and_explore",
+                actual_target=current,
+                inferred_target=target,
+                note=(
+                    f"Cascade disabled (V1b). Exact path to {target!r} "
+                    f"unavailable; staying for local exploration."
+                ),
+                progress_checked=True,
+            )
+        return result
+
+    def generate_hint(
+        self,
+        path_result: PathResult,
+        *,
+        current: str,
+        task: str,
+        bindings: dict[str, str],
+    ) -> Optional[str]:
+        try:
+            return _generate_hint(
+                path_result,
+                current=current,
+                task=task,
+                bindings=bindings,
+                llm=self.hint_llm,
+                cache=self.hint_cache,
+            )
+        except Exception as exc:
+            logger.warning("[KG] generate_hint failed: %s", exc)
+            return None
+
+
+def _make_inferrer_llm(temperature: float) -> Optional[LLMClient]:
+    """Dedicated LLM client for target inference; requires non-zero temperature
+    so that K-sample self-consistency can observe variance."""
+    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+    if provider == "openai":
+        if not os.getenv("OPENAI_API_KEY"):
+            return None
+        model = os.getenv("OPENAI_MODEL", "gpt-4o")
+        return OpenAILLMClient(model=model, temperature=temperature)
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        return None
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    return AnthropicLLMClient(model=model, temperature=temperature)
+
+
+def build_kg_session(
+    rules_path: Path = DEFAULT_RULES_PATH,
+    edge_graph_path: Path = DEFAULT_EDGE_GRAPH_PATH,
+    class_desc_path: Path = DEFAULT_CLASS_DESC_PATH,
+    *,
+    inferrer_temperature: float = 0.3,
+    cascade_enabled: bool = True,
+    replan_per_step: bool = True,
+    k_samples: int = 3,
+) -> Optional[KGSession]:
+    """Build a KG session, or return None on any failure (graceful fallback)."""
+    try:
+        classifier = load_classifier(rules_path)
+    except Exception as exc:
+        logger.warning("[KG] classifier load failed: %s", exc)
+        return None
+    try:
+        edge_data = json.loads(Path(edge_graph_path).read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("[KG] edge_graph load failed: %s", exc)
+        return None
+    try:
+        catalog = load_class_catalog(class_desc_path)
+    except Exception as exc:
+        logger.warning("[KG] class_descriptions load failed: %s", exc)
+        return None
+    inferrer_llm = _make_inferrer_llm(inferrer_temperature)
+    if inferrer_llm is None:
+        logger.warning(
+            "[KG] LLM client unavailable (missing API key); KG disabled."
+        )
+        return None
+    all_classes = set(edge_data["adjacency"].keys())
+    for e in edge_data.get("edges", []):
+        all_classes.add(e["target"])
+    logger.info(
+        "[KG] session loaded: classes=%d edges=%d cascade=%s replan=%s",
+        len(all_classes),
+        len(edge_data.get("edges", [])),
+        cascade_enabled,
+        replan_per_step,
+    )
+    return KGSession(
+        classifier=classifier,
+        adjacency=edge_data["adjacency"],
+        all_classes=all_classes,
+        catalog=catalog,
+        inferrer_llm=inferrer_llm,
+        hint_llm=inferrer_llm,
+        cascade_config=DEFAULT_GITLAB_CONFIG,
+        cascade_enabled=cascade_enabled,
+        replan_per_step=replan_per_step,
+        k_samples=k_samples,
+    )
