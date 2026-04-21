@@ -139,6 +139,33 @@ def _goback_tool() -> dict:
     }
 
 
+def _goto_tool() -> dict:
+    return {
+        "name": "goto",
+        "description": (
+            "Directly navigate to a URL. Prefer over clicking when you have a "
+            "specific URL target — e.g. a filter template from KG hints "
+            "(`/{ns}/{proj}/-/issues?state=opened&label_name[]=bug`) or a known "
+            "page path. Relative paths are resolved against the current origin."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": (
+                        "Target URL or path. Accepts absolute (https://...) or "
+                        "site-relative (/{ns}/{proj}/-/issues?...) form. "
+                        "Placeholders like {namespace} must already be filled in."
+                    ),
+                },
+                "memo": _MEMO_FIELD,
+            },
+            "required": ["url"],
+        },
+    }
+
+
 def _observe_tool() -> dict:
     return {
         "name": "observe",
@@ -332,6 +359,7 @@ def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
     """
     tools = [
         _click_tool(), _fill_tool(), _search_tool(), _goback_tool(),
+        _goto_tool(),
         _observe_tool(), _remember_tool(), _recall_tool(), _done_tool(),
         _declare_error_tool(),
     ]

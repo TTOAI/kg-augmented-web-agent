@@ -86,6 +86,39 @@ def _fmt_bindings(bindings: dict[str, str]) -> str:
     return f"Bindings extracted from task: {pairs}"
 
 
+def _render_filter_templates(
+    filter_templates: "list | tuple", limit: int = 8
+) -> str:
+    """Render a class's observed filter URL templates.
+
+    Phase 3.F β: Agent가 UI filter widget을 탐색하지 않고 KG가 제공하는 filter
+    URL로 `goto(...)`해 state에 도달할 수 있게 한다. 예: `/{ns}/{proj}/-/issues
+    ?state=opened&label_name[]=bug`를 검색바 타이핑 대신 직접 navigate.
+    """
+    if not filter_templates:
+        return ""
+    shown = list(filter_templates)[:limit]
+    lines = [
+        "## Filter/sort URL templates (from KG self-edges, cross-class)",
+        "These are observed query-param patterns. The SAME query params "
+        "(e.g. `state=opened`, `label_name[]=<value>`, `assignee_username=<user>`, "
+        "`sort=created_asc`) work on OTHER list endpoints too — e.g. if a template "
+        "shows `/-/merge_requests?state=opened&label_name[]=<X>`, the same pattern "
+        "`state=opened&label_name[]=<X>` applied to `/-/issues` gives opened issues "
+        "with that label.",
+        "**Prefer `goto(url)` with these params over the top search bar** — search "
+        "adds extraneous `search=<text>` which evaluators reject.",
+        "",
+    ]
+    for ft in shown:
+        label = getattr(ft, "label", "") or "(no label)"
+        path = getattr(ft, "path_template", "")
+        q = getattr(ft, "query_example", "")
+        url = f"{path}?{q}" if path and q else (path or q)
+        lines.append(f"  - [{label}] {url}")
+    return "\n".join(lines)
+
+
 def _render_class_actions(
     actions: Optional[dict],
     *,
@@ -272,6 +305,7 @@ def generate_hint(
     llm: Optional[LLMClient] = None,
     cache: Optional[dict[tuple, str]] = None,
     current_class_actions: Optional[dict] = None,
+    filter_templates: Optional["list | tuple"] = None,
 ) -> Optional[str]:
     """Return an advisory hint string, or None if no hint applies.
 
@@ -287,20 +321,25 @@ def generate_hint(
     strategy = path_result.strategy
     if strategy == "failed":
         return None
+
+    filter_section = _render_filter_templates(filter_templates or [])
+
     if strategy == "exact":
-        return _template_exact(
+        hint = _template_exact(
             path_result,
             current,
             bindings,
             current_class_actions=current_class_actions,
         )
+        return f"{hint}\n{filter_section}" if filter_section else hint
     if strategy == "stay_and_explore":
-        return _template_stay(
+        hint = _template_stay(
             path_result,
             current,
             bindings,
             current_class_actions=current_class_actions,
         )
+        return f"{hint}\n{filter_section}" if filter_section else hint
     # Fallback strategies: LLM.
     actions_section = _render_class_actions(
         current_class_actions,

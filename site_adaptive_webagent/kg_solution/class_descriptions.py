@@ -15,10 +15,19 @@ DEFAULT_PATH = Path("output/validation/kg_solution/class_descriptions.json")
 
 
 @dataclass(frozen=True)
+class FilterTemplate:
+    label: str
+    path_template: str
+    query_example: str
+    query_signature: str
+
+
+@dataclass(frozen=True)
 class ClassDescription:
     class_name: str
     url_template: Optional[str]
     description: str
+    filter_templates: tuple[FilterTemplate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -54,9 +63,20 @@ def load_class_catalog(path: Optional[Path] = None) -> ClassCatalog:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     entries: dict[str, ClassDescription] = {}
     for cls, payload in data["entries"].items():
+        ft_raw = payload.get("filter_templates") or []
+        filter_templates = tuple(
+            FilterTemplate(
+                label=str(ft.get("label") or ""),
+                path_template=str(ft.get("path_template") or ""),
+                query_example=str(ft.get("query_example") or ""),
+                query_signature=str(ft.get("query_signature") or ""),
+            )
+            for ft in ft_raw
+        )
         entries[cls] = ClassDescription(
             class_name=cls,
             url_template=payload.get("url_template"),
             description=payload.get("description") or "",
+            filter_templates=filter_templates,
         )
     return ClassCatalog(entries=entries)

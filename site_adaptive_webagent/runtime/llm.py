@@ -646,14 +646,14 @@ def build_observation_message(
         # Tool-availability 안내는 두 context(last/non-last) 모두에 제공해 일관성 유지.
         if is_last:
             sections.append(
-                "This is the final sub-goal. Available tools: click, fill, search, goback, "
+                "This is the final sub-goal. Available tools: click, fill, search, goback, goto,"
                 "observe, remember, recall, done, declare_error (extract is also available if "
                 "this is a RETRIEVE task). declare_error is a valid final outcome when evidence "
                 "points to a definitive error state."
             )
         else:
             sections.append(
-                "Available tools for this sub-goal: click, fill, search, goback, observe, "
+                "Available tools for this sub-goal: click, fill, search, goback, goto,observe, "
                 "remember, recall, done, declare_error. Do not call extract on non-final "
                 "sub-goals. declare_error is permitted when evidence for a definitive error "
                 "state is clear, even on a non-final sub-goal."

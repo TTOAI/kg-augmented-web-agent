@@ -376,14 +376,15 @@ class ToolDefinitionTests(unittest.TestCase):
             self.assertIn(s, enum)
         self.assertEqual(set(tool["input_schema"]["required"]), {"status", "reason"})
 
-    def test_baseline_excludes_goto_tool(self) -> None:
-        """lab 005 baseline은 goto tool을 제공하지 않는다."""
+    def test_scaffold_includes_goto_tool(self) -> None:
+        """Phase 3.F β 이후 baseline은 goto tool을 포함한다 — KG filter URL 템플릿
+        hint를 agent가 직접 실행(`goto(url)`)할 경로가 필요."""
         from site_adaptive_webagent.runtime.tools import tools_for_goal
         for is_last in (False, True):
             for task_type in ("RETRIEVE", "NAVIGATE", "MUTATE"):
                 tools = tools_for_goal(is_last_goal=is_last, task_type=task_type)
                 names = {t["name"] for t in tools}
-                self.assertNotIn("goto", names)
+                self.assertIn("goto", names)
 
     def test_action_tools_have_optional_memo_field(self) -> None:
         """5 action tools (click/fill/search/goback/observe)에 memo field가 있다."""

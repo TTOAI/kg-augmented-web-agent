@@ -624,12 +624,29 @@ async def _try_sub_goal(
                     current_class_actions = kg_session.get_class_actions(
                         current_class
                     )
+                # Phase 3.F β: target class의 filter URL 템플릿도 함께 전달
+                tgt_filter_templates = kg_session.get_filter_templates(
+                    kg_context.target_class
+                )
+                cur_filter_templates = kg_session.get_filter_templates(
+                    current_class
+                )
+                # Target + current class의 filter 예시를 합친다 (dedup)
+                seen_sigs = set()
+                filter_templates: list = []
+                for ft in tgt_filter_templates + cur_filter_templates:
+                    sig = getattr(ft, "query_signature", "")
+                    if sig in seen_sigs:
+                        continue
+                    seen_sigs.add(sig)
+                    filter_templates.append(ft)
                 kg_hint = kg_session.generate_hint(
                     path_result,
                     current=current_class,
                     task=task,
                     bindings=kg_context.bindings,
                     current_class_actions=current_class_actions,
+                    filter_templates=filter_templates,
                 )
 
         user_msg = build_observation_message(
@@ -692,6 +709,7 @@ async def _try_sub_goal(
                 sub_goal_type=sub_goal.goal_type,
                 sub_goal_start_url=_sub_goal_start_url,
                 is_last_goal=is_last_goal,
+                task_start_url=start_url,
             )
             if verified is True:
                 logger.info("[LLM] sub-goal done (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
@@ -829,9 +847,9 @@ async def _try_sub_goal(
 
         # 알려진 tool 이름이 아니면 명시적 피드백으로 LLM에 알려 루프를 유발.
         # (이전 코드는 default _ActionResult()로 조용히 넘어가 빈 피드백을 주어 LLM을 혼란시켰음.)
-        if action_name not in {"click", "fill", "goback"}:
+        if action_name not in {"click", "fill", "goback", "goto"}:
             feedback = (
-                f"Unknown tool '{action_name}'. Use one of: click, fill, search, goback, "
+                f"Unknown tool '{action_name}'. Use one of: click, fill, search, goback, goto, "
                 "observe, remember, recall, done, declare_error"
                 + (", extract" if is_last_goal and task_type == "RETRIEVE" else "")
                 + "."
@@ -1077,14 +1095,77 @@ async def _execute_browser_action(
     page: Any,
     current_obs: PageObservation,
 ) -> _ActionResult:
-    """click/fill/goback 등 browser 액션 실행. _ActionResult를 반환한다."""
+    """click/fill/goback/goto 등 browser 액션 실행. _ActionResult를 반환한다."""
     if action_type == "click":
         return await _execute_click(action, page, current_obs)
     if action_type == "fill":
         return await _execute_fill(action, page)
     if action_type == "goback":
         return await _execute_goback(page)
+    if action_type == "goto":
+        return await _execute_goto(action, page, current_obs)
     return _ActionResult()
+
+
+async def _execute_goto(
+    action: dict[str, Any], page: Any, obs: PageObservation
+) -> _ActionResult:
+    """goto: 주어진 URL로 직접 navigate. Relative path는 current origin과 결합.
+
+    Placeholder가 남은 URL (예: `{namespace}`, `{project}`)은 거절 — agent가
+    bindings로 치환해야 함.
+    """
+    from urllib.parse import urlparse, urljoin
+
+    raw = (action.get("url") or "").strip()
+    if not raw:
+        return _ActionResult(
+            should_continue=True,
+            feedback="goto requires a 'url' argument.",
+            observation=obs,
+        )
+    if "{" in raw and "}" in raw:
+        return _ActionResult(
+            should_continue=True,
+            feedback=(
+                f"goto URL still contains placeholder(s): {raw!r}. "
+                "Fill in values like {namespace}/{project} from bindings before calling goto."
+            ),
+            observation=obs,
+        )
+    try:
+        if raw.startswith("http://") or raw.startswith("https://"):
+            target_url = raw
+        else:
+            current = obs.url or ""
+            parsed = urlparse(current) if current else None
+            origin = f"{parsed.scheme}://{parsed.netloc}" if parsed and parsed.scheme else ""
+            if not origin:
+                return _ActionResult(
+                    should_continue=True,
+                    feedback=(
+                        "Cannot resolve relative URL because current page has no "
+                        "known origin. Provide an absolute URL."
+                    ),
+                    observation=obs,
+                )
+            target_url = urljoin(origin + "/", raw.lstrip("/"))
+        logger.info("[LLM] goto url=%r", target_url)
+        try:
+            await page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
+        except Exception as exc:
+            return _ActionResult(
+                should_continue=True,
+                feedback=f"goto failed: {exc}",
+                observation=obs,
+            )
+        return _ActionResult(succeeded=True)
+    except Exception as exc:
+        return _ActionResult(
+            should_continue=True,
+            feedback=f"goto error: {exc}",
+            observation=obs,
+        )
 
 
 async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation) -> _ActionResult:
@@ -1432,32 +1513,30 @@ def _verify_done(
     sub_goal_type: str = "",
     sub_goal_start_url: str = "",
     is_last_goal: bool = False,
+    task_start_url: str = "",
 ) -> str | bool:
     """Hard-rule based done verification (표준 ReAct 지향).
 
-    이전에는 LLM에게 done 재검증을 호출했으나, 이는 표준 WebArena baseline에서 벗어난
-    over-engineering으로 (1) task당 LLM call을 두 배화하고, (2) verifier가 context를
-    부분적으로만 보면서 false reject를 유발했다. 본 함수는 표준 ReAct agent처럼 URL·
-    page-state 기반 hard rule만 적용한다.
-
-    Rules:
-    - 마지막 [navigation] sub-goal인데 URL 변경이 없으면 reject (false-positive navigation
-      방지 — 원 규칙 유지)
-    - 그 외는 agent의 done 선언을 그대로 수용 (표준 ReAct 동작)
-
-    Evaluator가 최종 success/failure를 판정하므로 여기서 과도한 reject는 false-negative만
-    증가시킨다. `task_notes`, `llm`, `reason` 매개변수는 signature 호환을 위해 유지하되 사용
-    안 함.
+    Rules (refined Phase 3.F β):
+    - 마지막 [navigation] sub-goal: task-level 이동이 전혀 없었으면 reject. 이전엔
+      `sub_goal_start_url == current.url`만 보고 reject했으나, 이는 직전 sub-goal이
+      이미 target으로 navigate한 후 final sub-goal이 confirmation 성격일 때 false
+      reject를 일으켜 agent가 URL을 억지로 변경(정답 filter 드롭)하게 만들었다
+      (task 339 진단). 개선: task_start_url과 비교해 **task 전체에서** 이동이 있었는지
+      확인하고, 그 경우 final sub-goal의 URL 변경은 요구하지 않음.
+    - 그 외는 agent의 done 선언을 그대로 수용 (표준 ReAct 동작).
 
     Returns:
         True — agent의 done 수용
         str — hard rule 위반 시 reject 이유
     """
     del reason, llm, task_notes  # 표준 ReAct에선 미사용
-    # Hard rule: 마지막 navigation sub-goal이 URL 변경 없으면 reject.
-    if (is_last_goal and sub_goal_type == "navigation"
-            and sub_goal_start_url and sub_goal_start_url == current_obs.url):
-        return "final navigation sub-goal requires URL change within the sub-goal"
+    if is_last_goal and sub_goal_type == "navigation":
+        # task-level 이동이 있었으면 final sub-goal의 URL 변경 불필요
+        task_moved = bool(task_start_url) and task_start_url != current_obs.url
+        sub_goal_moved = bool(sub_goal_start_url) and sub_goal_start_url != current_obs.url
+        if not task_moved and not sub_goal_moved:
+            return "final navigation sub-goal requires URL change (task still at start URL)"
     return True
 
 

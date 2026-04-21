@@ -159,6 +159,64 @@ class KGSession:
             return None
         return entry
 
+    def get_filter_templates(self, class_name: str) -> list:
+        """Return FilterTemplate list for class_name.
+
+        class 자신에 관측된 filter template이 없어도, 같은 **family / list-type
+        siblings**에서 템플릿을 수집해 cross-class generalization hint를 제공한다.
+        예: project/issue_list에 직접 관측된 filter가 없어도 project/merge_request_list,
+        dashboard/issue_list의 state=opened, label_name[]=, assignee_username= 같은
+        패턴을 볼 수 있어 agent가 pattern을 추론 가능.
+        """
+        if not class_name:
+            return []
+        seen_sigs: set[str] = set()
+        out: list = []
+
+        def _append(entry) -> None:
+            if entry is None:
+                return
+            for ft in entry.filter_templates:
+                sig = getattr(ft, "query_signature", "")
+                if not sig or sig in seen_sigs:
+                    continue
+                seen_sigs.add(sig)
+                out.append(ft)
+
+        # 1. class 자신
+        _append(self.catalog.get(class_name))
+
+        # 2. same-scope siblings with "list" suffix (filter 경향이 유사)
+        parts = class_name.split("/")
+        if len(parts) >= 2:
+            scope = parts[0]
+            is_list_type = class_name.endswith("_list") or "/list" in class_name
+            for other_name, other_entry in self.catalog.entries.items():
+                if other_name == class_name:
+                    continue
+                if not other_name.startswith(f"{scope}/"):
+                    continue
+                # list-type끼리만, 또는 target이 list면 sibling list도 포함
+                if is_list_type and (
+                    other_name.endswith("_list") or "/list" in other_name
+                ):
+                    _append(other_entry)
+
+        # 3. cross-scope siblings with same base name (예: project/issue_list
+        #    → dashboard/issue_list)
+        if len(parts) >= 2:
+            base_name = parts[-1] if parts[-1] not in {
+                "yours", "starred", "all", "trending", "pending", "done"
+            } else (parts[-2] if len(parts) >= 2 else parts[-1])
+            for other_name, other_entry in self.catalog.entries.items():
+                if other_name == class_name:
+                    continue
+                other_parts = other_name.split("/")
+                if len(other_parts) >= 2 and base_name in other_parts[-2:]:
+                    _append(other_entry)
+
+        return out[:12]  # total cap
+
     def generate_hint(
         self,
         path_result: PathResult,
@@ -167,6 +225,7 @@ class KGSession:
         task: str,
         bindings: dict[str, str],
         current_class_actions: Optional[dict] = None,
+        filter_templates: Optional[list] = None,
     ) -> Optional[str]:
         try:
             return _generate_hint(
@@ -177,6 +236,7 @@ class KGSession:
                 llm=self.hint_llm,
                 cache=self.hint_cache,
                 current_class_actions=current_class_actions,
+                filter_templates=filter_templates,
             )
         except Exception as exc:
             logger.warning("[KG] generate_hint failed: %s", exc)

@@ -207,4 +207,62 @@ Option 2는 Solution 2 KG의 자연 확장 — 별도 phase에서 검토 가치.
 
 ---
 
-## Phase 3.F β — (next: KG filter URL template)
+## Phase 3.F β — KG filter URL template + goto tool + verify_done 완화
+
+### 구현 (3 fix 조합)
+
+1. **KG filter URL templates** (`scripts/kg_solution/build_class_descriptions.py`):
+   - Stage B self-edges에서 query param pattern 추출
+   - `{namespace}/{project}` placeholder로 generalize
+   - `class_descriptions.json`에 per-class `filter_templates` 필드
+
+2. **Cross-class aggregation** (`integration.py::get_filter_templates`):
+   - Target class에 템플릿이 없어도 same-scope list siblings + same-base cross-scope에서 수집
+   - 예: `project/issue_list`는 `project/merge_request_list` + `dashboard/issue_list`에서 `state=`, `label_name[]=`, `assignee_username=` 패턴 차용
+
+3. **Hint render** (`hint_generator.py::_render_filter_templates`):
+   - "Observed filter/sort URL templates (cross-class)" 섹션으로 hint에 주입
+   - "같은 query params는 다른 list endpoint에도 적용됨" + "검색 바보다 goto(url) 선호" 명시
+
+4. **`goto` tool 추가** (`tools.py`, `executor.py::_execute_goto`):
+   - 기존 baseline에 없던 direct URL navigation
+   - Placeholder 거절 가드 + relative path는 current origin 기준 resolve
+   - Filter URL을 agent가 직접 실행할 경로
+
+5. **`_verify_done` 완화** (`executor.py`):
+   - 기존: final NAVIGATE sub-goal은 sub-goal 진입 시점 URL 대비 변경 필수 → 이전 sub-goal이 이미 target 도달한 경우 false reject → agent가 URL을 억지로 변경(filter param 드롭)
+   - 개선: task-level 이동(task_start_url → current)이 있으면 sub-goal URL 변경 미필수
+   - task 339의 `?state=opened&label_name[]=bug` → done reject → filter 드롭 악순환 해소
+
+### 재측정 (Task 339 V1, 3 repeats)
+
+| run | outcome | URL |
+|---|---|---|
+| v5 | **SUCCESS** | `/-/issues?state=opened&label_name[]=bug` ✓ (정확한 filter) |
+| v6 | failure | agent가 goto를 선택 안 함 (stochastic variance) |
+| v7 | **SUCCESS** | 동일 정확한 filter URL |
+
+→ **2/3 SUCCESS**. "≥ 2/3" 개선 기준 충족.
+
+### Regression
+- Task 44 (NAV baseline, KG off): SUCCESS 유지.
+
+### 교훈
+
+- β 혼자서는 부족. `goto` tool + `_verify_done` 완화 **3개 fix 조합**이 필요. 각각이 필수:
+  - KG templates: "이런 URL을 쓰세요"
+  - goto tool: "direct URL navigation 경로"
+  - verify_done 완화: "이전 sub-goal이 navigate한 뒤 final sub-goal에서 재이동 강요 안 함"
+- 한 가지만 있으면 나머지가 deadlock 유발.
+- Stochastic: agent는 hint가 있어도 매 run 같은 선택 하지 않음 (1/3은 search bar 선호). Pilot aggregate에서 실제 개선 정량화.
+
+### 산출물 변경
+
+- `scripts/kg_solution/build_class_descriptions.py`: filter_templates 추출 + output schema 확장
+- `site_adaptive_webagent/kg_solution/class_descriptions.py`: `FilterTemplate` dataclass + 로드 확장
+- `site_adaptive_webagent/kg_solution/integration.py`: `get_filter_templates` with cross-class aggregation
+- `site_adaptive_webagent/kg_solution/hint_generator.py`: `_render_filter_templates` + generate_hint 확장
+- `site_adaptive_webagent/runtime/tools.py`: `_goto_tool()` + `tools_for_goal`에 포함
+- `site_adaptive_webagent/runtime/executor.py`: `_execute_goto` + `_verify_done` 완화
+- `site_adaptive_webagent/runtime/llm.py`: prompt tool list에 goto 포함
+- `tests/test_runtime_llm.py`: test 이름 변경 (goto 포함 확인으로 전환)
