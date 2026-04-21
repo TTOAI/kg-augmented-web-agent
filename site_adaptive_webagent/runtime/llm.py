@@ -566,6 +566,23 @@ def build_tool_use_system_prompt() -> str:
     return "\n".join(lines)
 
 
+_MUTATE_FORM_CHECKLIST = (
+    "## Form submission checklist (MUTATE)\n"
+    "Before clicking Create / Submit / Save / Invite on a form, "
+    "verify EACH field against the task intent — not just the name/title. "
+    "Intent qualifiers map to non-default form settings:\n"
+    "  - \"empty\" / \"without README\" / \"blank\" → uncheck "
+    "\"Initialize repository with a README\"\n"
+    "  - \"private\" / \"internal\" / \"public\" → set visibility radio accordingly\n"
+    "  - \"as guest\" / \"as developer\" / \"as maintainer\" → set role select\n"
+    "  - specific state text (e.g., \"Resting due to ...\") → type the exact text\n"
+    "  - specific reviewer / assignee / label → set the corresponding select\n"
+    "If any default disagrees with the intent, change it BEFORE submitting. "
+    "After submit, verify the target state on the resulting page "
+    "(URL/message/state) rather than assuming navigation change = success."
+)
+
+
 def build_observation_message(
     *,
     task: str,
@@ -575,12 +592,18 @@ def build_observation_message(
     current_goal_index: int = 0,
     start_url: str = "",
     kg_hint: str | None = None,
+    task_type: str = "",
 ) -> str:
     """페이지 상태를 마크다운 섹션으로 구조화한다 (Tool Use용).
 
     kg_hint: 선택적 KG 기반 advisory hint. 있으면 task 섹션 뒤, 관측 앞에 주입.
     Agent는 이 hint를 advisory로 취급할 수 있으며, observation과 충돌하면
     observation을 우선한다.
+
+    task_type: "MUTATE" + 현재 page에 form inputs이 있을 때 form-submission
+    checklist를 추가 주입. Phase 3.E P1.1 (task 479 등) 진단에서 발견:
+    Agent가 intent의 non-primary qualifier (empty/private/guest 등)를 form
+    non-default 필드와 연결하지 못해 default 값으로 submit하는 구조적 결함.
     """
     from urllib.parse import urlparse, parse_qs
 
@@ -593,6 +616,9 @@ def build_observation_message(
 
     if kg_hint:
         sections.append(kg_hint)
+
+    if task_type == "MUTATE" and getattr(observation, "inputs", None):
+        sections.append(_MUTATE_FORM_CHECKLIST)
 
     if sub_goals and current_goal_index < len(sub_goals):
         current_goal = sub_goals[current_goal_index].goal

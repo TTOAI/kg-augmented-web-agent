@@ -31,7 +31,7 @@ async def observe_page(page: Any) -> PageObservation:
     # URL은 원본 그대로 (.lower() 등 정규화하지 않음) — case-sensitive path·query
     # 보존. _sub_goal_start_url 비교에도 원본 기반이 안전 (Y-code-4 fix).
     url = (getattr(page, "url", "") or "").strip()
-    title, headings, text_lines, ax_links, dropdown_options, buttons, inputs, readonly_values = await asyncio.gather(
+    title, headings, text_lines, ax_links, dropdown_options, buttons, inputs, readonly_values, toggle_states = await asyncio.gather(
         safe_title(page),
         extract_texts(page, HEADING_SELECTORS),
         extract_texts(page, TEXT_BLOCK_SELECTORS),
@@ -40,11 +40,16 @@ async def observe_page(page: Any) -> PageObservation:
         extract_texts(page, BUTTON_SELECTORS, visible_only=True),
         extract_input_labels(page),
         extract_readonly_values(page),
+        extract_toggle_states(page),
     )
     # AX tree가 빈 결과면 CSS selector 폴백
     links = ax_links if ax_links else await extract_texts(page, LINK_SELECTORS)
     # readonly input의 value를 text_lines에 병합
     all_text = text_lines + readonly_values
+    # Checkbox / radio 상태를 inputs에 prepend — agent가 form 제출 전 확인 가능하게.
+    # Phase 3.E P1.1 (task 479): 기본 checkbox selector가 이들을 배제해 intent의
+    # "empty" / "private" 등 qualifier가 form 필드로 매핑 안 되고 default로 submit.
+    all_inputs = toggle_states + inputs
     return PageObservation(
         url=url,
         title=normalize_text(title),
@@ -52,7 +57,7 @@ async def observe_page(page: Any) -> PageObservation:
         text_lines=all_text,
         links=links,
         buttons=buttons,
-        inputs=inputs,
+        inputs=all_inputs,
         dropdown_options=dropdown_options,
     )
 
@@ -125,6 +130,57 @@ async def extract_input_labels(page: Any) -> list[str]:
     return labels
 
 
+async def extract_toggle_states(page: Any) -> list[str]:
+    """Checkbox / radio 상태를 label과 함께 수집한다.
+
+    출력 포맷:
+      "[checked] Initialize repository with a README" (단일 checkbox)
+      "visibility_level: Private | Internal ✓ | Public" (radio group, ✓ 가 선택)
+
+    이 신호 없이는 agent가 intent의 non-default 수식어 (empty / private / guest 등)를
+    form 필드와 매핑 못함 — default submit 이 고질적 실패 원인 (task 479 diagnosis).
+    """
+    try:
+        results: list[str] = await page.evaluate(
+            """() => {
+                const out = [];
+                const visible = (el) => el.offsetWidth > 0 || el.offsetHeight > 0;
+                const labelOf = (el) => {
+                    const ls = el.labels && el.labels[0];
+                    const txt = ls ? (ls.innerText || '').trim() : '';
+                    return txt || el.getAttribute('aria-label') || el.getAttribute('name') || '';
+                };
+                // Checkboxes
+                const cbs = Array.from(document.querySelectorAll('input[type=checkbox]'));
+                for (const el of cbs) {
+                    if (!visible(el)) continue;
+                    const label = labelOf(el);
+                    if (!label) continue;
+                    const state = el.checked ? 'checked' : 'unchecked';
+                    out.push(`[${state}] ${label}`);
+                }
+                // Radios grouped by name
+                const radios = Array.from(document.querySelectorAll('input[type=radio]'));
+                const groups = {};
+                for (const el of radios) {
+                    if (!visible(el)) continue;
+                    const name = el.getAttribute('name') || '';
+                    if (!name) continue;
+                    if (!groups[name]) groups[name] = [];
+                    const label = labelOf(el) || el.value || '';
+                    groups[name].push(label + (el.checked ? ' \\u2713' : ''));
+                }
+                for (const [name, opts] of Object.entries(groups)) {
+                    out.push(`${name}: ${opts.join(' | ')}`);
+                }
+                return out.slice(0, 25);
+            }"""
+        )
+        return [r for r in results if r]
+    except Exception:
+        return []
+
+
 async def extract_readonly_values(page: Any) -> list[str]:
     """보이는 readonly input의 value를 수집한다 (예: clone URL)."""
     try:
@@ -147,13 +203,18 @@ async def extract_readonly_values(page: Any) -> list[str]:
 
 
 async def try_click_target(page: Any, target_terms: list[str]) -> bool:
-    """target term과 맞는 첫 링크 또는 버튼을 클릭한다."""
+    """target term과 맞는 첫 링크 / 버튼 / 폼 label을 클릭한다.
+
+    Phase 3.E P1.1: label 포함. Checkbox/radio는 `<label>` 클릭으로 toggle된다.
+    Intent의 "empty" / "private" 등이 checkbox·radio와 매핑되어야 하는데
+    label 경로가 없으면 agent가 토글 불가 (task 479 deadlock).
+    """
     if not target_terms:
         return False
 
     _target_terms_norm = [normalize_text(t) for t in target_terms]
 
-    for selector in (*LINK_SELECTORS, *BUTTON_SELECTORS):
+    for selector in (*LINK_SELECTORS, *BUTTON_SELECTORS, "label"):
         locator = page.locator(selector)
         try:
             count = await locator.count()

@@ -173,9 +173,7 @@ class KGSessionMethodsTests(unittest.TestCase):
 class BuildObservationMessageHintInjectionTests(unittest.TestCase):
     """Verify that build_observation_message surfaces the kg_hint section."""
 
-    def test_hint_included_when_provided(self):
-        from site_adaptive_webagent.runtime.llm import build_observation_message
-
+    def _obs(self, inputs=None):
         class _Obs:
             url = "http://x"
             title = "t"
@@ -183,14 +181,18 @@ class BuildObservationMessageHintInjectionTests(unittest.TestCase):
             text_lines = []
             links = []
             buttons = []
-            inputs = []
             dropdown_options = []
             forms = []
             context_snippets = []
+        o = _Obs()
+        o.inputs = inputs or []
+        return o
 
+    def test_hint_included_when_provided(self):
+        from site_adaptive_webagent.runtime.llm import build_observation_message
         msg = build_observation_message(
             task="task",
-            observation=_Obs(),
+            observation=self._obs(),
             kg_hint="[KG hint]\nSome advice",
         )
         self.assertIn("[KG hint]", msg)
@@ -198,23 +200,38 @@ class BuildObservationMessageHintInjectionTests(unittest.TestCase):
 
     def test_hint_omitted_when_none(self):
         from site_adaptive_webagent.runtime.llm import build_observation_message
-
-        class _Obs:
-            url = "http://x"
-            title = "t"
-            headings = []
-            text_lines = []
-            links = []
-            buttons = []
-            inputs = []
-            dropdown_options = []
-            forms = []
-            context_snippets = []
-
         msg = build_observation_message(
-            task="task", observation=_Obs(), kg_hint=None
+            task="task", observation=self._obs(), kg_hint=None
         )
         self.assertNotIn("[KG", msg)
+
+    def test_mutate_checklist_injected_when_form_present(self):
+        from site_adaptive_webagent.runtime.llm import build_observation_message
+        msg = build_observation_message(
+            task="Create new project",
+            observation=self._obs(inputs=["project-name"]),
+            task_type="MUTATE",
+        )
+        self.assertIn("Form submission checklist", msg)
+        self.assertIn("empty", msg.lower())
+
+    def test_mutate_checklist_skipped_when_no_form(self):
+        from site_adaptive_webagent.runtime.llm import build_observation_message
+        msg = build_observation_message(
+            task="Create new project",
+            observation=self._obs(inputs=[]),
+            task_type="MUTATE",
+        )
+        self.assertNotIn("Form submission checklist", msg)
+
+    def test_checklist_not_injected_for_navigate(self):
+        from site_adaptive_webagent.runtime.llm import build_observation_message
+        msg = build_observation_message(
+            task="Navigate to page",
+            observation=self._obs(inputs=["search"]),
+            task_type="NAVIGATE",
+        )
+        self.assertNotIn("Form submission checklist", msg)
 
 
 class SubGoalKGContextTests(unittest.TestCase):

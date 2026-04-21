@@ -637,6 +637,7 @@ async def _try_sub_goal(
             sub_goals=sub_goals, current_goal_index=goal_index,
             start_url=start_url,
             kg_hint=kg_hint,
+            task_type=task_type,
         )
         messages.append({"role": "user", "content": user_msg})
         if len(messages) > _MAX_MESSAGES:
