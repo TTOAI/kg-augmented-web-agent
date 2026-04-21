@@ -3,6 +3,15 @@
 **Date**: 2026-04-21
 **Status**: Pre-implementation, 설계 결정 사항 기록. 구현 세부는 별도 논의 예정.
 
+## Research goals (dual)
+
+1. **Primary — KG contribution**: Baseline agent 대비 V1 (KG-assisted)의 task success rate 개선 측정 + ablation (V1b/V1c)로 cascade·replan 기여 분해.
+2. **Secondary — Baseline scaffolding 개선**: 현 baseline의 매우 낮은 성공률 (baseline_n3 4.7%, env error 제외 시 ~16%) 자체를 끌어올림. KG와 독립적으로 가치 있고, floor effect / weak-baseline 비판에도 방어. §12의 terminal signal 수정이 여기에 해당.
+
+두 contribution은 분리 보고 (baseline_n3 → V0_improved → V1 3단 비교).
+
+---
+
 ## Context
 
 Stage A-C 완료. 138 class, 141 rules, 2,813 edges 확보. Solution 2는 KG를 활용해 **agent가 task 수행 중 runtime에 navigation planning**하는 단계.
