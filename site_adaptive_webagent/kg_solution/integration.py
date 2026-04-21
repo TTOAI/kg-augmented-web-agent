@@ -303,12 +303,15 @@ def build_kg_session(
             "[KG] LLM client unavailable (missing API key); KG disabled."
         )
         return None
-    # Phase 3.H Tier 2: cascade config를 site_name 기반으로 외부 YAML에서 로드.
-    # 이전엔 path_finder의 DEFAULT_GITLAB_CONFIG를 직접 주입했음.
+    # Phase 3.H Tier 2-3b: cascade config를 site_name 기반으로 외부 YAML에서 로드.
+    # 이전엔 path_finder의 DEFAULT_GITLAB_CONFIG를 직접 주입했음. Tier 3b에서
+    # variant_segments / family_type_suffixes도 함께 로드.
     site_cascade = load_site_cascade(site_name)
     cascade_cfg = CascadeConfig(
         scope_entries=dict(site_cascade.scope_entries),
         hub=site_cascade.hub,
+        variant_segments=site_cascade.variant_segments,
+        family_type_suffixes=site_cascade.family_type_suffixes,
     )
     if not cascade_cfg.scope_entries:
         logger.warning(

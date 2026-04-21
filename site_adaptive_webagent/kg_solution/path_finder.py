@@ -12,8 +12,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
 
-# Suffixes used to extract "family" keys. Order matters (longest first) so that
-# `_new_form` is stripped before `_form`.
+# Phase 3.H Tier 3b: 아래 두 상수는 **GitLab-flavored fallback**으로 남아 있다
+# (production 사용은 cascade.yaml에서 로드된 CascadeConfig 필드를 사용).
+# 모듈 단독 import (예: extract_family(class_path) 직접 호출) 시 이 값이 쓰임.
+#
+# Order matters (longest first) so that `_new_form` is stripped before `_form`.
 FAMILY_TYPE_SUFFIXES: tuple[str, ...] = (
     "_new_form",
     "_edit_form",
@@ -30,8 +33,6 @@ FAMILY_TYPE_SUFFIXES: tuple[str, ...] = (
     "_search",
 )
 
-# Variant segments that appear as third path component (e.g. "yours" in
-# "dashboard/project_list/yours").
 VARIANT_SEGMENTS: frozenset[str] = frozenset(
     {"yours", "starred", "all", "trending", "pending", "done"}
 )
@@ -42,15 +43,29 @@ _TRUST_ORDER = {"high": 0, "medium": 1, "low": 2, None: 3, "unknown": 3}
 
 @dataclass(frozen=True)
 class CascadeConfig:
+    """Site-configurable cascade parameters.
+
+    Phase 3.H Tier 2-3b: 이전 DEFAULT_GITLAB_CONFIG를 config/sites/<site>/cascade.yaml
+    로 이관. `build_kg_session()`에서 로드 후 KGSession.cascade_config로 주입.
+
+    - scope_entries: {scope: entry_class} cascade stage 3 target
+    - hub: cascade stage 4 fallback
+    - variant_segments: class name variant suffix 집합 (extract_family에서 참조).
+      비어 있으면 path_finder 모듈 상수 VARIANT_SEGMENTS로 fallback.
+    - family_type_suffixes: class name 타입 suffix tuple (extract_family에서 참조).
+      비어 있으면 module 상수 FAMILY_TYPE_SUFFIXES로 fallback.
+    """
+
     scope_entries: dict[str, str]
     hub: str
+    variant_segments: frozenset[str] = frozenset()
+    family_type_suffixes: tuple[str, ...] = ()
 
 
-# Phase 3.H Tier 2: 이전 DEFAULT_GITLAB_CONFIG 제거. scope_entries/hub는
-# config/sites/<site>/cascade.yaml로 이관되어 `build_kg_session()`에서 로드되고
-# KGSession.cascade_config로 주입된다. 이 empty default는 direct `find_path()`
-# 호출 시 fail-safe (cascade stages 모두 skip → stay_and_explore) 제공.
-_EMPTY_CASCADE_CONFIG = CascadeConfig(scope_entries={}, hub="")
+# path_finder.find_path() 의 fallback default. cascade stages 모두 skip → stay_and_explore.
+_EMPTY_CASCADE_CONFIG = CascadeConfig(
+    scope_entries={}, hub="", variant_segments=frozenset(), family_type_suffixes=(),
+)
 
 
 @dataclass
@@ -72,25 +87,42 @@ class PathResult:
     progress_checked: bool = False
 
 
-def extract_family(class_path: str) -> str:
+def extract_family(
+    class_path: str, config: Optional[CascadeConfig] = None
+) -> str:
     """Return family key. Classes in same family share this key.
 
-    Examples:
+    Phase 3.H Tier 3b: variant_segments / family_type_suffixes를 CascadeConfig에서
+    우선 로드. Config가 없거나 해당 필드가 비어 있으면 모듈-수준 fallback 사용
+    (GitLab-flavored default).
+
+    Examples (GitLab default fallback):
       project/issue_list        -> project/issue
       project/issue_new_form    -> project/issue
       project/merge_request_*   -> project/merge_request
       dashboard/project_list/yours -> dashboard/project_list
     """
+    variants = (
+        config.variant_segments
+        if config and config.variant_segments
+        else VARIANT_SEGMENTS
+    )
+    suffixes = (
+        config.family_type_suffixes
+        if config and config.family_type_suffixes
+        else FAMILY_TYPE_SUFFIXES
+    )
+
     parts = class_path.split("/")
     if not parts:
         return class_path
     scope = parts[0]
     # Drop trailing variant segment if present and there is a base before it.
-    if len(parts) >= 3 and parts[-1] in VARIANT_SEGMENTS:
+    if len(parts) >= 3 and parts[-1] in variants:
         base = "/".join(parts[1:-1])
     else:
         base = "/".join(parts[1:])
-    for suf in FAMILY_TYPE_SUFFIXES:
+    for suf in suffixes:
         if base.endswith(suf):
             base = base[: -len(suf)]
             break
@@ -132,10 +164,13 @@ def _bfs_to_target(
     return None
 
 
-def _find_family_siblings(target: str, all_classes: set[str]) -> list[str]:
-    family = extract_family(target)
+def _find_family_siblings(
+    target: str, all_classes: set[str], config: Optional[CascadeConfig] = None
+) -> list[str]:
+    family = extract_family(target, config=config)
     return sorted(
-        c for c in all_classes if c != target and extract_family(c) == family
+        c for c in all_classes
+        if c != target and extract_family(c, config=config) == family
     )
 
 
@@ -191,7 +226,7 @@ def find_path(
         )
 
     # Stage 2: family sibling — try each reachable sibling.
-    for sibling in _find_family_siblings(target, all_classes):
+    for sibling in _find_family_siblings(target, all_classes, config=config):
         if sibling == current:
             continue
         sib_path = _bfs_to_target(adjacency, current, sibling)

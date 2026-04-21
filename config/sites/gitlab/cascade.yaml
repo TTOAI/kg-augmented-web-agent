@@ -20,3 +20,33 @@ scope_entries:
 
 # 모든 scope가 실패했을 때 최후 fallback hub. 일반적으로 site의 landing / 사용자 홈.
 hub: dashboard/project_list/yours
+
+# Class 이름의 마지막 segment가 이 집합에 속하면 variant suffix로 인식 (예:
+# dashboard/project_list/yours → base는 dashboard/project_list, variant는 yours).
+# extract_family() / _find_family_siblings에서 family key 추출 시 사용.
+# Phase 3.H Tier 3b: 이전엔 path_finder.py 모듈 상수 VARIANT_SEGMENTS로 하드코드.
+variant_segments:
+  - yours
+  - starred
+  - all
+  - trending
+  - pending
+  - done
+
+# Class name 수준의 family 추출에 사용되는 type suffix 목록. 길이 긴 것 먼저.
+# 예: project/issue_new_form → suffix `_new_form` 제거 → family `project/issue`.
+# Phase 3.H Tier 3b: 이전엔 path_finder.py 모듈 상수 FAMILY_TYPE_SUFFIXES로 하드코드.
+family_type_suffixes:
+  - _new_form
+  - _edit_form
+  - _pipelines
+  - _commits
+  - _diff
+  - _feed
+  - _board
+  - _list
+  - _detail
+  - _view
+  - _form
+  - _graph
+  - _search

@@ -52,16 +52,25 @@ class SiteEntities:
 class SiteCascadeEntries:
     """Per-site cascade routing entries (used by path_finder fallback stages).
 
-    Phase 3.H Tier 2: 이전에 path_finder.py::DEFAULT_GITLAB_CONFIG로 하드코드된
-    값. scope_entries는 {scope_name: entry_class_path}, hub는 최후 fallback class.
+    Phase 3.H Tier 2-3b: path_finder가 소비하는 site-specific config.
+    - scope_entries / hub (Tier 2): cascade fallback stage targets
+    - variant_segments / family_type_suffixes (Tier 3b): class name 파싱 상수
+      이전엔 path_finder.py 모듈 수준에 하드코드되어 있던 GitLab naming 관례.
     """
 
     scope_entries: dict[str, str]
     hub: str
+    variant_segments: frozenset[str] = frozenset()
+    family_type_suffixes: tuple[str, ...] = ()
 
     @classmethod
     def empty(cls) -> "SiteCascadeEntries":
-        return cls(scope_entries={}, hub="")
+        return cls(
+            scope_entries={},
+            hub="",
+            variant_segments=frozenset(),
+            family_type_suffixes=(),
+        )
 
 
 @dataclass(frozen=True)
@@ -110,6 +119,8 @@ def load_site_cascade(site: str = DEFAULT_SITE) -> SiteCascadeEntries:
     return SiteCascadeEntries(
         scope_entries={str(k): str(v) for k, v in scope_entries.items()},
         hub=str(raw.get("hub", "")),
+        variant_segments=frozenset(raw.get("variant_segments", []) or []),
+        family_type_suffixes=tuple(raw.get("family_type_suffixes", []) or []),
     )
 
 
