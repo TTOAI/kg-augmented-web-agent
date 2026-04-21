@@ -24,8 +24,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from site_adaptive_webagent.kg.seed.manual_config import load_site_config
+from site_adaptive_webagent.kg.site_extras import load_site_crawl, load_site_entities
 from site_adaptive_webagent.kg.types import IdentityParam, StatePattern
 from site_adaptive_webagent.kg.urlnorm import match_pattern
+
+import os
 
 ANNOT_PATH = Path("output/validation/V1_pages/all_annotated.json")
 FROZEN_KG_PATH = Path("config/sites/gitlab/frozen_kg/2026-04-16T16-46-55Z.json")
@@ -33,13 +36,20 @@ SITE_CONFIG_PATH = Path("config/sites/gitlab/site_config.yaml")
 RULES_OUT = Path("output/validation/rules/class_rules.json")
 REPORT_OUT = Path("docs/validation/stage_a_rules_report.md")
 
-BASE_URL = "http://localhost:8023"
+# Phase 3.H Tier 1: site-specific 상수를 config/sites/<site>/*.yaml에서 로드.
+# Site 선택은 `SITE_NAME` env (default "gitlab"). 실행 시 이 값에 대응하는
+# entities.yaml + crawl.yaml을 읽음. 기존 하드코드 값은 gitlab entities.yaml에 이관.
+_SITE_NAME = os.getenv("SITE_NAME", "gitlab")
+_SITE_ENTITIES = load_site_entities(_SITE_NAME)
+_SITE_CRAWL = load_site_crawl(_SITE_NAME)
 
-# Known entities in WebArena-Verified GitLab (helps template generalization)
-KNOWN_NAMESPACES = {"byteblaze", "a11yproject", "the-a11y-project"}
-KNOWN_USERNAMES = {"byteblaze"}
-# Literal segments that should NOT be auto-converted to path params
-ACTION_KEYWORDS = {"new", "edit", "create", "delete", "archive", "home"}
+BASE_URL = _SITE_CRAWL.base_url or "http://localhost:8023"
+
+# 외부화된 entity 집합. 기존 하드코드된 KNOWN_NAMESPACES 등과 동일 값을 가짐
+# (entities.yaml에 이관됨). 다른 site 적용 시 entities.yaml만 교체.
+KNOWN_NAMESPACES: set[str] = set(_SITE_ENTITIES.namespaces)
+KNOWN_USERNAMES: set[str] = set(_SITE_ENTITIES.usernames)
+ACTION_KEYWORDS: set[str] = set(_SITE_ENTITIES.action_keywords)
 
 
 def normalize_path(url: str) -> str:

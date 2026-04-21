@@ -19,22 +19,27 @@ from playwright.async_api import async_playwright
 
 from scripts.validation.stage_a_classify import load_classifier
 from site_adaptive_webagent.kg.seed.manual_config import load_site_config
+from site_adaptive_webagent.kg.site_extras import load_site_crawl
 from site_adaptive_webagent.kg.urlnorm import normalize_url
 
-BASE_URL = "http://localhost:8023"
+import os
+
+# Phase 3.H Tier 1: crawl 상수를 config/sites/<site>/crawl.yaml에서 로드.
+# 기존 하드코드 값(BASE_URL, SEEDS, FORBIDDEN_PATTERNS)은 gitlab crawl.yaml에 이관.
+_SITE_NAME = os.getenv("SITE_NAME", "gitlab")
+_SITE_CRAWL = load_site_crawl(_SITE_NAME)
+
+BASE_URL = _SITE_CRAWL.base_url or "http://localhost:8023"
 STORAGE_STATE = Path("output/validation/.storage_state.json")
-SITE_CONFIG_PATH = Path("config/sites/gitlab/site_config.yaml")
+SITE_CONFIG_PATH = Path("config/sites") / _SITE_NAME / "site_config.yaml"
 RULES_PATH = Path("output/validation/rules/class_rules.json")
 OUT_DIR = Path("output/validation/stage_a_f")
 
-SEEDS = [
-    "/dashboard",
-    "/explore/projects",
-    "/byteblaze",
-    "/byteblaze/a11y-syntax-highlighting",
-    "/-/profile",
-    "/help",
-]
+SEEDS: list[str] = list(_SITE_CRAWL.seeds)
+if not SEEDS:
+    # Config가 로드되지 않은 경우 — "/" 하나로 시작해 BFS가 기본 root에서 확장
+    # 되도록. site-specific seed 목록은 반드시 crawl.yaml에서 공급.
+    SEEDS = ["/"]
 
 MAX_DEPTH = 5
 MAX_URLS = 1500
@@ -44,24 +49,33 @@ KNOWN_CAP = 5
 # Per-page link cap (mainly for depth 0 to avoid seed queue explosion)
 DEPTH0_LINK_CAP = 50
 
-FORBIDDEN_PATTERNS = [
-    "/sign_out",
-    "/logout",
-    "?_method=delete",
-    "?method=delete",
-    "/destroy",
-    "/admin",
-    # Mutation-risk endpoints
-    "/toggle_",
-    "/resolve",
-    "/reopen",
-]
+FORBIDDEN_PATTERNS: list[str] = list(_SITE_CRAWL.forbidden_patterns)
+if not FORBIDDEN_PATTERNS:
+    # Config 없을 때 minimal generic fallback — 세션 종료 / HTTP method override만
+    FORBIDDEN_PATTERNS = [
+        "/sign_out", "/logout", "?_method=delete", "?method=delete",
+    ]
+
+# site-agnostic allowed hosts (config 기반). 기본은 base_url의 host를 urlparse로
+# 추출해 단일 host만 허용.
+def _derive_allowed_hosts() -> tuple[str, ...]:
+    if _SITE_CRAWL.allowed_hosts:
+        return tuple(_SITE_CRAWL.allowed_hosts)
+    try:
+        host = urlparse(BASE_URL).netloc
+        return (host,) if host else ()
+    except Exception:
+        return ()
+
+
+_ALLOWED_HOSTS: tuple[str, ...] = _derive_allowed_hosts()
 
 
 def is_same_host(url: str) -> bool:
     try:
         p = urlparse(url)
-        return p.netloc in ("", "localhost:8023", "127.0.0.1:8023")
+        # 빈 netloc은 상대경로 — 항상 허용. 명시 allowed_hosts에만 포함.
+        return p.netloc in ("", *_ALLOWED_HOSTS)
     except Exception:
         return False
 

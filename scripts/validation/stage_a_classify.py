@@ -7,8 +7,8 @@ Stage A.f에서 3,040 StatePattern에 적용할 때 재사용 가능.
   from scripts.validation.stage_a_classify import load_classifier
 
   cls_fn = load_classifier("output/validation/rules/class_rules.json")
-  result = cls_fn("http://localhost:8023/byteblaze/a11y-syntax-highlighting/-/issues")
-  # → "project/issue_list"
+  result = cls_fn("<absolute URL on the target site>")
+  # → "<scope>/<class_base>" 또는 None (rule 미매칭)
 """
 from __future__ import annotations
 
@@ -76,24 +76,42 @@ def classify_template(
 ) -> str | None:
     """Classify a URL template (as used in Frozen KG StatePattern).
 
-    For Stage A.f: map each StatePattern.url_template (containing slots like {namespace})
-    to a class. We emit a representative URL from the template, then classify.
+    For Stage A.f: map each StatePattern.url_template (containing slots like
+    `{namespace}`) to a class. We emit a representative URL from the template,
+    then classify.
+
+    Phase 3.H Tier 1: placeholder 치환값을 `config/sites/<site>/entities.yaml`
+    의 `sample_values`에서 로드. 이전에는 실제 WebArena entity 이름 ("byteblaze",
+    "a11y-syntax-highlighting" 등)을 literal로 하드코드했던 부분.
     """
-    # Fill slots with plausible placeholders that our rules accept.
-    # Use known namespace/project/etc. so heuristics catch them.
+    import os
     import re
+
+    from site_adaptive_webagent.kg.site_extras import load_site_crawl, load_site_entities
+
+    site_name = os.getenv("SITE_NAME", "gitlab")
+    entities = load_site_entities(site_name)
+    crawl = load_site_crawl(site_name)
+    samples = entities.sample_values
+
+    def _sample(key: str, default: str = "placeholder") -> str:
+        return samples.get(key, default)
+
     filled = url_template
-    filled = re.sub(r"\{namespace\}", "byteblaze", filled)
-    filled = re.sub(r"\{project(_path)?\}", "a11y-syntax-highlighting", filled)
-    filled = re.sub(r"\{username\}", "byteblaze", filled)
-    filled = re.sub(r"\{branch\}", "main", filled)
-    filled = re.sub(r"\{id\}", "1", filled)
-    filled = re.sub(r"\{sha\}", "62820763d9b5f3b25720596f542aaf89d917fb17", filled)
-    filled = re.sub(r"\{tag_name\}", "v0.1.0", filled)
-    # Fallback: any remaining {xxx} → "placeholder"
-    filled = re.sub(r"\{[^}]+\}", "placeholder", filled)
+    filled = re.sub(r"\{namespace\}", _sample("namespace"), filled)
+    # {project} 또는 {project_path} 둘 다 매치
+    filled = re.sub(r"\{project(_path)?\}", _sample("project"), filled)
+    filled = re.sub(r"\{username\}", _sample("username"), filled)
+    # {branch} 또는 {branch_path}
+    filled = re.sub(r"\{branch(_path)?\}", _sample("branch"), filled)
+    filled = re.sub(r"\{id\}", _sample("id", "1"), filled)
+    filled = re.sub(r"\{sha\}", _sample("sha"), filled)
+    filled = re.sub(r"\{tag_name\}", _sample("tag_name"), filled)
+    # Fallback: any remaining {xxx} → samples.get("fallback", "placeholder")
+    filled = re.sub(r"\{[^}]+\}", _sample("fallback", "placeholder"), filled)
     classify = load_classifier(rules_path, site_config_path)
-    return classify("http://localhost:8023" + filled)
+    base_url = crawl.base_url or "http://localhost:8023"
+    return classify(base_url + filled)
 
 
 if __name__ == "__main__":

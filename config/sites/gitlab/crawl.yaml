@@ -1,0 +1,51 @@
+# Site-specific crawl configuration for GitLab (WebArena-Verified instance).
+#
+# Phase 3.H Tier 1: 이전에는 scripts/validation/stage_a_f_crawl.py에 Python 상수로
+# 하드코드되어 있던 값들을 이관. 값은 그대로 유지해 crawl 결과 동일.
+
+# WebArena-Verified Docker 배포 URL. Production 배포 시 동일 site의 다른 URL 사용 가능.
+base_url: http://localhost:8023
+
+# Crawl 허용 host (same_host 판정). base_url의 host + 대체 표기 (127.0.0.1 등).
+allowed_hosts:
+  - localhost:8023
+  - 127.0.0.1:8023
+
+# BFS crawl 시작 seed. site-specific entry points.
+seeds:
+  - /dashboard
+  - /explore/projects
+  - /byteblaze
+  - /byteblaze/a11y-syntax-highlighting
+  - /-/profile
+  - /help
+
+# Crawler가 절대 방문하지 않아야 할 URL pattern (string `in` 검사).
+# - `/sign_out`, `/logout`: 세션 종료 방지 (generic)
+# - `?_method=delete`, `?method=delete`, `/destroy`: mutation endpoint (generic)
+# - `/admin`, `/toggle_`, `/resolve`, `/reopen`: GitLab-specific mutation endpoint
+forbidden_patterns:
+  - /sign_out
+  - /logout
+  - "?_method=delete"
+  - "?method=delete"
+  - /destroy
+  - /admin
+  - /toggle_
+  - /resolve
+  - /reopen
+
+# Site의 top-level root 네비 endpoint (namespace 판정 시 first segment denylist).
+# extract_namespace()에서 첫 path segment가 이 목록에 속하면 namespace가 아닌
+# site-global route로 간주.
+site_global_routes:
+  - "-"
+  - dashboard
+  - explore
+  - users
+  - help
+  - search
+  - snippets
+  - projects
+  - groups
+  - admin

@@ -144,15 +144,15 @@ async def extract_input_labels(page: Any) -> list[str]:
 
 async def extract_latent_nav(page: Any) -> list[str]:
     """DOM에 렌더되어 있지만 collapsed / aria-hidden으로 인해 visible extract에서
-    누락되는 navigation 항목을 사전 추출한다.
+    누락되는 navigation 항목을 사전 추출한다 (site-agnostic ARIA 표준 기반).
 
     타겟:
-      1. aria-expanded='false'인 버튼/엘리먼트의 aria-controls 연결된 container 내부
-         <a href> 링크 (예: GitLab 사이드바 "Project information" 하위 Members 링크)
-      2. role='menu' / role='listbox'로 렌더된 dropdown의 menu/option 자식
-         (현재 closed 상태여도 DOM에 pre-rendered된 경우)
+      1. `aria-expanded='false'` + `aria-controls` 연결된 container 안의
+         `<a href>` 링크. Collapsed sub-menu 패턴을 표현하는 표준 ARIA 속성.
+      2. `role='menu'` / `role='listbox'`로 렌더된 dropdown의 menu/option 자식
+         (현재 closed 상태여도 DOM에 pre-rendered된 경우).
 
-    출력 형식: "[collapsed] label → /path" 또는 "[menu] option_text"
+    출력 형식: "[collapsed:<parent>] label → /path" 또는 "[menu:<trigger>] option"
     부수 효과 없음: DOM read만, 실제 expand 안 함.
     """
     try:

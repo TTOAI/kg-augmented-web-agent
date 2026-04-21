@@ -143,10 +143,10 @@ def _goto_tool() -> dict:
     return {
         "name": "goto",
         "description": (
-            "Directly navigate to a URL. Prefer over clicking when you have a "
-            "specific URL target — e.g. a filter template from KG hints "
-            "(`/{ns}/{proj}/-/issues?state=opened&label_name[]=bug`) or a known "
-            "page path. Relative paths are resolved against the current origin."
+            "Directly navigate to a URL. Prefer over clicking when you already "
+            "have a specific URL target — e.g. a URL from KG hints "
+            "(filter/sort templates) or a known page path. Relative paths are "
+            "resolved against the current page's origin."
         ),
         "input_schema": {
             "type": "object",
@@ -154,9 +154,11 @@ def _goto_tool() -> dict:
                 "url": {
                     "type": "string",
                     "description": (
-                        "Target URL or path. Accepts absolute (https://...) or "
-                        "site-relative (/{ns}/{proj}/-/issues?...) form. "
-                        "Placeholders like {namespace} must already be filled in."
+                        "Target URL. Accepts absolute (https://...) or "
+                        "site-relative (starts with /) form. Any placeholder "
+                        "segments (e.g. {namespace}) must be filled in before "
+                        "calling — the tool rejects URLs that still contain "
+                        "`{...}` patterns."
                     ),
                 },
                 "memo": _MEMO_FIELD,

@@ -92,22 +92,22 @@ def _render_filter_templates(
     """Render a class's observed filter URL templates.
 
     Phase 3.F β: Agent가 UI filter widget을 탐색하지 않고 KG가 제공하는 filter
-    URL로 `goto(...)`해 state에 도달할 수 있게 한다. 예: `/{ns}/{proj}/-/issues
-    ?state=opened&label_name[]=bug`를 검색바 타이핑 대신 직접 navigate.
+    URL로 `goto(...)`해 state에 도달할 수 있게 한다. Filter param 조합을 URL에
+    직접 구성 → UI dropdown 탐색 우회.
     """
     if not filter_templates:
         return ""
     shown = list(filter_templates)[:limit]
     lines = [
         "## Filter/sort URL templates (from KG self-edges, cross-class)",
-        "These are observed query-param patterns. The SAME query params "
-        "(e.g. `state=opened`, `label_name[]=<value>`, `assignee_username=<user>`, "
-        "`sort=created_asc`) work on OTHER list endpoints too — e.g. if a template "
-        "shows `/-/merge_requests?state=opened&label_name[]=<X>`, the same pattern "
-        "`state=opened&label_name[]=<X>` applied to `/-/issues` gives opened issues "
-        "with that label.",
-        "**Prefer `goto(url)` with these params over the top search bar** — search "
-        "adds extraneous `search=<text>` which evaluators reject.",
+        "These are query-param patterns observed in KG self-edges on this class "
+        "and its family/scope siblings. The same query-param names commonly "
+        "work across sibling list endpoints on the site, so a pattern seen on "
+        "one list endpoint can be reused on another endpoint of the same type.",
+        "**Prefer `goto(url)` with the exact param combination** over free-text "
+        "search — typing task-derived filter text into the search bar usually "
+        "adds an extraneous `search=<text>` parameter that strict URL-match "
+        "evaluators reject.",
         "",
     ]
     for ft in shown:

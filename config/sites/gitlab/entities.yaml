@@ -1,0 +1,46 @@
+# Site-specific entity lists for GitLab (WebArena-Verified instance).
+#
+# Phase 3.H Tier 1: 이전에는 scripts/validation/stage_a_extract_rules.py,
+# stage_a_classify.py에 Python 상수로 하드코드되어 있던 값들. 이 파일은 그 값들을
+# 그대로 이관해 source 코드에서 실제 WebArena entity 이름을 분리한다.
+#
+# 다른 사이트 적용 시: config/sites/<site>/entities.yaml을 동일 schema로 작성.
+
+# Stage A.e `_derive_from_single()`에서 path 첫 segment를 namespace으로 간주할지
+# 판단할 때 참조. 이 목록에 있는 값이 첫 segment면 `{namespace}` 슬롯으로 일반화.
+namespaces:
+  - byteblaze
+  - a11yproject
+  - the-a11y-project
+
+# Stage A.e에서 `/users/{username}/` 템플릿 도출 시 username 여부 확인용.
+usernames:
+  - byteblaze
+
+# Stage A.e에서 path segment 일반화 시 "entity id가 아닌 action keyword"로
+# 보존해야 할 토큰 (예: `/new`, `/edit`). 이 집합에 속하면 literal 유지.
+action_keywords:
+  - new
+  - edit
+  - create
+  - delete
+  - archive
+  - home
+
+# Stage A `classify_template()`이 URL 템플릿의 placeholder를 치환할 때 사용하는
+# 실제 유효 값. 이 값으로 치환한 URL이 site에 존재해야 classifier 동작 검증 가능.
+sample_values:
+  namespace: byteblaze
+  project: a11y-syntax-highlighting
+  project_path: a11y-syntax-highlighting
+  username: byteblaze
+  branch: main
+  branch_path: main
+  id: "1"
+  sha: 62820763d9b5f3b25720596f542aaf89d917fb17
+  tag_name: v0.1.0
+  topic_name: accessibility
+  service: jira
+  file: README.md
+  slot_2: file
+  fallback: placeholder
