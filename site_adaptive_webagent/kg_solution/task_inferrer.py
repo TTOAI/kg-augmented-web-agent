@@ -124,13 +124,24 @@ def _parse_sample(raw: str, catalog: ClassCatalog) -> tuple[InferSample, Optiona
     )
 
 
-def _consensus(samples: list[InferSample]) -> tuple[Optional[str], int]:
-    """Return (winning_class, vote_count). Requires >= 2 votes to win."""
+def _consensus(
+    samples: list[InferSample], k: Optional[int] = None
+) -> tuple[Optional[str], int]:
+    """Return (winning_class, vote_count).
+
+    Requires strict-majority votes: `floor(K/2) + 1`.
+      K=2 → 2 (both agree)
+      K=3 → 2
+      K=4 → 3
+      K=5 → 3
+    """
+    total = k if k is not None else len(samples)
+    threshold = (total // 2) + 1
     classes = [s.target_class for s in samples if s.target_class]
     if not classes:
         return None, 0
     winner, count = Counter(classes).most_common(1)[0]
-    if count < 2:
+    if count < threshold:
         return None, count
     return winner, count
 
@@ -184,7 +195,7 @@ def infer_target(
         samples.append(sample)
         if reject:
             rejected.append(reject)
-    winner, count = _consensus(samples)
+    winner, count = _consensus(samples, k=k)
     if winner is None:
         return InferResult(
             target_class=None,
@@ -193,8 +204,9 @@ def infer_target(
             agreement=count,
             rejected_out_of_set=rejected,
             note=(
-                "No consensus among K samples"
-                if count < 2
+                f"No consensus among {k} samples (threshold "
+                f"{(k // 2) + 1}, got {count})"
+                if count > 0
                 else "No valid in-set class inferred"
             ),
         )

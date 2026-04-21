@@ -106,27 +106,59 @@ class ConsensusTests(unittest.TestCase):
 
     def test_3_same(self):
         samples = [self._mk("A"), self._mk("A"), self._mk("A")]
-        winner, count = _consensus(samples)
+        winner, count = _consensus(samples, k=3)
         self.assertEqual(winner, "A")
         self.assertEqual(count, 3)
 
     def test_2_majority(self):
         samples = [self._mk("A"), self._mk("A"), self._mk("B")]
-        winner, count = _consensus(samples)
+        winner, count = _consensus(samples, k=3)
         self.assertEqual(winner, "A")
         self.assertEqual(count, 2)
 
     def test_all_different_returns_none(self):
         samples = [self._mk("A"), self._mk("B"), self._mk("C")]
-        winner, count = _consensus(samples)
+        winner, count = _consensus(samples, k=3)
         self.assertIsNone(winner)
         self.assertEqual(count, 1)
 
     def test_all_none_returns_none(self):
         samples = [self._mk(None), self._mk(None), self._mk(None)]
-        winner, count = _consensus(samples)
+        winner, count = _consensus(samples, k=3)
         self.assertIsNone(winner)
         self.assertEqual(count, 0)
+
+    def test_k5_requires_three_votes(self):
+        # Threshold = ceil(5/2) = 3
+        samples = [
+            self._mk("A"), self._mk("A"), self._mk("B"),
+            self._mk("B"), self._mk("C"),
+        ]
+        winner, count = _consensus(samples, k=5)
+        self.assertIsNone(winner)  # A and B tied at 2, below threshold 3
+        self.assertEqual(count, 2)
+
+    def test_k5_with_three_agreeing_wins(self):
+        samples = [
+            self._mk("A"), self._mk("A"), self._mk("A"),
+            self._mk("B"), self._mk("C"),
+        ]
+        winner, count = _consensus(samples, k=5)
+        self.assertEqual(winner, "A")
+        self.assertEqual(count, 3)
+
+    def test_k2_requires_both_agree(self):
+        # Strict-majority threshold (2//2)+1 = 2 → K=2 demands unanimity.
+        samples = [self._mk("A"), self._mk(None)]
+        winner, count = _consensus(samples, k=2)
+        self.assertIsNone(winner)  # only 1 vote, need 2
+        self.assertEqual(count, 1)
+
+    def test_k2_both_agree(self):
+        samples = [self._mk("A"), self._mk("A")]
+        winner, count = _consensus(samples, k=2)
+        self.assertEqual(winner, "A")
+        self.assertEqual(count, 2)
 
 
 class MergeBindingsTests(unittest.TestCase):

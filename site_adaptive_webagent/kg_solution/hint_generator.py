@@ -11,6 +11,8 @@ See docs/validation/solution2_design_decisions.md §8.
 from __future__ import annotations
 
 import logging
+import re
+from collections import Counter
 from typing import Optional
 
 from site_adaptive_webagent.runtime.llm import LLMClient
@@ -21,6 +23,22 @@ logger = logging.getLogger("webarena_verified")
 
 _HINT_HEADER = "[KG navigation hint — advisory]"
 
+# Regex for normalizing multi-instance action labels. See solution2_design §7.
+# Strips trailing counts (" 5"), user mentions (" @alice"), issue refs ("#42"),
+# and runs of whitespace. Preserves the semantic prefix.
+_NORMALIZE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\s+#\d+\b"),         # issue / MR reference
+    re.compile(r"\s+@\w+"),            # user mention
+    re.compile(r"\s+\d+$"),            # trailing count
+)
+
+
+def _normalize_label(label: str) -> str:
+    s = label.strip()
+    for pat in _NORMALIZE_PATTERNS:
+        s = pat.sub("", s)
+    return re.sub(r"\s+", " ", s).strip()
+
 _FALLBACK_LLM_SYSTEM = (
     "You write a concise navigation hint for a web agent. The hint is "
     "advisory — the agent can ignore it if the page clearly contradicts. "
@@ -30,15 +48,35 @@ _FALLBACK_LLM_SYSTEM = (
 
 
 def _fmt_action_labels(actions: list[str]) -> str:
-    """Render the edge's action labels. Primary + up to 2 alternates."""
+    """Render the edge's action labels.
+
+    Normalizes instance-variable suffixes (counts, user mentions, issue refs),
+    picks the most frequent canonical form as primary, and surfaces up to two
+    original variants so the agent can match against literal page text. See
+    solution2_design §7 for the normalize → canonical → variance-hint flow.
+    """
     if not actions:
         return "(unknown action)"
-    primary = actions[0]
-    rest = [a for a in actions[1:3] if a != primary]
-    if not rest:
-        return f'"{primary}"'
-    alts = ", ".join(f'"{a}"' for a in rest)
-    return f'"{primary}" (or similar: {alts})'
+    # Canonical selection: most frequent normalized form wins; ties preserve
+    # first-seen order.
+    normalized = [_normalize_label(a) for a in actions]
+    norm_counts: Counter[str] = Counter(n for n in normalized if n)
+    if norm_counts:
+        canonical, _ = norm_counts.most_common(1)[0]
+    else:
+        canonical = actions[0]
+    # Surface raw variants (≤ 2) that differ from canonical, for UI matching.
+    variants: list[str] = []
+    for raw in actions:
+        if raw == canonical or raw in variants:
+            continue
+        variants.append(raw)
+        if len(variants) >= 2:
+            break
+    if not variants:
+        return f'"{canonical}"'
+    alts = ", ".join(f'"{v}"' for v in variants)
+    return f'"{canonical}" (variants on page may include: {alts})'
 
 
 def _fmt_bindings(bindings: dict[str, str]) -> str:

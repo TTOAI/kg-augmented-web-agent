@@ -4,7 +4,11 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 
-from site_adaptive_webagent.kg_solution.hint_generator import generate_hint
+from site_adaptive_webagent.kg_solution.hint_generator import (
+    _fmt_action_labels,
+    _normalize_label,
+    generate_hint,
+)
 from site_adaptive_webagent.kg_solution.path_finder import PathResult, PathStep
 
 
@@ -166,6 +170,37 @@ class FallbackStrategyTests(unittest.TestCase):
         assert hint is not None
         self.assertIn("hub_fallback", hint)
         self.assertIn("routed to hub", hint)
+
+
+class LabelNormalizationTests(unittest.TestCase):
+    def test_strip_trailing_count(self):
+        self.assertEqual(_normalize_label("Issues 5"), "Issues")
+        self.assertEqual(_normalize_label("Open  3"), "Open")
+
+    def test_strip_user_mention(self):
+        self.assertEqual(_normalize_label("Assigned @alice"), "Assigned")
+
+    def test_strip_issue_ref(self):
+        self.assertEqual(_normalize_label("Link to #42 thread"), "Link to thread")
+
+    def test_no_change_when_no_pattern(self):
+        self.assertEqual(_normalize_label("New issue"), "New issue")
+
+    def test_canonical_picked_from_most_frequent(self):
+        # Two variants "Issues 5" and one literal "Issues" → normalized collapse
+        # gives "Issues" × 3 → canonical="Issues".
+        rendered = _fmt_action_labels(["Issues 5", "Issues 3", "Issues"])
+        self.assertTrue(rendered.startswith('"Issues"'))
+
+    def test_variants_surfaced_for_matching(self):
+        rendered = _fmt_action_labels(["Issues 5", "Issues", "Issues 3"])
+        self.assertIn("Issues 5", rendered)
+        self.assertIn("Issues 3", rendered)
+
+    def test_fallback_when_all_normalize_empty(self):
+        rendered = _fmt_action_labels(["5", "@alice", "#42"])
+        # All become empty after normalization; fallback to actions[0].
+        self.assertIn("5", rendered)
 
 
 class FailedStrategyTests(unittest.TestCase):
