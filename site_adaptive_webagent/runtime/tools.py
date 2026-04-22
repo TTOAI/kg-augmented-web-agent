@@ -229,90 +229,104 @@ def _recall_tool() -> dict:
     }
 
 
-def _done_tool() -> dict:
+def _report_success_tool(*, is_last_goal: bool, task_type: str) -> dict:
+    """Terminal tool for a successful outcome (sub-goal or task).
+
+    Hierarchical tool design: the agent's first decision is success vs failure.
+    All SUCCESS paths (sub-goal transition, NAVIGATE/MUTATE task completion,
+    RETRIEVE answer submission) converge here; category-specific fields gate
+    on position (is_last_goal) and task_type.
+    """
+    need_answer = is_last_goal and task_type == "RETRIEVE"
+    props: dict[str, Any] = {
+        "reason": {
+            "type": "string",
+            "description": (
+                "Evidence why this objective succeeded "
+                "(e.g. 'URL changed to the target page', "
+                "'the expected content is visible', "
+                "'the form was submitted and the confirmation page loaded')."
+            ),
+        },
+    }
+    if need_answer:
+        props["answer"] = {
+            "type": "string",
+            "description": (
+                "REQUIRED on the final sub-goal of a RETRIEVE task: "
+                "the concrete answer value(s) the task asks for (IDs, names, "
+                "counts, emails, URLs, etc.). For multiple values, separate "
+                "with commas. The value must be the actual data — NOT a "
+                "narrative like 'no match found' or 'none'. If the target "
+                "genuinely does not exist, call report_failure instead."
+            ),
+        }
+        props["answer_label"] = {
+            "type": "string",
+            "description": "What 'answer' represents (e.g. 'project_id', 'commit_count').",
+        }
+    required = ["reason", "answer"] if need_answer else ["reason"]
+    description_lines = [
+        "Declare that the current objective has been successfully achieved.",
+        "",
+        "Use this tool when:",
+        "  - an intermediate sub-goal is complete (e.g. reached the target page), OR",
+        "  - a NAVIGATE/MUTATE task's final sub-goal is complete, OR",
+        "  - a RETRIEVE task's final sub-goal is complete AND you have a concrete answer.",
+        "",
+        "Do NOT use this tool when the target answer/entity does not exist — "
+        "that is a FAILURE outcome; use report_failure with a short reason instead.",
+    ]
+    if need_answer:
+        description_lines.append(
+            "\nThis is the FINAL sub-goal of a RETRIEVE task — you MUST include the "
+            "'answer' field with the concrete value. Recall your saved facts first."
+        )
     return {
-        "name": "done",
-        "description": "Declare the current objective complete. You must provide evidence from the current page state.",
+        "name": "report_success",
+        "description": "\n".join(description_lines),
+        "input_schema": {
+            "type": "object",
+            "properties": props,
+            "required": required,
+        },
+    }
+
+
+def _report_failure_tool() -> dict:
+    """Terminal tool for a non-success task outcome.
+
+    Phase 3.I refactor: benchmark-specific status enum 제거. Agent는 "task를
+    완수할 수 없다"는 판단만 보고하고, 그것을 NOT_FOUND_ERROR / PERMISSION_DENIED /
+    UNKNOWN_ERROR 등 benchmark-specific status로 분류하는 것은 benchmark adapter의
+    `outcome_classifier` 몫. 이 분리로 agent runtime이 특정 벤치마크에 결합되지
+    않음 (다른 벤치마크 이식 시 classifier만 추가하면 됨).
+    """
+    return {
+        "name": "report_failure",
+        "description": (
+            "Declare that the task cannot be completed as stated — the target "
+            "entity does not exist, the requested action is not available, the "
+            "current user lacks permission, the input is invalid, or some other "
+            "definitive obstacle prevents success. "
+            "A correct failure declaration is a VALID task outcome — do NOT "
+            "keep searching or invent a placeholder answer when evidence points "
+            "to a clear impossibility. This tool is always available."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "reason": {
                     "type": "string",
-                    "description": "Evidence why this objective is complete (e.g. 'URL changed to the target page' or 'the expected content is visible')",
+                    "description": (
+                        "Concise explanation of the evidence for this outcome "
+                        "(< 200 chars). Describe what you observed that makes "
+                        "the task infeasible — the benchmark adapter will use "
+                        "this to classify the specific failure mode."
+                    ),
                 },
             },
             "required": ["reason"],
-        },
-    }
-
-
-def _extract_tool() -> dict:
-    return {
-        "name": "extract",
-        "description": (
-            "Extract the final answer for a RETRIEVE task. "
-            "Recall your saved facts first and cross-check completeness."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "value": {
-                    "type": "string",
-                    "description": "The extracted answer. For multiple values, separate with commas.",
-                },
-                "label": {
-                    "type": "string",
-                    "description": "What this value represents (e.g. 'project_id')",
-                },
-            },
-            "required": ["value"],
-        },
-    }
-
-
-def _declare_error_tool() -> dict:
-    """WebArena-Verified status enum에 맞춘 task-level error 선언 tool.
-
-    LLM이 충분한 근거로 "이 task는 에러 상태가 정답"이라 판단할 때 사용.
-    예: 검색 대상이 존재하지 않음 → NOT_FOUND_ERROR.
-    sub-goal 수준 실패가 아니라 task-level outcome으로 즉시 종료된다.
-    """
-    return {
-        "name": "declare_error",
-        "description": (
-            "Declare that this task has a definitive non-success outcome. "
-            "Use when you have sufficient evidence that the target entity does not exist, "
-            "the action is not permitted by the platform, the user lacks permission, "
-            "the required input is invalid, or an unexpected failure occurred. "
-            "A correct error declaration is a valid task outcome for some tasks — "
-            "do NOT keep searching indefinitely when evidence points to a clear error state."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "enum": [
-                        "NOT_FOUND_ERROR",
-                        "ACTION_NOT_ALLOWED_ERROR",
-                        "PERMISSION_DENIED_ERROR",
-                        "DATA_VALIDATION_ERROR",
-                        "UNKNOWN_ERROR",
-                    ],
-                    "description": (
-                        "NOT_FOUND_ERROR: target entity or resource does not exist. "
-                        "ACTION_NOT_ALLOWED_ERROR: platform does not support the requested action in this state. "
-                        "PERMISSION_DENIED_ERROR: current user lacks required permission. "
-                        "DATA_VALIDATION_ERROR: required input is missing or invalid. "
-                        "UNKNOWN_ERROR: unexpected failure that doesn't fit other categories."
-                    ),
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Concise explanation of the evidence for this error (< 200 chars).",
-                },
-            },
-            "required": ["status", "reason"],
         },
     }
 
@@ -357,22 +371,21 @@ def replan_tool() -> dict:
 def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
     """sub-goal 위치와 task_type에 따라 제공할 tool 목록을 구성한다.
 
-    중간 goal: browser + cognition + done + declare_error
-    마지막 goal (RETRIEVE): + extract + declare_error
-    마지막 goal (NAVIGATE/MUTATE): + declare_error
+    모든 sub-goal에 공통으로 browser + cognition + report_success + report_failure를
+    제공한다. report_success의 schema는 position/task_type에 따라 달라진다:
+      - 마지막 sub-goal + RETRIEVE: answer 필수 (concrete 정답값)
+      - 그 외: reason만 필수
 
-    declare_error는 모든 sub-goal에서 사용 가능 — task-level error가 정답인 경우
+    report_failure는 모든 sub-goal에서 사용 가능 — task-level error가 정답인 경우
     중간 sub-goal에서도 즉시 선언해 소모적 탐색을 방지한다.
     """
-    tools = [
+    return [
         _click_tool(), _fill_tool(), _search_tool(), _goback_tool(),
         _goto_tool(),
-        _observe_tool(), _remember_tool(), _recall_tool(), _done_tool(),
-        _declare_error_tool(),
+        _observe_tool(), _remember_tool(), _recall_tool(),
+        _report_success_tool(is_last_goal=is_last_goal, task_type=task_type),
+        _report_failure_tool(),
     ]
-    if is_last_goal and task_type == "RETRIEVE":
-        tools.append(_extract_tool())
-    return tools
 
 
 # ---------------------------------------------------------------------------

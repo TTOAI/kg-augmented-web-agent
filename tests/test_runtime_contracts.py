@@ -37,7 +37,7 @@ class RuntimeContractTests(unittest.TestCase):
     def test_execution_outcome_has_documented_fields(self) -> None:
         self.assertEqual(
             {field.name for field in fields(ExecutionOutcome)},
-            {"task_type", "status", "retrieved_data", "error_details"},
+            {"task_type", "verdict", "answer", "answer_label", "reason"},
         )
 
     def test_browser_session_has_documented_fields(self) -> None:

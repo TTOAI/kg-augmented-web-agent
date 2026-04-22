@@ -1,0 +1,20 @@
+# Site-level URL 정규화 규칙 (reddit / Postmill).
+#
+# Phase 3.H Tier 3 cross-site 실증용. GitLab site_config.yaml과 동일 schema.
+
+site: reddit
+base_url: "http://localhost:9999"
+
+url_decode: aggressive
+trailing_slash: ignore
+fragment_handling: strip
+
+case_sensitive:
+  path: false                              # Postmill URL은 대소문자 혼용 허용 (forum 이름 등)
+  query_key: true
+  query_value: false
+
+decorative_params:
+  - t                                      # /top?t=day — time filter
+  - sort
+  - page

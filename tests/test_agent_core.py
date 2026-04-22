@@ -44,8 +44,9 @@ class AnalyzeIntentTests(unittest.TestCase):
 
 class RunAgentTests(unittest.IsolatedAsyncioTestCase):
     @patch.dict(os.environ, _NO_LLM)
-    async def test_returns_unknown_error_without_llm(self) -> None:
-        """LLM client가 없으면 unknown_error를 반환한다 (baseline은 LLM 필수)."""
+    async def test_returns_stuck_verdict_without_llm(self) -> None:
+        """LLM client가 없으면 verdict=stuck으로 반환 (benchmark classifier가
+        UNKNOWN_ERROR로 매핑)."""
         page = make_fake_page(
             url="https://example.com/todos",
             title_text="Todos",
@@ -62,10 +63,10 @@ class RunAgentTests(unittest.IsolatedAsyncioTestCase):
             task_output_dir=None,
         )
 
-        self.assertEqual(result.status, "UNKNOWN_ERROR")
-        self.assertIn("LLM", result.error_details or "")
+        self.assertEqual(result.verdict, "stuck")
+        self.assertIn("LLM", result.reason or "")
 
-    async def test_returns_unknown_error_when_no_pages(self) -> None:
+    async def test_returns_stuck_verdict_when_no_pages(self) -> None:
         result = await run_agent(
             intent="Find the todo count",
             sites=["gitlab"],
@@ -76,8 +77,8 @@ class RunAgentTests(unittest.IsolatedAsyncioTestCase):
             task_output_dir=None,
         )
 
-        self.assertEqual(result.status, "UNKNOWN_ERROR")
-        self.assertIn("No pages", result.error_details or "")
+        self.assertEqual(result.verdict, "stuck")
+        self.assertIn("No pages", result.reason or "")
 
 
 if __name__ == "__main__":

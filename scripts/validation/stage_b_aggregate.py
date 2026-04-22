@@ -127,11 +127,41 @@ def main():
         total_nav_actions += len(nav_list)
         total_dedup_saved += raw_count - len(nav_list) - len(int_list)
 
+        # Phase 3.K: aggregate form metadata per class.
+        # Key: (action_url_template, method) — 같은 endpoint + 같은 method는 1개 form.
+        # 첫 관측 instance의 fields를 기준으로 저장 (MUTATE form은 보통 동일).
+        forms_by_key: dict[tuple[str, str], dict] = {}
+        for inst in instances:
+            instance_forms = inst.get("forms") or []
+            for form in instance_forms:
+                if not isinstance(form, dict):
+                    continue
+                action = form.get("action") or ""
+                method = (form.get("method") or "GET").upper()
+                # GET forms with search-like semantics → internal, not MUTATE shortcut
+                # keep only non-GET (POST/PATCH/PUT/DELETE) for shortcut purposes
+                if method == "GET":
+                    continue
+                key = (action, method)
+                if key in forms_by_key:
+                    forms_by_key[key]["instance_freq"] += 1
+                    continue
+                fields = form.get("fields") or []
+                forms_by_key[key] = {
+                    "action_url": action,
+                    "method": method,
+                    "submit_label": (form.get("submit_label") or "")[:60],
+                    "fields": fields[:30],  # cap
+                    "instance_freq": 1,
+                }
+        form_list = sorted(forms_by_key.values(), key=lambda x: -x["instance_freq"])
+
         catalog[cls] = {
             "instance_count": n_instances,
             "raw_action_count": raw_count,
             "navigation_actions": nav_list,
             "internal_actions": int_list,
+            "forms": form_list,
         }
 
     # Compute aggregate stats

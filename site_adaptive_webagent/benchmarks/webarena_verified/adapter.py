@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 from site_adaptive_webagent.agent.core import run_agent
 from site_adaptive_webagent.agent.types import AgentRunResult
 
+from .outcome_classifier import classify_outcome
+from .types import WebArenaRunResult
+
 logger = logging.getLogger("webarena_verified")
 
 BENCHMARK_REQUIRED_TASK_KEYS = ("task_id", "intent_template_id", "sites", "start_urls", "intent")
@@ -267,8 +270,13 @@ async def open_start_pages(context: BrowserContext, start_urls: list[str]) -> li
     return pages
 
 
-def write_agent_response(task_output_dir: Path, result: AgentRunResult) -> Path:
-    """최종 agent response를 benchmark 기대 형식으로 저장한다."""
+def write_agent_response(task_output_dir: Path, result: WebArenaRunResult) -> Path:
+    """최종 agent response를 benchmark 기대 형식으로 저장한다.
+
+    Phase 3.I 이후: 입력 타입은 `WebArenaRunResult` (benchmark-specific 결과).
+    Agent runtime의 neutral `AgentRunResult`는 `classify_outcome`으로 이쪽으로 변환된
+    뒤 여기로 들어온다.
+    """
     output_path = task_output_dir / "agent_response.json"
     payload = {
         "task_type": result.task_type,
@@ -497,7 +505,7 @@ class WebArenaVerifiedAdapter:
         if auth_artifact_path is None:
             auth_artifact_path = await setup_storage_state(config_path, task_output_dir, agent_input)
 
-        result = AgentRunResult.unknown_error("agent did not run")
+        result = WebArenaRunResult.unknown_error("agent did not run")
 
         async with async_playwright() as playwright:
             browser: Browser | None = None
@@ -511,7 +519,7 @@ class WebArenaVerifiedAdapter:
                 )
                 pages = await open_start_pages(context, agent_input["start_urls"])
 
-                result = await run_agent(
+                agent_result = await run_agent(
                     intent=agent_input["intent"],
                     sites=agent_input["sites"],
                     start_urls=agent_input["start_urls"],
@@ -519,6 +527,21 @@ class WebArenaVerifiedAdapter:
                     context=context,
                     pages=pages,
                     task_output_dir=task_output_dir,
+                )
+                # Benchmark-side outcome classifier: map agent's neutral verdict to
+                # WebArena-Verified's status enum. Hard-rules cover stuck /
+                # done_no_answer; LLM is invoked for done_with_answer (RETRIEVE) and
+                # abandoned to classify semantic failure modes.
+                try:
+                    from site_adaptive_webagent.runtime.llm import make_llm_client
+                    classifier_llm = make_llm_client()
+                except Exception as exc:
+                    logger.warning("[classify_outcome] could not build LLM client: %s", exc)
+                    classifier_llm = None
+                result = classify_outcome(
+                    task=agent_input["intent"],
+                    agent_result=agent_result,
+                    llm=classifier_llm,
                 )
                 # NAVIGATE 성공 시 최종 URL을 다시 로드하여 HAR에 GET 요청 기록
                 # (SPA의 pushState는 HAR에 기록되지 않으므로)
@@ -529,7 +552,7 @@ class WebArenaVerifiedAdapter:
                         pass
             except Exception as e:
                 logger.exception("에이전트 실행 실패: %s", e)
-                result = AgentRunResult.unknown_error(str(e))
+                result = WebArenaRunResult.unknown_error(str(e))
             finally:
                 if context is not None:
                     await context.close()
@@ -597,7 +620,7 @@ class WebArenaVerifiedAdapter:
             data_input = input(">>> Retrieved data (추출한 값, 여러 개면 쉼표로 구분): ").strip()
             if data_input:
                 retrieved_data = [v.strip() for v in data_input.split(",") if v.strip()]
-        result = AgentRunResult(
+        result = WebArenaRunResult(
             task_type=task_type,
             status="SUCCESS",
             retrieved_data=retrieved_data,

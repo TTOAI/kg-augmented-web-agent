@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 from site_adaptive_webagent.kg.seed.manual_config import load_site_config
 from site_adaptive_webagent.kg.site_extras import load_site_crawl, load_site_entities
+from site_adaptive_webagent.kg.site_plugin import load_site_plugin
 from site_adaptive_webagent.kg.types import IdentityParam, StatePattern
 from site_adaptive_webagent.kg.urlnorm import match_pattern
 
@@ -50,6 +51,12 @@ BASE_URL = _SITE_CRAWL.base_url or "http://localhost:8023"
 KNOWN_NAMESPACES: set[str] = set(_SITE_ENTITIES.namespaces)
 KNOWN_USERNAMES: set[str] = set(_SITE_ENTITIES.usernames)
 ACTION_KEYWORDS: set[str] = set(_SITE_ENTITIES.action_keywords)
+
+# Phase 3.H Tier 3: Site-pluggable URL template derivation.
+# 이전까지 _derive_from_single에 하드코드된 GitLab URL scheme (`/-/`, `/tree/`, ...)은
+# 이제 `SitePlugin.derive_path_template()`에 위임. SITE_NAME에 대응하는 plugin이
+# 로드되며, 없으면 DefaultSitePlugin (numeric/SHA만 일반화) fallback.
+_SITE_PLUGIN = load_site_plugin(_SITE_NAME)
 
 
 def normalize_path(url: str) -> str:
@@ -98,111 +105,20 @@ def derive_templates(paths: list[str]) -> list[tuple[str, dict[str, dict]]]:
 
 
 def _derive_from_single(path: str) -> tuple[str, dict[str, dict]]:
-    """Single instance → template + path_params derivation.
+    """Single instance → template + path_params derivation (site-pluggable).
 
-    **Scope note (CDIP positioning)**: 이 함수는 **CDIP protocol의 GitLab realization**
-    이다. Protocol skeleton (single URL instance로부터 template inference)은 site-
-    agnostic이나, 아래 if/elif 분기들은 GitLab URL scheme에 직결되어 있다:
+    Phase 3.H Tier 3: CDIP protocol 의 site-specific URL scheme 로직을
+    `SitePlugin.derive_path_template()` 에 위임한다. 본 함수는 path를
+    segment list로 쪼개고 plugin에 넘겨주는 adapter만 담당 — protocol
+    skeleton (single URL → template)은 site-agnostic.
 
-    - `/-/` prefix (GitLab's repo-internal route marker)
-    - `/-/ide/project/{ns}/{proj}` (Web IDE)
-    - `/users/{username}` (user profile)
-    - Ref keywords: `tree`, `blob`, `raw`, `commits`, `blame`, `find_file` → `{branch_path}`
-    - `/-/releases/{tag}`, `/-/tags/{tag_name}`
-    - Topic explore: `/explore/projects/topics/{topic_name}`
-    - `/help/{service}/...`
-
-    다른 site 이식 시점에는:
-      1. 이 함수를 해당 site용 버전으로 교체 (예: `_derive_from_single_github`)
-      2. 또는 plugin-style interface (SitePlugin.derive_path_template) 도입.
-
-    현재 Phase 3.H Tier 1-2 scope에서는 **값 이관 (entities / crawl / cascade / prompts)만** 완료.
-    Algorithm-level 일반화 (SitePlugin)는 Cross-site 실증 시점에 수행 (future work).
+    Plugin 선택은 `SITE_NAME` env (default "gitlab") → `load_site_plugin()`.
+    Plugin 미존재 시 `DefaultSitePlugin` (numeric/SHA 일반화만) fallback.
 
     Returns: (template_path, path_params dict)
     """
     segments = path.strip("/").split("/")
-    if not segments or segments == [""]:
-        return "/", {}
-    template_segs: list[str] = []
-    params: dict[str, dict] = {}
-    i = 0
-
-    # /-/ide/project/{ns}/{proj}/... (Web IDE)
-    if len(segments) >= 5 and segments[0] == "-" and segments[1] == "ide" and segments[2] == "project":
-        template_segs.extend(["-", "ide", "project", "{namespace}", "{project}"])
-        params["namespace"] = {"type": "segment"}
-        params["project"] = {"type": "segment"}
-        i = 5
-    # /users/{username}/...
-    elif len(segments) >= 2 and segments[0] == "users" and segments[1] in KNOWN_USERNAMES:
-        template_segs.extend(["users", "{username}"])
-        params["username"] = {"type": "segment"}
-        i = 2
-    # /{namespace}/{project}/...
-    elif len(segments) >= 2 and segments[0] in KNOWN_NAMESPACES:
-        template_segs.extend(["{namespace}", "{project}"])
-        params["namespace"] = {"type": "segment"}
-        params["project"] = {"type": "segment"}
-        i = 2
-    # /{username} (single username)
-    elif len(segments) == 1 and segments[0] in KNOWN_USERNAMES:
-        template_segs.append("{username}")
-        params["username"] = {"type": "segment"}
-        return "/" + "/".join(template_segs), params
-
-    while i < len(segments):
-        seg = segments[i]
-        prev = segments[i - 1] if i > 0 else None
-        # Action keyword → literal (e.g., /tags/new, /issues/edit)
-        if seg in ACTION_KEYWORDS:
-            template_segs.append(seg)
-        # Numeric ID
-        elif re.fullmatch(r"\d+", seg):
-            template_segs.append("{id}")
-            params["id"] = {"type": "segment"}
-        # SHA (hex, 8-40)
-        elif re.fullmatch(r"[0-9a-f]{8,40}", seg):
-            template_segs.append("{sha}")
-            params["sha"] = {"type": "segment"}
-        # Branch after /tree/ /blob/ /raw/ /commits/ /blame/ → {branch_path} path_segments
-        #   (covers multi-segment branch + optional path like /tree/main/src/file.md)
-        # For /graphs/ /network/ keep {branch} as segment so sub-paths like /charts are distinguishable
-        elif prev in ("tree", "blob", "raw", "commits", "blame", "find_file"):
-            template_segs.append("{branch_path}")
-            params["branch_path"] = {"type": "path_segments"}
-            break
-        elif prev in ("graphs", "network"):
-            template_segs.append("{branch}")
-            params["branch"] = {"type": "segment"}
-        # Release tag after /-/releases/
-        elif i >= 2 and prev == "releases" and segments[i - 2] == "-" and seg not in ACTION_KEYWORDS:
-            template_segs.append("{tag}")
-            params["tag"] = {"type": "segment"}
-        # Tag name after /-/tags/ (but skip action keywords, handled above)
-        elif i >= 2 and prev == "tags" and segments[i - 2] == "-":
-            template_segs.append("{tag_name}")
-            params["tag_name"] = {"type": "segment"}
-        # Topic name after /projects/topics/
-        elif i >= 2 and prev == "topics" and segments[i - 2] == "projects":
-            template_segs.append("{topic_name}")
-            params["topic_name"] = {"type": "segment"}
-        # Integration service name after /settings/integrations/
-        elif i >= 2 and prev == "integrations" and segments[i - 2] == "settings":
-            template_segs.append("{service}")
-            params["service"] = {"type": "segment"}
-        # Import service name after /import/
-        elif i >= 1 and prev == "import" and seg != "new":
-            template_segs.append("{service}")
-            params["service"] = {"type": "segment"}
-        # Upload file name after {sha} (after /uploads/)
-        elif prev and re.fullmatch(r"[0-9a-f]{16,40}", prev):
-            template_segs.append("{file}")
-            params["file"] = {"type": "segment"}
-        else:
-            template_segs.append(seg)
-        i += 1
-    return "/" + "/".join(template_segs), params
+    return _SITE_PLUGIN.derive_path_template(segments, entities=_SITE_ENTITIES)
 
 
 def _derive_from_multi(paths: list[str]) -> tuple[str, dict[str, dict]]:

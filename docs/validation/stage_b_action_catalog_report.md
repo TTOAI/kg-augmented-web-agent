@@ -4,57 +4,57 @@
 
 ## Summary
 
-- Classes processed: 134
-- Classes with navigation actions: 129
-- Total navigation actions (after dedup): 4816
-- Unresolved target class (href 있지만 rule 미매칭): 17
-- Self-edges (action stays in same class): 365
-- Raw actions total: 14927
+- Classes processed: 130
+- Classes with navigation actions: 124
+- Total navigation actions (after dedup): 4047
+- Unresolved target class (href 있지만 rule 미매칭): 18
+- Self-edges (action stays in same class): 271
+- Raw actions total: 9235
 
 ## Class별 action 요약 (top 20 by nav action count)
 
 | class | instances | nav actions | internal actions | unresolved |
 |---|---:|---:|---:|---:|
-| `project/commit_list` | 3 | 156 | 26 | 0 |
-| `project/merge_request_list` | 3 | 94 | 6 | 0 |
-| `explore/project_list/starred` | 3 | 93 | 10 | 0 |
-| `user/profile` | 3 | 83 | 4 | 0 |
-| `project/settings_integrations` | 3 | 82 | 2 | 0 |
-| `project/branch_list` | 3 | 76 | 8 | 0 |
-| `project/main` | 3 | 75 | 11 | 0 |
-| `explore/project_list/all` | 3 | 73 | 4 | 0 |
-| `project/tag_list` | 3 | 62 | 6 | 0 |
-| `project/settings_repository` | 3 | 57 | 19 | 0 |
-| `project/starrer_list` | 3 | 57 | 5 | 0 |
-| `dashboard/project_list/yours` | 3 | 55 | 3 | 0 |
-| `global/root_redirect` | 3 | 55 | 3 | 0 |
-| `dashboard/issue_list` | 3 | 54 | 9 | 0 |
-| `project/merge_request_detail` | 3 | 54 | 37 | 0 |
-| `dashboard/merge_request_list` | 3 | 53 | 8 | 0 |
-| `project/settings_ci_cd` | 3 | 53 | 17 | 1 |
-| `project/settings_general` | 3 | 53 | 15 | 3 |
-| `project/milestone_list` | 3 | 51 | 3 | 0 |
-| `project/merge_request_commits` | 3 | 49 | 8 | 0 |
+| `project/commit_list` | 2 | 115 | 17 | 0 |
+| `project/settings_integrations` | 2 | 77 | 2 | 0 |
+| `project/branch_list` | 2 | 61 | 8 | 0 |
+| `project/main` | 2 | 58 | 10 | 0 |
+| `global/abuse_report_new_form` | 3 | 55 | 3 | 0 |
+| `dashboard/project_list/yours` | 2 | 54 | 2 | 0 |
+| `global/root_redirect` | 2 | 54 | 2 | 0 |
+| `project/blame_view` | 2 | 53 | 73 | 0 |
+| `dashboard/issue_list` | 2 | 52 | 6 | 0 |
+| `project/settings_repository` | 2 | 52 | 19 | 0 |
+| `dashboard/merge_request_list` | 2 | 50 | 7 | 0 |
+| `project/merge_request_list` | 2 | 50 | 6 | 0 |
+| `project/blob_detail` | 2 | 49 | 7 | 0 |
+| `project/settings_general` | 2 | 48 | 14 | 3 |
+| `project/settings_ci_cd` | 2 | 47 | 15 | 1 |
+| `project/pipeline_detail` | 2 | 46 | 17 | 4 |
+| `project/activity_list` | 2 | 45 | 2 | 0 |
+| `project/commit_detail` | 2 | 42 | 29 | 0 |
+| `project/settings_merge_requests` | 2 | 41 | 3 | 0 |
+| `project/tag_list` | 2 | 41 | 6 | 0 |
 
 ## Example — project/issue_list navigation actions
 
 | label | target_class | freq | href |
 |---|---|---:|---|
-| Dashboard | `global/root_redirect` | 3 | `/` |
-| Create new... | `global/new_project_form` | 3 | `/projects/new` |
-| 13 | `dashboard/issue_list` | 3 | `/dashboard/issues?assignee_username=byteblaze` |
-| 8 | `dashboard/merge_request_list` | 3 | `/dashboard/merge_requests?assignee_username=byteblaze` |
-| To-Do List | `dashboard/todo_list/pending` | 3 | `/dashboard/todos` |
-| Help | `global/help_landing` | 3 | `/help` |
-| Project information | `project/activity_list` | 3 | `/byteblaze/a11y-syntax-highlighting/activity` |
-| Repository | `project/file_list` | 3 | `/byteblaze/a11y-syntax-highlighting/-/tree/main` |
-| List | `project/issue_list` | 3 | `/byteblaze/a11y-syntax-highlighting/-/issues` |
-| Boards | `project/issue_board` | 3 | `/byteblaze/a11y-syntax-highlighting/-/boards` |
-| Service Desk | `project/issue_detail` | 3 | `/byteblaze/a11y-syntax-highlighting/-/issues/service_desk` |
-| Milestones | `project/milestone_list` | 3 | `/byteblaze/a11y-syntax-highlighting/-/milestones` |
-| CI/CD | `project/pipeline_list` | 3 | `/byteblaze/a11y-syntax-highlighting/-/pipelines` |
-| Security & Compliance | `project/security_config` | 3 | `/byteblaze/a11y-syntax-highlighting/-/security/configuration` |
-| Deployments | `project/environment_list` | 3 | `/byteblaze/a11y-syntax-highlighting/-/environments` |
+| Dashboard | `global/root_redirect` | 2 | `/` |
+| Create new... | `global/new_project_form` | 2 | `/projects/new` |
+| 13 | `dashboard/issue_list` | 2 | `/dashboard/issues?assignee_username=byteblaze` |
+| 8 | `dashboard/merge_request_list` | 2 | `/dashboard/merge_requests?assignee_username=byteblaze` |
+| 5 | `dashboard/todo_list/pending` | 2 | `/dashboard/todos` |
+| Help | `global/help_landing` | 2 | `/help` |
+| Project information | `project/activity_list` | 2 | `/byteblaze/a11y-webring.club/activity` |
+| Repository | `project/file_list` | 2 | `/byteblaze/a11y-webring.club/-/tree/main` |
+| List | `project/issue_list` | 2 | `/byteblaze/a11y-webring.club/-/issues` |
+| Boards | `project/issue_board` | 2 | `/byteblaze/a11y-webring.club/-/boards` |
+| Service Desk | `project/issue_detail` | 2 | `/byteblaze/a11y-webring.club/-/issues/service_desk` |
+| Milestones | `project/milestone_list` | 2 | `/byteblaze/a11y-webring.club/-/milestones` |
+| CI/CD | `project/pipeline_list` | 2 | `/byteblaze/a11y-webring.club/-/pipelines` |
+| Security & Compliance | `project/security_config` | 2 | `/byteblaze/a11y-webring.club/-/security/configuration` |
+| Deployments | `project/environment_list` | 2 | `/byteblaze/a11y-webring.club/-/environments` |
 
 ## Next step (Stage C)
 

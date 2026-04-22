@@ -1,0 +1,59 @@
+# Per-site entity lists (reddit / Postmill).
+#
+# namespaces: Postmill은 GitLab과 달리 "namespace" 개념 없음 (forum 이름 자체가
+#   segment로 노출). 이 필드는 비워두고, RedditSitePlugin에서 forum prefix를
+#   `/f/<forum>` 구조로 직접 처리.
+
+namespaces: []
+
+# Postmill forums 관찰된 목록 (WebArena-Verified reddit tasks에서 추출).
+# 실제 derive_path_template에는 사용되지 않음 — forum은 `/f/<forum>` 뒤에 오는
+# segment를 plugin이 무조건 `{forum}`으로 일반화. 이 리스트는 documentation 목적.
+
+usernames:
+  - MarvelsGrantMan136
+  - Hrekires
+  - AdamCannon
+  - CameronKelsey
+  - Don_Gato1
+  - FTorrez81
+  - PatientBuilder499
+  - RickyDontLoseThat
+  - ThetaGang_wsb
+  - UniversityofBath
+  - jacyanthis
+  - sirbarani
+
+# 관측된 action keywords (in URL path, as literal actions)
+action_keywords:
+  - new                                    # /f/<forum>/new (new posts)
+  - hot
+  - top
+  - active
+  - controversial
+  - comments                               # /user/<name>/comments
+  - submissions                            # /user/<name>/submissions
+  - submit                                 # /submit, /f/<forum>/submit
+  - edit                                   # /user/<name>/edit_biography, /edit_password
+  - edit_biography
+  - edit_password
+  - edit_email
+  - edit_user_settings
+  - delete
+  - moderators
+  - bans
+  - appearance
+  - forbid_user
+  - featured
+  - all
+  - wiki
+  - search
+  - login
+  - registration
+
+# Placeholder 치환용 sample values (template → concrete URL로 rendering할 때).
+sample_values:
+  forum: books
+  username: MarvelsGrantMan136
+  id: "1"
+  slug: sample-slug

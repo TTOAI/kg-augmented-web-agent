@@ -34,7 +34,7 @@ async def run_agent(  # noqa: PLR0913
     del context, task_id, task_output_dir, sites, start_urls
 
     if not pages:
-        return AgentRunResult.unknown_error("No pages opened for this task")
+        return AgentRunResult.stuck("No pages opened for this task")
 
     llm = make_llm_client()
     plan = analyze_intent(intent, llm=llm)
@@ -42,7 +42,7 @@ async def run_agent(  # noqa: PLR0913
     observation = await observe_page(primary_page)
 
     if llm is None:
-        return AgentRunResult.unknown_error("LLM client unavailable — set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+        return AgentRunResult.stuck("LLM client unavailable — set ANTHROPIC_API_KEY or OPENAI_API_KEY")
 
     import os
     try:
@@ -52,9 +52,11 @@ async def run_agent(  # noqa: PLR0913
 
     # KG session 로드 (실패 시 None → baseline 동작).
     # env `KG_ENABLED=0`으로 완전 비활성화 가능 (ablation baseline 재측정용).
+    # site_name은 `SITE_NAME` env로 전파 (default gitlab) — cross-site 실행 시 필수.
     kg_session = None
     if os.getenv("KG_ENABLED", "1") != "0":
         kg_session = build_kg_session(
+            site_name=os.getenv("SITE_NAME", "gitlab"),
             cascade_enabled=(os.getenv("KG_CASCADE", "1") != "0"),
             replan_per_step=(os.getenv("KG_REPLAN", "1") != "0"),
             expose_actions=(os.getenv("KG_EXPOSE_ACTIONS", "1") != "0"),
@@ -72,7 +74,8 @@ async def run_agent(  # noqa: PLR0913
 
     return AgentRunResult(
         task_type=outcome.task_type,
-        status=outcome.status,
-        retrieved_data=outcome.retrieved_data,
-        error_details=outcome.error_details,
+        verdict=outcome.verdict,
+        answer=outcome.answer,
+        answer_label=outcome.answer_label,
+        reason=outcome.reason,
     )

@@ -34,7 +34,7 @@ class FakeLLMClient:
         response_str = self._responses[min(self._index, len(self._responses) - 1)]
         self._index += 1
         parsed = json.loads(response_str)
-        action_name = parsed.pop("action", "done")
+        action_name = parsed.pop("action", "report_success")
         reasoning = parsed.pop("reasoning", None)
         return LLMToolResponse(
             thought=reasoning,

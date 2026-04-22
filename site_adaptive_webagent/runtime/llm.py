@@ -313,9 +313,13 @@ def _to_openai_messages(msg: dict) -> list[dict]:
                         "arguments": json.dumps(block["input"]),
                     },
                 })
-        result: dict = {"role": "assistant", "content": "\n".join(text_parts) or None}
+        # OpenAI chat.completions는 assistant 메시지에서 content=None을 reject하므로
+        # (tool_calls가 없을 때), text가 비어 있으면 빈 문자열로 보낸다.
+        text_joined = "\n".join(text_parts)
         if tool_calls_oai:
-            result["tool_calls"] = tool_calls_oai
+            result: dict = {"role": "assistant", "content": text_joined or None, "tool_calls": tool_calls_oai}
+        else:
+            result = {"role": "assistant", "content": text_joined}
         return [result]
 
     # user 메시지: tool_result + text 블록 → OpenAI tool messages + user message
@@ -538,30 +542,41 @@ def build_tool_use_system_prompt() -> str:
         "3. After selecting options, submit to commit. Check URL parameters to confirm.",
         "4. Never repeat a failed action. Use goback to return to a known page and try a different path.",
         "5. Use the remember tool to save important facts (IDs, counts, names).",
-        "6. Before extract or done, use recall to verify completeness.",
+        "6. Before report_success, use recall to verify completeness.",
         "",
-        "## Error-state outcomes",
-        "Some tasks have an error state as the correct outcome. Call declare_error ONLY AFTER",
-        "you have exhausted reasonable investigation. A premature declare_error will be rejected",
-        "and you will be asked to continue.",
+        "## Terminal outcomes",
+        "Every objective ends with ONE of two terminal tools:",
+        "  - report_success — objective achieved. On intermediate sub-goals provide a",
+        "    `reason`. On the FINAL sub-goal of a RETRIEVE task, you MUST provide",
+        "    `answer` with the concrete value(s) the task asks for (IDs, names,",
+        "    counts, etc.). Never pass a narrative like 'no match found' as `answer`.",
+        "  - report_failure — task cannot be completed as stated (target does not",
+        "    exist, action not allowed, permission denied, input invalid, etc.). This",
+        "    is a VALID task outcome when the answer genuinely cannot be produced.",
+        "    You only need a concise `reason` — no status codes.",
         "",
-        "Before calling declare_error, verify ALL of the following:",
-        "1. You have tried at least 3 meaningfully different strategies — different query terms,",
-        "   filter combinations, alternative navigation paths, or scrolling through paginated results.",
-        "2. The page does NOT already contain evidence of the answer in visible text, headings, or",
-        "   lists. If evidence is visible anywhere, use observe/remember/done instead.",
-        "3. Absence of a single UI option (e.g., a missing filter entry) is NOT sufficient grounds —",
-        "   the answer may still be present in the page text or in other navigation paths.",
+        "## When to use report_failure",
+        "Some tasks have an infeasible outcome as the correct answer. Use",
+        "report_failure when evidence points to a clear obstacle. The scaffold will",
+        "require at least 3 prior attempts before accepting a mid-sub-goal",
+        "report_failure — giving up too early wastes step budget.",
         "",
-        "Valid error statuses:",
-        "- NOT_FOUND_ERROR: target entity does not exist after thorough search.",
-        "- ACTION_NOT_ALLOWED_ERROR: platform explicitly blocks the requested action in this state.",
-        "- PERMISSION_DENIED_ERROR: current user lacks permission to perform the action.",
-        "- DATA_VALIDATION_ERROR: required input is missing or invalid.",
-        "- UNKNOWN_ERROR: unexpected failure that does not match the other categories.",
+        "Before calling report_failure, verify:",
+        "1. You have tried at least 3 meaningfully different strategies — different",
+        "   query terms, filter combinations, alternative navigation paths, or",
+        "   scrolling through paginated results.",
+        "2. The page does NOT already contain evidence of the answer. If evidence",
+        "   is visible anywhere, use observe/remember/report_success instead.",
+        "3. Absence of a single UI option (e.g., a missing filter entry) is NOT",
+        "   sufficient grounds — the answer may still be present elsewhere.",
         "",
-        "A correctly declared error is a valid outcome — but 'correctly' means only after",
-        "reasonable exhaustion of alternatives.",
+        "Typical failure reasons include:",
+        "- target entity or resource does not exist after thorough search",
+        "- the platform explicitly blocks the requested action in this state",
+        "- the current user lacks permission to perform the action",
+        "- required input is missing or invalid",
+        "- an unexpected obstacle prevents completion",
+        "Describe which applies in plain language — the benchmark layer classifies.",
     ]
     return "\n".join(lines)
 
@@ -622,21 +637,32 @@ def build_observation_message(
         is_last = current_goal_index == len(sub_goals) - 1
         sections.append(
             f"## Current Objective ({current_goal_index + 1}/{len(sub_goals)})\n{current_goal}\n"
-            "When achieved, call the done tool."
+            "When achieved, call report_success. If the task has a definitive "
+            "error outcome, call report_failure."
         )
         # Tool-availability 안내는 두 context(last/non-last) 모두에 제공해 일관성 유지.
-        if is_last:
+        if is_last and task_type == "RETRIEVE":
             sections.append(
-                "This is the final sub-goal. Available tools: click, fill, search, goback, goto,"
-                "observe, remember, recall, done, declare_error (extract is also available if "
-                "this is a RETRIEVE task). declare_error is a valid final outcome when evidence "
-                "points to a definitive error state."
+                "This is the FINAL sub-goal of a RETRIEVE task. Available tools: "
+                "click, fill, search, goback, goto, observe, remember, recall, "
+                "report_success, report_failure. "
+                "When you call report_success here you MUST include the 'answer' "
+                "field with the concrete value(s). If the target genuinely does "
+                "not exist, call report_failure with a brief reason — do NOT pass "
+                "'no match found' or similar narrative as answer."
+            )
+        elif is_last:
+            sections.append(
+                "This is the final sub-goal. Available tools: click, fill, search, "
+                "goback, goto, observe, remember, recall, report_success, report_failure. "
+                "report_failure is a valid final outcome when evidence points to a "
+                "definitive error state."
             )
         else:
             sections.append(
-                "Available tools for this sub-goal: click, fill, search, goback, goto,observe, "
-                "remember, recall, done, declare_error. Do not call extract on non-final "
-                "sub-goals. declare_error is permitted when evidence for a definitive error "
+                "Available tools for this sub-goal: click, fill, search, goback, "
+                "goto, observe, remember, recall, report_success, report_failure. "
+                "report_failure is permitted when evidence for a definitive error "
                 "state is clear, even on a non-final sub-goal."
             )
 

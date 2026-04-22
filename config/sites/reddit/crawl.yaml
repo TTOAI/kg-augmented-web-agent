@@ -1,0 +1,51 @@
+# Site-specific crawl configuration (reddit / Postmill).
+
+base_url: http://localhost:9999
+
+allowed_hosts:
+  - localhost:9999
+  - 127.0.0.1:9999
+
+# BFS crawl seed URLs — Postmill main entry points + rich navigation landings.
+seeds:
+  - /
+  - /all/hot
+  - /featured/hot
+  - /forums
+  - /comments
+  - /wiki
+  - /f/books
+  - /f/DIY
+  - /f/MachineLearning
+  - /f/cars
+  - /user/MarvelsGrantMan136
+
+# Crawl 시 스킵할 URL 패턴 (destructive / session / admin).
+forbidden_patterns:
+  - /logout
+  - /login
+  - /registration
+  - /delete
+  - /edit_password
+  - /forbid_user
+  - /bans
+  - ?_method=delete
+  - ?_method=DELETE
+  - /admin
+
+# Site-global routes (namespace 없는 top-level path, classifier global scope).
+site_global_routes:
+  - all
+  - featured
+  - forums
+  - comments
+  - wiki
+  - search
+  - submit
+  - login
+  - registration
+  - active
+  - hot
+  - new
+  - top
+  - controversial

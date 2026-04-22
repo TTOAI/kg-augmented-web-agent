@@ -41,6 +41,22 @@ if not SEEDS:
     # 되도록. site-specific seed 목록은 반드시 crawl.yaml에서 공급.
     SEEDS = ["/"]
 
+# CDIP Step 2'+ 지원: env var로 seed 오버라이드. 이전 step BFS tree의 leaves를
+# 넘겨 frontier expansion을 수행할 수 있게 한다.
+_SEEDS_OVERRIDE = os.getenv("CRAWL_SEEDS_JSON", "").strip()
+if _SEEDS_OVERRIDE:
+    try:
+        _override = json.loads(_SEEDS_OVERRIDE)
+        if isinstance(_override, list) and _override:
+            SEEDS = [str(s) for s in _override]
+            print(f"[stage_a_f_crawl] seeds overridden via CRAWL_SEEDS_JSON: {len(SEEDS)} entries")
+    except Exception as exc:
+        print(f"[stage_a_f_crawl] invalid CRAWL_SEEDS_JSON, ignoring: {exc}")
+
+# Skip-existing mode: 이전 step에서 이미 방문한 URL 목록을 skip 처리하고 accumulate.
+_SKIP_EXISTING_PATH = os.getenv("CRAWL_SKIP_EXISTING", "").strip()
+_APPEND_MODE = bool(os.getenv("CRAWL_APPEND_OUT", "").strip())
+
 MAX_DEPTH = 5
 MAX_URLS = 1500
 MAX_TIME_SEC = 30 * 60
@@ -111,8 +127,26 @@ async def main():
     queue: deque = deque()
     start = time.time()
 
+    # CDIP accumulate mode: skip URLs already visited in previous steps.
+    prior_visited_norm: set[str] = set()
+    prior_records: list[dict] = []
+    if _SKIP_EXISTING_PATH:
+        try:
+            prior_records = json.loads(Path(_SKIP_EXISTING_PATH).read_text())
+            for r in prior_records:
+                u = r.get("url") or r.get("final_url")
+                if u:
+                    prior_visited_norm.add(normalize_for_dedup(u, site_config))
+            print(f"[stage_a_f_crawl] skip-existing loaded: {len(prior_visited_norm)} prior URLs")
+        except Exception as exc:
+            print(f"[stage_a_f_crawl] skip-existing load failed: {exc}")
+
+    # Seeds: prefix with BASE_URL if relative, else use as-is (Step 2' may pass full URLs).
     for seed in SEEDS:
-        queue.append((BASE_URL + seed, 0, "seed"))
+        if seed.startswith("http://") or seed.startswith("https://"):
+            queue.append((seed, 0, "seed"))
+        else:
+            queue.append((BASE_URL + seed, 0, "seed"))
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -143,6 +177,8 @@ async def main():
             norm = normalize_for_dedup(url, site_config)
             if norm in visited:
                 continue
+            if norm in prior_visited_norm:
+                continue  # CDIP accumulate: skip URLs from prior steps
             if depth > MAX_DEPTH:
                 continue
 
@@ -210,6 +246,12 @@ async def main():
         await browser.close()
 
     records = list(visited.values())
+    if _APPEND_MODE and prior_records:
+        # Merge prior + new. Dedup by url.
+        existing_urls = {r.get("url") for r in prior_records}
+        merged = list(prior_records) + [r for r in records if r.get("url") not in existing_urls]
+        records = merged
+        print(f"[stage_a_f_crawl] append mode: merged {len(prior_records)} prior + {len(merged)-len(prior_records)} new = {len(merged)} total")
     (OUT_DIR / "crawled_urls.json").write_text(
         json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
     (OUT_DIR / "class_counter.json").write_text(

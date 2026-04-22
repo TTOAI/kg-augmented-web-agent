@@ -24,15 +24,16 @@ from .tools import (
     tools_for_goal,
 )
 from .types import (
+    AgentVerdict,
     BrowserSession,
     ExecutionOutcome,
     IntentPlan,
     PageObservation,
-    TaskStatus,
     TaskType,
 )
 
 __all__ = [
+    "AgentVerdict",
     "AnthropicLLMClient",
     "BrowserSession",
     "ExecutionOutcome",
@@ -42,7 +43,6 @@ __all__ = [
     "OpenAILLMClient",
     "PageObservation",
     "SubGoal",
-    "TaskStatus",
     "TaskType",
     "ToolCall",
     "analyze_intent",

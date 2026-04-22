@@ -3,26 +3,39 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from site_adaptive_webagent.runtime.types import TaskStatus, TaskType
+from site_adaptive_webagent.runtime.types import AgentVerdict, TaskType
 
 RetrievedItem = str | int | float | bool | dict[str, Any] | None
 
 
 @dataclass(slots=True)
 class AgentRunResult:
-    """에이전트 정책이 반환하는 정규화된 결과."""
+    """Benchmark-agnostic agent verdict 결과.
+
+    Phase 3.I refactor: 이전에는 WebArena-Verified status enum(NOT_FOUND_ERROR 등)을
+    들고 있었지만, 이제는 runtime의 neutral verdict만 보유한다. Benchmark-specific
+    status/retrieved_data 매핑은 benchmark adapter의 `outcome_classifier`가 수행한다.
+
+    구조:
+    - task_type: task 분류.
+    - verdict: agent의 task-level 결론 (done_with_answer / done_no_answer /
+      abandoned / stuck).
+    - answer: done_with_answer 시 agent가 제출한 구체적 정답.
+    - answer_label: done_with_answer 시 answer가 어떤 종류인지 (예: 'project_id').
+    - reason: abandoned / stuck / done_*의 설명.
+    """
 
     task_type: TaskType
-    status: TaskStatus
-    retrieved_data: list[RetrievedItem] | None = None
-    error_details: str | None = None
+    verdict: AgentVerdict
+    answer: str | None = None
+    answer_label: str | None = None
+    reason: str | None = None
 
     @classmethod
-    def unknown_error(cls, message: str) -> "AgentRunResult":
-        """벤치마크와 호환되는 예기치 않은 실패 결과를 반환한다."""
+    def stuck(cls, message: str, task_type: TaskType = "NAVIGATE") -> "AgentRunResult":
+        """scaffold 레벨 실패 생성 헬퍼 (로드 실패·예외 등)."""
         return cls(
-            task_type="NAVIGATE",
-            status="UNKNOWN_ERROR",
-            retrieved_data=None,
-            error_details=message,
+            task_type=task_type,
+            verdict="stuck",
+            reason=message,
         )

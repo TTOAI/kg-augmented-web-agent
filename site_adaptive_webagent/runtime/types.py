@@ -7,13 +7,25 @@ from typing import Any, Literal
 
 IntentAction = Literal["goto_url", "inspect_page", "click_target", "search_target", "unsupported"]
 TaskType = Literal["RETRIEVE", "MUTATE", "NAVIGATE"]
-TaskStatus = Literal[
-    "SUCCESS",
-    "ACTION_NOT_ALLOWED_ERROR",
-    "PERMISSION_DENIED_ERROR",
-    "NOT_FOUND_ERROR",
-    "DATA_VALIDATION_ERROR",
-    "UNKNOWN_ERROR",
+
+# Benchmark-agnostic agent verdict. Phase 3.I refactor: runtime은 benchmark의
+# status enum (NOT_FOUND_ERROR 등)을 말하지 않고, 이 중립 verdict만 배출한다.
+# Benchmark adapter가 verdict → benchmark-specific status로 매핑한다.
+#
+# - done_with_answer: agent가 구체적 정답(answer)을 냄 (RETRIEVE 최종 단계)
+# - done_no_answer:   sub-goal/task가 답 없이 완료됨 (NAVIGATE/MUTATE 성공)
+# - abandoned:        agent가 명시적으로 "불가능/해당 없음" 판단 (report_failure)
+# - stuck:            scaffold 자체 실패 (step budget / replan 소진, tool-call 누락 등)
+# - sub_goal_failed:  **내부 전용**. sub-goal 단위 실패를 outer retry loop에 알리는
+#                     control signal. execute_with_llm 종료 시점에는 발생하지 않아야
+#                     하며 (retry/replan/stuck 중 하나로 resolve됨), benchmark
+#                     classifier로 전달되지 않는다.
+AgentVerdict = Literal[
+    "done_with_answer",
+    "done_no_answer",
+    "abandoned",
+    "stuck",
+    "sub_goal_failed",
 ]
 
 
@@ -48,12 +60,20 @@ class PageObservation:
 
 @dataclass(slots=True)
 class ExecutionOutcome:
-    """브라우저 실행의 중간 결과."""
+    """Runtime이 반환하는 benchmark-agnostic agent verdict.
+
+    Phase 3.I 이전: status가 WebArena status enum이었고 retrieved_data/error_details도
+    benchmark-specific 필드였음. 이제는 중립 verdict + raw payload만 포함하고, benchmark
+    adapter의 outcome_classifier가 이를 `WebArenaRunResult`로 매핑한다.
+    """
 
     task_type: TaskType
-    status: TaskStatus
-    retrieved_data: list[str] | None = None
-    error_details: str | None = None
+    verdict: AgentVerdict
+    answer: str | None = None  # done_with_answer 시 agent가 제출한 구체적 값
+    reason: str | None = None  # abandoned / stuck / done_with_answer 의 설명
+
+    # Agent's draft notes field — optional agent_label (RETRIEVE의 answer가 어떤 종류인지).
+    answer_label: str | None = None
 
 
 @dataclass(slots=True)

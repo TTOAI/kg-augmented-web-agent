@@ -1,0 +1,40 @@
+# Reddit/Postmill prompt library (cross-site 실증용).
+#
+# Phase 3.H Tier 2 PromptLibrary schema. GitLab prompts.yaml과 동일 구조.
+
+mutate_checklist:
+  header: "Form submission checklist (MUTATE)"
+  preamble: |
+    Before clicking Submit/Post/Save on a form, verify each field against the task intent.
+  qualifiers:
+    - when_intent_has: ["title"]
+      ensure_form_field: "title field filled with the exact requested title"
+    - when_intent_has: ["post", "submission", "submit"]
+      ensure_form_field: "body/text field populated with the post content"
+    - when_intent_has: ["url", "link"]
+      ensure_form_field: "link URL field populated if submitting a link"
+    - when_intent_has: ["forum", "subreddit"]
+      ensure_form_field: "forum selected matches the requested forum"
+    - when_intent_has: ["reply", "comment"]
+      ensure_form_field: "replying to the correct parent comment/post"
+  verb_routing:
+    - verbs: ["edit", "update", "change"]
+      guidance: "Navigate to the existing item's edit page rather than creating a new one."
+    - verbs: ["create", "post", "submit", "new"]
+      guidance: "Use the 'Submit' or 'New post' button to create a fresh entry."
+  closing: |
+    If any default disagrees with the intent, change it BEFORE submitting.
+
+# Filter URL template hint section preamble (site-agnostic 문안; reddit에서도 그대로).
+filter_template_preamble:
+  header: "## Filter/sort URL templates (from KG self-edges, cross-class)"
+  body: |
+    These are query-param patterns observed in KG self-edges on this class and its family/scope siblings. The same query-param names commonly work across sibling list endpoints on the site, so a pattern seen on one list endpoint can be reused on another endpoint of the same type.
+  emphasis: |
+    **Prefer `goto(url)` with the exact param combination** over free-text search — typing task-derived filter text into the search bar usually adds an extraneous `search=<text>` parameter that strict URL-match evaluators reject.
+
+goto_tool_description: |
+  Directly navigate to a URL. Prefer over clicking when you already have a specific URL target. Relative paths are resolved against the current page's origin.
+
+goto_tool_url_param_description: |
+  Target URL. Accepts absolute or site-relative form. Placeholders (e.g. {forum}, {username}, {id}) must be filled in before calling.

@@ -18,14 +18,6 @@ if TYPE_CHECKING:
     )
 
 
-_DECLARE_ERROR_STATUSES: frozenset[str] = frozenset({
-    "NOT_FOUND_ERROR",
-    "ACTION_NOT_ALLOWED_ERROR",
-    "PERMISSION_DENIED_ERROR",
-    "DATA_VALIDATION_ERROR",
-    "UNKNOWN_ERROR",
-})
-
 # task_notes 누적 상한. LLM이 매 step memo를 뿌리면 prompt 크기가 쉽게 수십 KB로 부풀어
 # context를 압박한다. 중복 문자열은 drop, 총량이 상한을 넘으면 가장 오래된 항목부터 제거.
 _TASK_NOTES_MAX = 50
@@ -50,21 +42,33 @@ def _append_task_note(task_notes: list[str] | None, note: str) -> None:
 # LLM execution loop (entry point)
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES_PER_GOAL = 8
-
-# Global LLM call limit per task — task 748 같은 retry loop 폭발 방지.
-# Standard ReAct web agent는 step budget (max_steps)으로 제어하지만, 본 agent는 tool
-# call 재시도 등 parasitic LLM call이 누적될 수 있다. Task당 LLM call을 명시적으로
-# 상한해 wall-time 예측성을 확보한다. 450 = max_steps(50) × ~9 call/step 여유치
-# (Phase 0c smoke에서 max 275 관찰, 어려운 MUTATE task + retry policy 대비 60% 버퍼).
-# env `LLM_CALL_LIMIT_PER_TASK`로 override 가능.
 import os as _os
-try:
-    _MAX_LLM_CALLS_PER_TASK = int(_os.getenv("LLM_CALL_LIMIT_PER_TASK", "450"))
-    if _MAX_LLM_CALLS_PER_TASK <= 0:
-        _MAX_LLM_CALLS_PER_TASK = 450
-except ValueError:
-    _MAX_LLM_CALLS_PER_TASK = 450
+
+
+def _env_int(name: str, default: int) -> int:
+    """Parse env var as int; fall back to default on missing/invalid/non-positive."""
+    try:
+        v = int(_os.getenv(name, str(default)))
+        if v <= 0:
+            return default
+        return v
+    except ValueError:
+        return default
+
+
+# Per-task retry/replan/budget caps — wall-time 예측성 확보.
+# Pilot 측정 시 task 당 wall-time 상한 ~8분 목표.
+# Task 744 같은 극단 MUTATE (GitLab modal invite flow)는 agent가 원천적으로 풀 수
+# 없어서 retry 허용해도 의미 없음 → 공격적 cap으로 빠르게 fail.
+# env var override 가능 (실험 iteration용).
+_MAX_RETRIES_PER_GOAL = _env_int("MAX_RETRIES_PER_GOAL", 2)
+_MAX_REPLANS_PER_TASK = _env_int("MAX_REPLANS_PER_TASK", 1)
+
+# Global LLM call limit per task — standard ReAct는 step budget (max_steps)으로
+# 제어하지만, 본 agent는 tool call 재시도 등 parasitic LLM call 누적 가능. Task당
+# LLM call을 명시 상한해 wall-time 예측 가능하게 함.
+# 200 calls × ~3s ≈ 10분 상한. env `LLM_CALL_LIMIT_PER_TASK`로 override.
+_MAX_LLM_CALLS_PER_TASK = _env_int("LLM_CALL_LIMIT_PER_TASK", 200)
 
 
 class _LLMCallLimitExceeded(Exception):
@@ -131,8 +135,8 @@ async def execute_with_llm(
         elapsed = time.time() - t_start
         logger.warning("[LLM] budget exceeded during plan (%s) in %.1fs", exc, elapsed)
         return ExecutionOutcome(
-            task_type=task_type, status="UNKNOWN_ERROR",
-            error_details=str(exc),
+            task_type=task_type, verdict="stuck",
+            reason=str(exc),
         )
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
@@ -140,7 +144,7 @@ async def execute_with_llm(
     checkpoint_stack = [page.url]  # goal별 checkpoint 스택 (index 0 = task 시작 URL)
     task_notes: list[str] = []  # LLM이 수집한 정보 (전체 태스크 동안 유지)
     steps_used = 0
-    replans_remaining = 3
+    replans_remaining = _MAX_REPLANS_PER_TASK
     max_replans = replans_remaining
 
     goal_idx = 0
@@ -186,13 +190,13 @@ async def execute_with_llm(
                 logger.warning("[LLM] budget exceeded in _try_sub_goal (%s) in %.1fs",
                                exc, elapsed)
                 return ExecutionOutcome(
-                    task_type=task_type, status="UNKNOWN_ERROR",
-                    error_details=str(exc),
+                    task_type=task_type, verdict="stuck",
+                    reason=str(exc),
                 )
             steps_used += used
 
             # extract/failure → 즉시 반환
-            if result is not None and result.status != "SUB_GOAL_FAILED":
+            if result is not None and result.verdict != "sub_goal_failed":
                 elapsed = time.time() - t_start
                 logger.info("[LLM] task completed in %.1fs (%d steps)", elapsed, steps_used)
                 return result
@@ -206,7 +210,7 @@ async def execute_with_llm(
                 break
 
             # sub-goal 실패 → checkpoint 복원 + retry
-            failure_desc = result.error_details or f"attempt {attempt + 1} failed"
+            failure_desc = (result.reason if result is not None else None) or f"attempt {attempt + 1} failed"
             failures.append(failure_desc)
             logger.info("[LLM] goal %d/%d failed (attempt %d): %s — restoring checkpoint",
                         goal_idx + 1, len(sub_goals), attempt + 1, failure_desc)
@@ -244,8 +248,8 @@ async def execute_with_llm(
                 elapsed = time.time() - t_start
                 logger.warning("[LLM] budget exceeded in replan (%s) in %.1fs", exc, elapsed)
                 return ExecutionOutcome(
-                    task_type=task_type, status="UNKNOWN_ERROR",
-                    error_details=str(exc),
+                    task_type=task_type, verdict="stuck",
+                    reason=str(exc),
                 )
             if new_goals:
                 logger.info("[LLM] new plan: %s", new_goals)
@@ -256,40 +260,47 @@ async def execute_with_llm(
 
         if not goal_succeeded:
             # 모든 retry + replan 소진 → 태스크 실패.
-            # 의도적 "target 없음" 선언은 agent가 declare_error로 수행해야 하며,
-            # 이 경로는 agent가 sub-goal을 완료하지 못한 "내부 실패"이므로 UNKNOWN_ERROR로 분류.
+            # 의도적 "target 없음" 선언은 agent가 report_failure로 수행해야 하며,
+            # 이 경로는 agent가 sub-goal을 완료하지 못한 "내부 실패"이므로 verdict=stuck.
             elapsed = time.time() - t_start
             logger.info("[LLM] goal %d/%d failed after all retries and replans in %.1fs",
                         goal_idx + 1, len(sub_goals), elapsed)
             return ExecutionOutcome(
                 task_type=task_type,
-                status="UNKNOWN_ERROR",
-                error_details=f"Sub-goal '{sub_goal.goal}' failed after all retries and replans",
+                verdict="stuck",
+                reason=f"Sub-goal '{sub_goal.goal}' failed after all retries and replans",
             )
 
         goal_idx += 1
 
     # 모든 goal 완료 (또는 소진)
-    # RETRIEVE task이면 최종 답 추출
+    # RETRIEVE task이면 최종 답 확정 stage — hierarchical tool design:
+    # report_success(answer) vs report_failure(status) 중 하나를 LLM이 선택.
     if task_type == "RETRIEVE":
         obs = await observe_page(page)
         try:
             from .tools import (
-                _declare_error_tool,
-                _extract_tool,
                 _observe_tool,
                 _recall_tool,
+                _report_failure_tool,
+                _report_success_tool,
             )
             notes_str = f"\nRemembered facts: {task_notes}" if task_notes else ""
-            extract_msg = (
+            final_msg = (
                 f"Task: {task}\n"
-                f"All preparation steps are complete. Now extract the final answer.{notes_str}\n"
+                f"All preparation steps are complete. Now report the task outcome.{notes_str}\n"
                 f"Current URL: {obs.url}\n"
                 f"Page title: {obs.title}\n"
                 f"Visible text (first 10): {obs.text_lines[:10]}\n"
                 f"Links (first 10): {obs.links[:10]}\n"
                 "\n"
-                "Verification before extracting:\n"
+                "Decision: success or failure?\n"
+                "  - SUCCESS path: concrete answer exists → call report_success with "
+                "'answer' set to the actual value(s).\n"
+                "  - FAILURE path: target does not exist / action not allowed / etc. "
+                "→ call report_failure with the appropriate status.\n"
+                "\n"
+                "Before choosing, verify:\n"
                 "1. Identify the exact format the task asks for "
                 "(e.g. an ID is a unique identifier, a count is a number of items, "
                 "an email contains @, a URL starts with http).\n"
@@ -306,130 +317,108 @@ async def execute_with_llm(
                 "     a candidate than to omit it). Re-read the notes carefully for all matches.\n"
                 "5. Use recall to re-check saved notes or observe to refresh the page if helpful.\n"
                 "6. If the target entity clearly does not exist (after exhaustive checks), "
-                "invoke declare_error with NOT_FOUND_ERROR instead of extract."
+                "call report_failure with a short reason. Do NOT invent a placeholder "
+                "answer or pass a narrative like 'no match found' into report_success."
             )
             tools_final = [
-                _extract_tool(), _declare_error_tool(),
+                _report_success_tool(is_last_goal=True, task_type="RETRIEVE"),
+                _report_failure_tool(),
                 _recall_tool(), _observe_tool(),
             ]
-            current_msg = extract_msg
-            final_declare_rejected = False
-            empty_extract_rejected = False
+            current_msg = final_msg
+            final_failure_rejected = False
+            empty_answer_rejected = False
             iter_limit = 4
             for iteration in range(iter_limit):
-                extract_response = llm.complete_with_tools(
+                final_response = llm.complete_with_tools(
                     system=system,
                     messages=[{"role": "user", "content": current_msg}],
                     tools=tools_final,
                 )
-                if not extract_response.tool_calls:
-                    logger.info("[LLM] final extract stage: no tool call (iter=%d)", iteration)
+                if not final_response.tool_calls:
+                    logger.info("[LLM] final answer stage: no tool call (iter=%d)", iteration)
                     break
-                call = extract_response.tool_calls[0]
-                if call.name == "extract":
+                call = final_response.tool_calls[0]
+                if call.name == "report_success":
                     args = call.arguments
-                    value_raw = str(args.get("value") or "").strip()
-                    # Empty extract: agent likely meant "no match" but used the
-                    # wrong tool. Re-prompt once with explicit NOT_FOUND guidance
-                    # — symmetric with declare_error rejection below. Second empty
-                    # extract falls through to _handle_extract and yields
-                    # UNKNOWN_ERROR (the legitimate protocol-violation outcome).
-                    if not value_raw and not empty_extract_rejected:
+                    answer_raw = str(args.get("answer") or "").strip()
+                    # Empty answer: agent likely meant "no match" but used the
+                    # wrong tool. Re-prompt once asking for the correct routing —
+                    # either a concrete answer or a report_failure. Second empty
+                    # answer falls through to _handle_retrieve_answer and yields
+                    # verdict=stuck (the legitimate protocol-violation outcome).
+                    if not answer_raw and not empty_answer_rejected:
                         logger.info(
-                            "[LLM] final extract empty value REJECTED (first attempt) — re-prompting"
+                            "[LLM] final report_success empty answer REJECTED (first attempt) — re-prompting"
                         )
-                        empty_extract_rejected = True
+                        empty_answer_rejected = True
                         notes_dump = "\n".join(f"- {n}" for n in task_notes) if task_notes else "(no notes)"
                         current_msg = (
-                            "Your extract call had an EMPTY value. An empty extract "
-                            "is not a valid answer.\n"
+                            "Your report_success call had an EMPTY answer. An empty "
+                            "answer is not a valid success outcome.\n"
                             "- If the requested target DOES NOT EXIST (no matching "
-                            "records, no such entity), call declare_error with "
-                            "status=NOT_FOUND_ERROR and a short reason.\n"
+                            "records, no such entity), call report_failure with "
+                            "a short reason.\n"
                             "- If the target DOES exist, look again at notes and the "
-                            "visible page, then call extract with the concrete value.\n"
+                            "visible page, then call report_success with the concrete "
+                            "answer value.\n"
                             f"\nSaved notes:\n{notes_dump}\n"
                             f"\nPage URL: {obs.url}\nTitle: {obs.title}\n"
                             f"Visible text (first 20): {obs.text_lines[:20]}\n"
                             f"Links (first 15): {obs.links[:15]}\n"
                         )
                         continue
-                    result = _handle_extract(
-                        {"value": value_raw, "label": args.get("label", "")},
+                    result = _handle_retrieve_answer(
+                        answer_raw, str(args.get("answer_label", "") or ""),
                         task_type,
                     )
                     elapsed = time.time() - t_start
-                    logger.info("[LLM] final extract in %.1fs (%d steps)", elapsed, steps_used)
+                    logger.info("[LLM] final answer in %.1fs (%d steps)", elapsed, steps_used)
                     return result
-                if call.name == "declare_error":
-                    status = str(call.arguments.get("status", "UNKNOWN_ERROR"))
+                if call.name == "report_failure":
                     reason = str(call.arguments.get("reason", ""))
-                    if status not in _DECLARE_ERROR_STATUSES:
-                        logger.info("[LLM] final declare_error invalid status=%r → UNKNOWN_ERROR", status)
-                        status = "UNKNOWN_ERROR"
-                    # Strong impossibility 신호(NOT_FOUND / ACTION_NOT_ALLOWED)는 sub-goal
-                    # loop까지 충분한 탐색을 거친 뒤 도달한 final extract stage에서
-                    # 첫 declare_error도 수용 — 그렇지 않으면 agent가 "None" 같은
-                    # placeholder를 extract해 잘못된 SUCCESS로 이어짐 (task 168 smoke).
-                    _FINAL_STRONG_ACCEPT = {"NOT_FOUND_ERROR", "ACTION_NOT_ALLOWED_ERROR"}
-                    if status not in _FINAL_STRONG_ACCEPT and not final_declare_rejected:
-                        logger.info(
-                            "[LLM] final declare_error REJECTED (first attempt); reason=%r",
-                            reason[:120],
-                        )
-                        final_declare_rejected = True
-                        notes_dump = "\n".join(f"- {n}" for n in task_notes) if task_notes else "(no notes)"
-                        current_msg = (
-                            f"Your declare_error ({status}) was rejected. This is the final "
-                            "extraction stage — re-examine evidence carefully before declaring "
-                            "again.\n"
-                            f"\nSaved notes:\n{notes_dump}\n"
-                            f"\nPage URL: {obs.url}\n"
-                            f"Page title: {obs.title}\n"
-                            f"Visible text (first 20): {obs.text_lines[:20]}\n"
-                            f"Links (first 15): {obs.links[:15]}\n"
-                            "\nIf the answer appears anywhere above, call extract. "
-                            "Only call declare_error again if you are certain the answer does not exist."
-                        )
-                        continue
+                    # Phase 3.I 이후: status enum 제거. final stage에서는 agent가
+                    # reason을 제공하면 즉시 abandoned으로 수용 — benchmark classifier가
+                    # reason의 의미론(없음 / 권한 / 불가능)을 분석해 final status 결정.
+                    # 이전의 "strong signal만 first-attempt accept" 분기는 불필요.
                     elapsed = time.time() - t_start
                     logger.info(
-                        "[LLM] final declare_error → %s in %.1fs (%d steps)",
-                        status, elapsed, steps_used,
+                        "[LLM] final report_failure in %.1fs (%d steps); reason=%r",
+                        elapsed, steps_used, reason[:120],
                     )
                     return ExecutionOutcome(
-                        task_type=task_type, status=status,  # type: ignore[arg-type]
-                        error_details=reason[:200] if reason else None,
+                        task_type=task_type, verdict="abandoned",
+                        reason=reason[:200] if reason else None,
                     )
                 if call.name == "recall":
                     notes_dump = "\n".join(f"- {n}" for n in task_notes) if task_notes else "(no notes)"
                     current_msg = (
-                        f"{extract_msg}\n\nYou requested recall. Saved notes:\n{notes_dump}\n"
-                        "\nNow call extract with the final answer, or declare_error if it does not exist."
+                        f"{final_msg}\n\nYou requested recall. Saved notes:\n{notes_dump}\n"
+                        "\nNow call report_success with the final answer, or report_failure if it does not exist."
                     )
-                    logger.info("[LLM] final extract stage: recall (iter=%d)", iteration)
+                    logger.info("[LLM] final answer stage: recall (iter=%d)", iteration)
                     continue
                 if call.name == "observe":
                     obs = await observe_page(page)
                     current_msg = (
-                        f"{extract_msg}\n\nYou requested observe. Refreshed page state:\n"
+                        f"{final_msg}\n\nYou requested observe. Refreshed page state:\n"
                         f"URL: {obs.url}\nTitle: {obs.title}\n"
                         f"Visible text (first 20): {obs.text_lines[:20]}\n"
                         f"Links (first 15): {obs.links[:15]}\n"
-                        "\nNow call extract with the final answer, or declare_error if it does not exist."
+                        "\nNow call report_success with the final answer, or report_failure if it does not exist."
                     )
-                    logger.info("[LLM] final extract stage: observe (iter=%d)", iteration)
+                    logger.info("[LLM] final answer stage: observe (iter=%d)", iteration)
                     continue
-                logger.info("[LLM] final extract stage: unexpected tool=%r", call.name)
+                logger.info("[LLM] final answer stage: unexpected tool=%r", call.name)
                 break
         except Exception:
-            logger.exception("[LLM] final extract stage raised")
-        # RETRIEVE인데 extract 실패 → 데이터 없이 SUCCESS 방지.
-        # "target 없음"의 명시적 선언은 declare_error(NOT_FOUND_ERROR) 몫이므로 여기는 UNKNOWN_ERROR.
+            logger.exception("[LLM] final answer stage raised")
+        # RETRIEVE인데 report_success 실패 → 데이터 없이 SUCCESS 방지.
+        # benchmark classifier가 verdict=stuck을 UNKNOWN_ERROR로 매핑할 것.
         elapsed = time.time() - t_start
-        logger.info("[LLM] RETRIEVE final extract failed in %.1fs (%d steps)", elapsed, steps_used)
-        return ExecutionOutcome(task_type=task_type, status="UNKNOWN_ERROR",
-                                error_details="Final extract failed — no data retrieved")
+        logger.info("[LLM] RETRIEVE final answer stage failed in %.1fs (%d steps)", elapsed, steps_used)
+        return ExecutionOutcome(task_type=task_type, verdict="stuck",
+                                reason="Final answer stage failed — no data retrieved")
 
     # NAVIGATE 최종 체크: URL == 시작 URL이면 replan (navigate인데 안 움직임)
     if task_type == "NAVIGATE" and replans_remaining > 0 and page.url == checkpoint_stack[0]:
@@ -448,8 +437,8 @@ async def execute_with_llm(
             logger.warning("[LLM] budget exceeded in NAVIGATE final replan (%s) in %.1fs",
                            exc, elapsed)
             return ExecutionOutcome(
-                task_type=task_type, status="UNKNOWN_ERROR",
-                error_details=str(exc),
+                task_type=task_type, verdict="stuck",
+                reason=str(exc),
             )
         if new_goals:
             sub_goals = sub_goals + new_goals
@@ -484,7 +473,7 @@ async def execute_with_llm(
                     kg_context=kg_context_replan,
                 )
                 steps_used += used
-                if result is not None and result.status != "SUB_GOAL_FAILED":
+                if result is not None and result.verdict != "sub_goal_failed":
                     elapsed = time.time() - t_start
                     logger.info("[LLM] task completed in %.1fs (%d steps)", elapsed, steps_used)
                     return result
@@ -492,28 +481,28 @@ async def execute_with_llm(
                     checkpoint_stack.append(page.url)
                     goal_idx += 1
                     continue
-                # replan sub-goal이 SUB_GOAL_FAILED — NAVIGATE 실패를 SUCCESS로 오분류하지 않도록
-                # 즉시 UNKNOWN_ERROR로 종료.
+                # replan sub-goal이 sub_goal_failed — NAVIGATE 실패를 SUCCESS로 오분류하지 않도록
+                # 즉시 stuck으로 종료.
                 elapsed = time.time() - t_start
-                logger.info("[LLM] NAVIGATE replan sub-goal failed — exiting as UNKNOWN_ERROR in %.1fs", elapsed)
+                logger.info("[LLM] NAVIGATE replan sub-goal failed — exiting as stuck in %.1fs", elapsed)
                 return ExecutionOutcome(
-                    task_type=task_type, status="UNKNOWN_ERROR",
-                    error_details=f"NAVIGATE replan sub-goal '{sub_goal.goal}' failed and URL stayed at start.",
+                    task_type=task_type, verdict="stuck",
+                    reason=f"NAVIGATE replan sub-goal '{sub_goal.goal}' failed and URL stayed at start.",
                 )
 
     # NAVIGATE 결과 보호: URL이 여전히 시작 URL이면 SUCCESS로 오분류하지 않는다.
     # (위 replan 블록을 거치지 않은 경우 — replans_remaining == 0 등 — 도 포함)
     if task_type == "NAVIGATE" and page.url == checkpoint_stack[0]:
         elapsed = time.time() - t_start
-        logger.info("[LLM] NAVIGATE finished with URL unchanged from start — UNKNOWN_ERROR in %.1fs", elapsed)
+        logger.info("[LLM] NAVIGATE finished with URL unchanged from start — stuck in %.1fs", elapsed)
         return ExecutionOutcome(
-            task_type=task_type, status="UNKNOWN_ERROR",
-            error_details="NAVIGATE task finished with URL unchanged from start.",
+            task_type=task_type, verdict="stuck",
+            reason="NAVIGATE task finished with URL unchanged from start.",
         )
 
     elapsed = time.time() - t_start
     logger.info("[LLM] all goals complete in %.1fs (%d steps)", elapsed, steps_used)
-    return ExecutionOutcome(task_type=task_type, status="SUCCESS")
+    return ExecutionOutcome(task_type=task_type, verdict="done_no_answer")
 
 
 async def _try_sub_goal(
@@ -552,7 +541,7 @@ async def _try_sub_goal(
     # mid-task stuck 감지 상태: 동일 URL 다회 stall 감지용.
     # `_consecutive_done_rejects`는 2026-04-17 `_verify_done` 단순화 후 trigger되는 경우가
     # 극히 제한적 (final navigation URL 미변경 때만). 기존 feedback 로직(≥3 reject 시 강제
-    # declare_error)은 남겨두되, 현 hard-rule verify_done에서는 거의 발동 안 함을 명시.
+    # report_failure)은 남겨두되, 현 hard-rule verify_done에서는 거의 발동 안 함을 명시.
     _last_url_for_stall = current_obs.url
     _url_stall_steps = 0
     _consecutive_done_rejects = 0  # hard-rule 전환 후 low-activity counter
@@ -593,7 +582,7 @@ async def _try_sub_goal(
             stall_warning = (
                 f"[stuck] URL has been {current_obs.url} for {_url_stall_steps} steps. "
                 "The current approach is not producing progress. Take a different action "
-                "(e.g., goback then explore a different route, or declare_error if the target "
+                "(e.g., goback then explore a different route, or report_failure if the target "
                 "is unreachable). Do not keep clicking the same elements."
             )
             last_action_feedback = (
@@ -674,12 +663,13 @@ async def _try_sub_goal(
             _append_task_note(task_notes, memo_text)
             logger.info("[LLM] step=%d  memo=%r", step + 1, memo_text)
 
-        # Terminal actions (done/declare_error)의 thought은 agent의 conclusion이다.
-        # memo와 달리 thought은 LLM이 항상 produce하므로 intention/conclusion 둘 다
-        # 잡힐 가능성이 있지만, terminal 시점의 thought은 "이 sub-goal에서 무엇을
-        # 확인했는가"에 대한 결론 성격이 강함. final extract stage가 task_notes만
-        # 보는 구조에서 이 conclusion을 보존해야 hallucination을 막는다 (task 168 smoke).
-        if action_name in ("done", "declare_error") and thought:
+        # Terminal actions (report_success/report_failure)의 thought은 agent의
+        # conclusion이다. memo와 달리 thought은 LLM이 항상 produce하므로
+        # intention/conclusion 둘 다 잡힐 가능성이 있지만, terminal 시점의 thought은
+        # "이 sub-goal에서 무엇을 확인했는가"에 대한 결론 성격이 강함. final
+        # answer stage가 task_notes만 보는 구조에서 이 conclusion을 보존해야
+        # hallucination을 막는다 (task 168 smoke).
+        if action_name in ("report_success", "report_failure") and thought:
             conclusion = thought.strip()
             if conclusion:
                 _append_task_note(
@@ -687,21 +677,48 @@ async def _try_sub_goal(
                     f"[sub-goal {goal_index + 1} {action_name}] {conclusion[:240]}",
                 )
 
-        # done-reject 연속 카운터: done 외 action이 호출되면 리셋 (실제 진전이 있었다고 간주).
-        if action_name != "done":
+        # report_success-reject 연속 카운터: report_success 외 action이 호출되면
+        # 리셋 (실제 진전이 있었다고 간주).
+        if action_name != "report_success":
             _consecutive_done_rejects = 0
 
         # --- Terminal actions ---
-        if action_name == "done":
-            # 마지막 sub-goal done 시 pending network request(예: graphql) 완료 대기
-            # → race condition(network event가 evaluator에 response_status=-1로 기록) 방지
+        if action_name == "report_success":
+            # 마지막 sub-goal의 report_success 시 pending network request(예: graphql)
+            # 완료 대기 → race condition(network event가 evaluator에 response_status=-1로
+            # 기록) 방지.
             if is_last_goal:
                 try:
                     await page.wait_for_load_state("networkidle", timeout=2000)
                     current_obs = await observe_page(page)
                 except Exception:
                     pass
-            # done 검증: LLM에게 현재 상태와 목표를 대조시킴 (task_notes 함께 검토)
+            # Final sub-goal of RETRIEVE: expect `answer` field (concrete value).
+            # 이 분기가 hierarchical tool design의 핵심 — "task 성공 + RETRIEVE 최종 sub-goal"
+            # 경로에서만 answer가 terminal payload. "no match" 서술은 answer가 아니라
+            # report_failure의 몫이다 (benchmark classifier가 구체 status 결정).
+            if is_last_goal and task_type == "RETRIEVE":
+                answer_raw = str(args.get("answer", "") or "").strip()
+                label = str(args.get("answer_label", "") or "")
+                if not answer_raw:
+                    # Empty answer: 대개 agent가 "target 없음" 의도를 잘못 라우팅한 경우.
+                    # 가벼운 re-prompt로 올바른 tool을 안내.
+                    logger.info(
+                        "[LLM] report_success on final RETRIEVE with EMPTY answer — re-prompting"
+                    )
+                    feedback = (
+                        "report_success is missing the required 'answer' field, or the "
+                        "answer is empty. This is the final sub-goal of a RETRIEVE task.\n"
+                        "- If a concrete answer exists: call report_success again with "
+                        "the 'answer' field populated with the actual value(s).\n"
+                        "- If the target genuinely does not exist or the task is "
+                        "infeasible: call report_failure with a brief reason."
+                    )
+                    messages.append(format_tool_result(tool_id, feedback))
+                    last_action_feedback = feedback
+                    continue
+                return _handle_retrieve_answer(answer_raw, label, task_type), step + 1
+            # Non-RETRIEVE-final: standard sub-goal verification.
             done_reason = args.get("reason", "")
             verified = _verify_done(
                 goal=sub_goal.goal, reason=done_reason, current_obs=current_obs,
@@ -712,82 +729,62 @@ async def _try_sub_goal(
                 task_start_url=start_url,
             )
             if verified is True:
-                logger.info("[LLM] sub-goal done (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
+                logger.info("[LLM] sub-goal report_success (verified) [%s]: %r", sub_goal.goal_type, sub_goal.goal)
                 return None, step + 1
-            logger.info("[LLM] sub-goal done REJECTED: %s", verified)
+            logger.info("[LLM] sub-goal report_success REJECTED: %s", verified)
             _consecutive_done_rejects += 1
-            # 방어: done 연속 reject가 누적되면 LLM에게 더 강하게 신호를 준다
-            # (그렇지 않으면 같은 done 호출이 반복되며 step 예산을 소진).
             if _consecutive_done_rejects >= 3:
                 last_action_feedback = (
-                    f"Done has been rejected {_consecutive_done_rejects} times in a row. "
+                    f"report_success has been rejected {_consecutive_done_rejects} times in a row. "
                     f"Last rejection reason: {verified}. "
-                    "STOP calling done until the page state actually changes. "
+                    "STOP calling report_success until the page state actually changes. "
                     "Take a concrete page action (click/fill/search/goback) or, if the target "
-                    "is unreachable, call declare_error with the matching status."
+                    "is unreachable, call report_failure with the matching status."
                 )
             else:
-                last_action_feedback = f"Done rejected — goal not yet achieved: {verified}. Keep working."
+                last_action_feedback = f"report_success rejected — goal not yet achieved: {verified}. Keep working."
             messages.append(format_tool_result(tool_id, last_action_feedback))
             continue
 
-        if action_name == "extract":
-            # extract은 last RETRIEVE sub-goal에서만 노출되는 tool. 그 외 context에서 LLM이
-            # extract을 호출했다면 tool schema 위반 (API가 보통 차단하지만 방어적 확인).
-            if not (is_last_goal and task_type == "RETRIEVE"):
-                feedback = (
-                    "extract is only available on the final sub-goal of a RETRIEVE task. "
-                    "Use done to finish this sub-goal, or declare_error if the target cannot be reached."
-                )
-                logger.info("[LLM] step=%d  extract called out of context (is_last=%s task_type=%s) — rejecting",
-                            step + 1, is_last_goal, task_type)
-                messages.append(format_tool_result(tool_id, feedback))
-                last_action_feedback = feedback
-                continue
-            return _handle_extract({"value": args.get("value", ""), "label": args.get("label", "")}, task_type), step + 1
-
-        if action_name == "declare_error":
+        if action_name == "report_failure":
             # 방어적 형변환: API 스키마 검증이 보통 문자열을 보장하지만,
             # 이 경로는 task-level outcome을 결정하므로 비문자열 인자에도 crash하지 않게 한다.
-            status = str(args.get("status", "UNKNOWN_ERROR"))
             reason = str(args.get("reason", ""))
-            if status not in _DECLARE_ERROR_STATUSES:
-                logger.info("[LLM] declare_error invalid status=%r → coerce to UNKNOWN_ERROR", status)
-                status = "UNKNOWN_ERROR"
 
-            # Warning mode: 재시도 이력이 부족하면 declare_error를 거절하고 다시 탐색하게 한다.
-            # done이 _verify_done으로 검증되는 것과 대칭 — declare_error도 "충분한 시도" 검증.
-            # 단, 강한 impossibility 신호 (NOT_FOUND_ERROR, ACTION_NOT_ALLOWED_ERROR)는 prior
-            # attempt 없이도 수용 — 명백한 "empty state" 페이지에서 retry 강제는 step 낭비이고,
-            # agent의 correct conclusion을 버려 final extract에서 hallucinate로 이어짐 (task 168).
+            # Warning mode: 재시도 이력이 부족하면 report_failure를 거절하고 다시 탐색하게 한다.
+            # report_success가 _verify_done으로 검증되는 것과 대칭. Phase 3.I 이후 status
+            # 분류가 없으므로 "strong vs normal signal" 분기도 없음 — 일괄 3회 prior
+            # attempt 요구. "target 없음" 같은 즉각 정답은 실제 sub-goal 흐름에서 탐색이
+            # 어차피 여러 step 발생하므로 실전에서 block되지 않음.
             prior_attempts = len(previous_failures)
-            _STRONG_SIGNAL_STATUSES = {"NOT_FOUND_ERROR", "ACTION_NOT_ALLOWED_ERROR"}
-            _required_attempts = 0 if status in _STRONG_SIGNAL_STATUSES else 3
+            # _required_attempts는 `_MAX_RETRIES_PER_GOAL - 1`로 derive —
+            # cap을 줄이더라도 "최소 1번은 탐색 시도 후 report_failure 수용" 원칙 유지.
+            _required_attempts = max(1, _MAX_RETRIES_PER_GOAL - 1)
             if prior_attempts < _required_attempts:
                 logger.info(
-                    "[LLM] declare_error REJECTED (attempts=%d/%d): status=%s reason=%r",
-                    prior_attempts, _required_attempts, status, reason[:120],
+                    "[LLM] report_failure REJECTED (attempts=%d/%d): reason=%r",
+                    prior_attempts, _required_attempts, reason[:120],
                 )
                 rejection_msg = (
-                    f"declare_error rejected: only {prior_attempts} prior attempt(s) "
-                    f"(required: {_required_attempts}). Before declaring {status}, try "
-                    "meaningfully different strategies (different query terms, filter "
-                    "combinations, alternative navigation paths, scrolling through "
-                    "paginated results). If the page text already contains evidence, use "
-                    "observe/remember/done instead."
+                    f"report_failure rejected: only {prior_attempts} prior attempt(s) "
+                    f"(required: {_required_attempts}). Before declaring the task "
+                    "infeasible, try meaningfully different strategies (different query "
+                    "terms, filter combinations, alternative navigation paths, scrolling "
+                    "through paginated results). If the page text already contains "
+                    "evidence, use observe/remember/report_success instead."
                 )
                 messages.append(format_tool_result(tool_id, rejection_msg))
                 last_action_feedback = (
-                    f"declare_error rejected — evidence insufficient after {prior_attempts} "
+                    f"report_failure rejected — evidence insufficient after {prior_attempts} "
                     "attempt(s); keep investigating."
                 )
                 continue
 
-            logger.info("[LLM] declare_error → task-level exit: status=%s reason=%r", status, reason[:200])
+            logger.info("[LLM] report_failure → task-level exit: reason=%r", reason[:200])
             return ExecutionOutcome(
                 task_type=task_type,
-                status=status,  # type: ignore[arg-type]
-                error_details=reason[:200] if reason else None,
+                verdict="abandoned",
+                reason=reason[:200] if reason else None,
             ), step + 1
 
         # --- Cognition tools ---
@@ -850,9 +847,7 @@ async def _try_sub_goal(
         if action_name not in {"click", "fill", "goback", "goto"}:
             feedback = (
                 f"Unknown tool '{action_name}'. Use one of: click, fill, search, goback, goto, "
-                "observe, remember, recall, done, declare_error"
-                + (", extract" if is_last_goal and task_type == "RETRIEVE" else "")
-                + "."
+                "observe, remember, recall, report_success, report_failure."
             )
             logger.info("[LLM] step=%d  unknown tool=%r", step + 1, action_name)
             messages.append(format_tool_result(tool_id, feedback))
@@ -892,10 +887,12 @@ async def _try_sub_goal(
         messages.append(format_tool_result(tool_id, feedback))
         last_action_feedback = feedback
 
-    # step_budget 소진 → done 선언 없이 끝남 = 실패
+    # step_budget 소진 → done 선언 없이 끝남 = sub-goal 실패 (retry/replan 대상).
+    # verdict=sub_goal_failed는 outer loop retry/replan의 control signal로만 쓰이고,
+    # 최종 terminal state로는 노출되지 않는다 (어딘가에서 stuck/abandoned/done으로 resolve).
     return ExecutionOutcome(
-        task_type=task_type, status="SUB_GOAL_FAILED",
-        error_details=f"Not completed in {step_budget} steps. {_summarize_action_history(_action_history)}",
+        task_type=task_type, verdict="sub_goal_failed",
+        reason=f"Not completed in {step_budget} steps. {_summarize_action_history(_action_history)}",
     ), step_budget
 
 
@@ -1074,18 +1071,27 @@ class _ActionResult:
 
 
 
-def _handle_extract(action: dict[str, Any], task_type: str) -> ExecutionOutcome:
-    """extract 처리."""
-    value = action.get("value", "")
-    label = action.get("label", "")
-    if value:
-        retrieved = [v.strip() for v in value.split(",") if v.strip()] if "," in value else [value]
-        logger.info("[LLM] extract → SUCCESS  label=%r value=%r", label, value[:100])
-        return ExecutionOutcome(task_type=task_type, status="SUCCESS", retrieved_data=retrieved)
-    # extract tool을 value 없이 호출한 경우 — LLM의 규약 위반.
-    # "target 없음" 의도라면 declare_error(NOT_FOUND_ERROR)를 써야 하므로 여기는 UNKNOWN_ERROR.
-    logger.info("[LLM] extract → UNKNOWN_ERROR (missing value)")
-    return ExecutionOutcome(task_type=task_type, status="UNKNOWN_ERROR", error_details="LLM extract action missing value")
+def _handle_retrieve_answer(
+    value: str, label: str, task_type: str
+) -> ExecutionOutcome:
+    """RETRIEVE 최종 sub-goal의 report_success(answer=...) → ExecutionOutcome.
+
+    Phase 3.I 이후: runtime은 answer 원문을 그대로 싣는다. 쉼표 분리·semantic 검증
+    ("none" / "no match" 등이 placeholder인지)은 benchmark outcome_classifier의 몫.
+    value가 비어 있으면 scaffold-level stuck으로 기록 (본래 empty answer는 이전 단계의
+    re-prompt에서 걸려야 함).
+    """
+    if not value:
+        logger.info("[LLM] retrieve_answer → stuck (missing value)")
+        return ExecutionOutcome(
+            task_type=task_type, verdict="stuck",
+            reason="LLM report_success on RETRIEVE final missing answer",
+        )
+    logger.info("[LLM] retrieve_answer → done_with_answer  label=%r value=%r", label, value[:100])
+    return ExecutionOutcome(
+        task_type=task_type, verdict="done_with_answer",
+        answer=value, answer_label=label or None,
+    )
 
 
 async def _execute_browser_action(
@@ -1557,10 +1563,12 @@ def _get_tool_action(
         messages.append(format_assistant_tool_use(response))
 
     if not response.tool_calls:
-        # LLM이 2회 연속 tool을 호출하지 않으면 task-level UNKNOWN_ERROR로 종료.
+        # LLM이 2회 연속 tool을 호출하지 않으면 task-level stuck으로 종료.
+        # (report_failure 경로는 agent의 의도적 abandonment이므로 scaffold fallback 부적합.
+        #  대신 sub-goal 실패 카운트에 반영되어 verdict=stuck으로 bubble up.)
         return (
-            "declare_error",
-            {"status": "UNKNOWN_ERROR", "reason": "LLM failed to invoke any tool after a nudge."},
+            "__scaffold_stuck__",
+            {"reason": "LLM failed to invoke any tool after a nudge."},
             "", "none", messages,
         )
 

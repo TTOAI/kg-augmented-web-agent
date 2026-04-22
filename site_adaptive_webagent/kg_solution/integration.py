@@ -24,7 +24,7 @@ from site_adaptive_webagent.runtime.llm import (
 
 from site_adaptive_webagent.kg.site_extras import load_site_cascade
 
-from .class_descriptions import ClassCatalog, load_class_catalog
+from .class_descriptions import ClassCatalog, FilterTemplate, load_class_catalog
 from .hint_generator import generate_hint as _generate_hint
 from .path_finder import (
     CascadeConfig,
@@ -168,13 +168,22 @@ class KGSession:
         예: project/issue_list에 직접 관측된 filter가 없어도 project/merge_request_list,
         dashboard/issue_list의 state=opened, label_name[]=, assignee_username= 같은
         패턴을 볼 수 있어 agent가 pattern을 추론 가능.
+
+        Phase 3.J F2: cross-class로 가져온 template의 `path_template`을 **current class의
+        url_template**으로 rewrite한다. 원본 sibling의 path (예: `/-/merge_requests`)을
+        그대로 보여주면 agent가 현재 endpoint (`/-/issues`)에 외삽하기 어렵다. Rewrite
+        후에는 `state=opened` 같은 query가 `/-/issues?state=opened` 형태로 agent에게
+        직접 제시되어 goto 경로가 분명해진다.
         """
         if not class_name:
             return []
         seen_sigs: set[str] = set()
         out: list = []
 
-        def _append(entry) -> None:
+        current_entry = self.catalog.get(class_name)
+        current_path_tpl = current_entry.url_template if current_entry else None
+
+        def _append(entry, rewrite_path: bool = False) -> None:
             if entry is None:
                 return
             for ft in entry.filter_templates:
@@ -182,10 +191,17 @@ class KGSession:
                 if not sig or sig in seen_sigs:
                     continue
                 seen_sigs.add(sig)
+                if rewrite_path and current_path_tpl:
+                    ft = FilterTemplate(
+                        label=ft.label,
+                        path_template=current_path_tpl,
+                        query_example=ft.query_example,
+                        query_signature=ft.query_signature,
+                    )
                 out.append(ft)
 
-        # 1. class 자신
-        _append(self.catalog.get(class_name))
+        # 1. class 자신 — path 그대로 (이미 current endpoint)
+        _append(current_entry, rewrite_path=False)
 
         # 2. same-scope siblings with "list" suffix (filter 경향이 유사)
         parts = class_name.split("/")
@@ -201,7 +217,7 @@ class KGSession:
                 if is_list_type and (
                     other_name.endswith("_list") or "/list" in other_name
                 ):
-                    _append(other_entry)
+                    _append(other_entry, rewrite_path=True)
 
         # 3. cross-scope siblings with same base name (예: project/issue_list
         #    → dashboard/issue_list)
@@ -214,7 +230,7 @@ class KGSession:
                     continue
                 other_parts = other_name.split("/")
                 if len(other_parts) >= 2 and base_name in other_parts[-2:]:
-                    _append(other_entry)
+                    _append(other_entry, rewrite_path=True)
 
         return out[:12]  # total cap
 

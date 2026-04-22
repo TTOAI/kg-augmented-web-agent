@@ -1,0 +1,42 @@
+# Cascade configuration (reddit / Postmill).
+#
+# Phase 3.H Tier 3 cross-site 실증용. path_finder의 6-stage cascade 중 scope_entry
+# / hub_fallback 단계에서 참조. GitLab cascade.yaml과 동일 schema.
+
+# 각 scope의 "entry point" class. Reddit의 scope는 대략:
+#   - forum/...        (forum 관련 페이지들)
+#   - user/...         (사용자 관련 페이지들)
+#   - global/...       (home, top, hot, new, all, featured)
+#   - wiki/...         (wiki 관련)
+#
+# KG 빌드 후 실제 class 이름에 맞춰 재조정.
+scope_entries:
+  forum: forum/list
+  user: user/profile
+  global: global/home
+  wiki: wiki/index
+
+# 최후 fallback hub. Postmill의 landing page (hot posts from all forums).
+hub: global/home
+
+# Class name의 마지막 segment가 이 집합에 속하면 variant suffix로 인식.
+# Reddit/Postmill의 listing sort variants.
+variant_segments:
+  - hot
+  - new
+  - top
+  - controversial
+  - active
+  - comments
+  - submissions
+
+# Class name의 type suffix (family 추출용).
+# 예: forum/post_new → suffix `_new` 제거 → family `forum/post`.
+family_type_suffixes:
+  - _new
+  - _edit
+  - _list
+  - _detail
+  - _view
+  - _comment
+  - _submit
