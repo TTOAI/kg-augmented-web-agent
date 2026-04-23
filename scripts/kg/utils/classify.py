@@ -4,7 +4,7 @@ Stage A.e에서 추출한 class_rules.json을 사용.
 Stage A.f에서 3,040 StatePattern에 적용할 때 재사용 가능.
 
 사용법:
-  from scripts.validation.stage_a_classify import load_classifier
+  from scripts.kg.utils.classify import load_classifier
 
   cls_fn = load_classifier("output/validation/rules/class_rules.json")
   result = cls_fn("<absolute URL on the target site>")
@@ -80,7 +80,7 @@ def classify_template(
     `{namespace}`) to a class. We emit a representative URL from the template,
     then classify.
 
-    Phase 3.H Tier 1: placeholder 치환값을 `config/sites/<site>/entities.yaml`
+     placeholder 치환값을 `config/sites/<site>/entities.yaml`
     의 `sample_values`에서 로드.
     """
     import os

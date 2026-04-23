@@ -581,7 +581,7 @@ def build_tool_use_system_prompt() -> str:
     return "\n".join(lines)
 
 
-# Phase 3.H Tier 2: _MUTATE_FORM_CHECKLIST는 config/sites/<site>/prompts.yaml로
+#  _MUTATE_FORM_CHECKLIST는 config/sites/<site>/prompts.yaml로
 # 이관되었음 (mutate_checklist key). `build_observation_message`는 module-level
 # `default_prompt_library()`를 사용해 현 site의 checklist 렌더.
 
@@ -604,7 +604,7 @@ def build_observation_message(
     observation을 우선한다.
 
     task_type: "MUTATE" + 현재 page에 form inputs이 있을 때 form-submission
-    checklist를 추가 주입. Phase 3.E P1.1 (task 479 등) 진단에서 발견:
+    checklist를 추가 주입.  P1.1 (task 479 등) 진단에서 발견:
     Agent가 intent의 non-primary qualifier (empty/private/guest 등)를 form
     non-default 필드와 연결하지 못해 default 값으로 submit하는 구조적 결함.
     """
@@ -621,13 +621,13 @@ def build_observation_message(
         sections.append(kg_hint)
 
     if task_type == "MUTATE" and getattr(observation, "inputs", None):
-        # Phase 3.H Tier 2: site별 checklist는 prompts.yaml에서 로드
+        #  site별 checklist는 prompts.yaml에서 로드
         from .prompts import default_prompt_library
 
         checklist = default_prompt_library().render_mutate_checklist()
         if checklist:
             sections.append(checklist)
-    # NOTE: NAVIGATE filter checklist 추가 시도 (Phase 3.E P3.1) — 역효과 확인.
+    # NOTE: NAVIGATE filter checklist 추가 시도 ( P3.1) — 역효과 확인.
     # Agent가 "search 회피" 해석을 우선해 label dropdown 탐색 중 deadlock.
     # 근본 해결엔 observation layer 개선 (collapsed dropdown 항목 노출) 또는
     # KG의 filter URL 템플릿 제공이 필요. Prompt-level 단독 guidance로는 regression.

@@ -1,6 +1,6 @@
 """Site-pluggable URL template derivation.
 
-Phase 3.H Tier 3: Stage A의 `_derive_from_single()` 알고리즘은 이전까지 GitLab URL
+ Stage A의 `_derive_from_single()` 알고리즘은 이전까지 GitLab URL
 스키마(`/-/`, `/tree/`, `/blob/` 등)에 커플링되어 있었다. Cross-site 실증 (다른
 benchmark 사이트의 KG 구축)을 위해 **site-pluggable interface**로 전환한다.
 
@@ -98,7 +98,7 @@ class SitePlugin(Protocol):
         """
         ...
 
-    # Scope taxonomy for class_descriptions structured fields (Phase 3.K).
+    # Scope taxonomy for class_descriptions structured fields ( .
     # Maps the class-name prefix (the part before '/') to a scope kind that
     # task_inferrer uses for disambiguation. Values loaded per plugin from
     # `config/sites/<site>/class_taxonomy.yaml`.
@@ -160,7 +160,7 @@ def classify_common_segment(
 class GitLabSitePlugin:
     """GitLab URL scheme plugin.
 
-    Preserves exact behavior of the pre-Tier-3 `_derive_from_single()` function.
+    Preserves exact behavior of the earlier`_derive_from_single()` function.
     Prefix patterns:
       - /-/ide/project/{namespace}/{project}/...  (Web IDE)
       - /users/{username}/...

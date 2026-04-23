@@ -37,7 +37,7 @@ SITE_CONFIG_PATH = Path("config/sites/gitlab/site_config.yaml")
 RULES_OUT = Path("output/validation/rules/class_rules.json")
 REPORT_OUT = Path("docs/validation/stage_a_rules_report.md")
 
-# Phase 3.H Tier 1: site-specific 상수를 config/sites/<site>/*.yaml에서 로드.
+#  site-specific 상수를 config/sites/<site>/*.yaml에서 로드.
 # Site 선택은 `SITE_NAME` env (default "gitlab"). 실행 시 이 값에 대응하는
 # entities.yaml + crawl.yaml을 읽음. 기존 하드코드 값은 gitlab entities.yaml에 이관.
 _SITE_NAME = os.getenv("SITE_NAME", "gitlab")
@@ -52,7 +52,7 @@ KNOWN_NAMESPACES: set[str] = set(_SITE_ENTITIES.namespaces)
 KNOWN_USERNAMES: set[str] = set(_SITE_ENTITIES.usernames)
 ACTION_KEYWORDS: set[str] = set(_SITE_ENTITIES.action_keywords)
 
-# Phase 3.H Tier 3: Site-pluggable URL template derivation.
+#  Site-pluggable URL template derivation.
 # 이전까지 _derive_from_single에 하드코드된 GitLab URL scheme (`/-/`, `/tree/`, ...)은
 # 이제 `SitePlugin.derive_path_template()`에 위임. SITE_NAME에 대응하는 plugin이
 # 로드되며, 없으면 DefaultSitePlugin (numeric/SHA만 일반화) fallback.
@@ -107,7 +107,7 @@ def derive_templates(paths: list[str]) -> list[tuple[str, dict[str, dict]]]:
 def _derive_from_single(path: str) -> tuple[str, dict[str, dict]]:
     """Single instance → template + path_params derivation (site-pluggable).
 
-    Phase 3.H Tier 3: CDIP protocol 의 site-specific URL scheme 로직을
+     CDIP protocol 의 site-specific URL scheme 로직을
     `SitePlugin.derive_path_template()` 에 위임한다. 본 함수는 path를
     segment list로 쪼개고 plugin에 넘겨주는 adapter만 담당 — protocol
     skeleton (single URL → template)은 site-agnostic.

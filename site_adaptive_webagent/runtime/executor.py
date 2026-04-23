@@ -12,7 +12,7 @@ from .tools import format_assistant_tool_use, format_tool_result, replan_tool, t
 from .types import ExecutionOutcome, PageObservation
 
 if TYPE_CHECKING:
-    from site_adaptive_webagent.kg_solution.integration import (
+    from site_adaptive_webagent.kg.runtime.integration import (
         KGSession,
         SubGoalKGContext,
     )
@@ -377,7 +377,7 @@ async def execute_with_llm(
                     return result
                 if call.name == "report_failure":
                     reason = str(call.arguments.get("reason", ""))
-                    # Phase 3.I 이후: status enum 제거. final stage에서는 agent가
+                    #  이후: status enum 제거. final stage에서는 agent가
                     # reason을 제공하면 즉시 abandoned으로 수용 — benchmark classifier가
                     # reason의 의미론(없음 / 권한 / 불가능)을 분석해 final status 결정.
                     # 이전의 "strong signal만 first-attempt accept" 분기는 불필요.
@@ -613,7 +613,7 @@ async def _try_sub_goal(
                     current_class_actions = kg_session.get_class_actions(
                         current_class
                     )
-                # Phase 3.F β: target class의 filter URL 템플릿도 함께 전달
+                #  β: target class의 filter URL 템플릿도 함께 전달
                 tgt_filter_templates = kg_session.get_filter_templates(
                     kg_context.target_class
                 )
@@ -752,7 +752,7 @@ async def _try_sub_goal(
             reason = str(args.get("reason", ""))
 
             # Warning mode: 재시도 이력이 부족하면 report_failure를 거절하고 다시 탐색하게 한다.
-            # report_success가 _verify_done으로 검증되는 것과 대칭. Phase 3.I 이후 status
+            # report_success가 _verify_done으로 검증되는 것과 대칭.  이후 status
             # 분류가 없으므로 "strong vs normal signal" 분기도 없음 — 일괄 3회 prior
             # attempt 요구. "target 없음" 같은 즉각 정답은 실제 sub-goal 흐름에서 탐색이
             # 어차피 여러 step 발생하므로 실전에서 block되지 않음.
@@ -1076,7 +1076,7 @@ def _handle_retrieve_answer(
 ) -> ExecutionOutcome:
     """RETRIEVE 최종 sub-goal의 report_success(answer=...) → ExecutionOutcome.
 
-    Phase 3.I 이후: runtime은 answer 원문을 그대로 싣는다. 쉼표 분리·semantic 검증
+     이후: runtime은 answer 원문을 그대로 싣는다. 쉼표 분리·semantic 검증
     ("none" / "no match" 등이 placeholder인지)은 benchmark outcome_classifier의 몫.
     value가 비어 있으면 scaffold-level stuck으로 기록 (본래 empty answer는 이전 단계의
     re-prompt에서 걸려야 함).
@@ -1523,7 +1523,7 @@ def _verify_done(
 ) -> str | bool:
     """Hard-rule based done verification (표준 ReAct 지향).
 
-    Rules (refined Phase 3.F β):
+    Rules (refined  β):
     - 마지막 [navigation] sub-goal: task-level 이동이 전혀 없었으면 reject. 이전엔
       `sub_goal_start_url == current.url`만 보고 reject했으나, 이는 직전 sub-goal이
       이미 target으로 navigate한 후 final sub-goal이 confirmation 성격일 때 false

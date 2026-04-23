@@ -8,7 +8,7 @@ from typing import Any, Literal
 IntentAction = Literal["goto_url", "inspect_page", "click_target", "search_target", "unsupported"]
 TaskType = Literal["RETRIEVE", "MUTATE", "NAVIGATE"]
 
-# Benchmark-agnostic agent verdict. Phase 3.I refactor: runtime은 benchmark의
+# Benchmark-agnostic agent verdict.  refactor: runtime은 benchmark의
 # status enum (NOT_FOUND_ERROR 등)을 말하지 않고, 이 중립 verdict만 배출한다.
 # Benchmark adapter가 verdict → benchmark-specific status로 매핑한다.
 #
@@ -52,7 +52,7 @@ class PageObservation:
     buttons: list[str]
     inputs: list[str] = field(default_factory=list)  # placeholder / label 기반 입력 필드
     dropdown_options: list[str] = field(default_factory=list)  # 열린 드롭다운/메뉴 항목
-    # Phase 3.F α: DOM에 rendered되어 있지만 collapsed/aria-hidden 상태라 visible
+    #  α: DOM에 rendered되어 있지만 collapsed/aria-hidden 상태라 visible
     # extraction에선 누락되는 navigation/option 항목. "[collapsed] label → path"
     # 형태로 사전 노출해 agent의 구조적 한계(sub-menu/filter dropdown 미발견)를 해소.
     latent_nav: list[str] = field(default_factory=list)
@@ -62,7 +62,7 @@ class PageObservation:
 class ExecutionOutcome:
     """Runtime이 반환하는 benchmark-agnostic agent verdict.
 
-    Phase 3.I 이전: status가 WebArena status enum이었고 retrieved_data/error_details도
+     이전: status가 WebArena status enum이었고 retrieved_data/error_details도
     benchmark-specific 필드였음. 이제는 중립 verdict + raw payload만 포함하고, benchmark
     adapter의 outcome_classifier가 이를 `WebArenaRunResult`로 매핑한다.
     """

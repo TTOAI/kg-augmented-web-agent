@@ -12,7 +12,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
 
-# Phase 3.H Tier 3b: 아래 두 상수는 **GitLab-flavored fallback**으로 남아 있다
+#  아래 두 상수는 **GitLab-flavored fallback**으로 남아 있다
 # (production 사용은 cascade.yaml에서 로드된 CascadeConfig 필드를 사용).
 # 모듈 단독 import (예: extract_family(class_path) 직접 호출) 시 이 값이 쓰임.
 #
@@ -45,7 +45,7 @@ _TRUST_ORDER = {"high": 0, "medium": 1, "low": 2, None: 3, "unknown": 3}
 class CascadeConfig:
     """Site-configurable cascade parameters.
 
-    Phase 3.H Tier 2-3b: 이전 DEFAULT_GITLAB_CONFIG를 config/sites/<site>/cascade.yaml
+     -3b: 이전 DEFAULT_GITLAB_CONFIG를 config/sites/<site>/cascade.yaml
     로 이관. `build_kg_session()`에서 로드 후 KGSession.cascade_config로 주입.
 
     - scope_entries: {scope: entry_class} cascade stage 3 target
@@ -92,7 +92,7 @@ def extract_family(
 ) -> str:
     """Return family key. Classes in same family share this key.
 
-    Phase 3.H Tier 3b: variant_segments / family_type_suffixes를 CascadeConfig에서
+     variant_segments / family_type_suffixes를 CascadeConfig에서
     우선 로드. Config가 없거나 해당 필드가 비어 있으면 모듈-수준 fallback 사용
     (GitLab-flavored default).
 

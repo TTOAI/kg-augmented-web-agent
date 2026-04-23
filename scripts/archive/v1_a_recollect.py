@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from playwright.async_api import async_playwright
 
-from scripts.validation.v1_a_collect_axtrees import (
+from scripts.kg.annotate.collect_pages import (
     PAGES_DIR,
     STORAGE_STATE,
     collect_page,

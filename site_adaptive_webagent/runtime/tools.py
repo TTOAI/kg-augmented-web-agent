@@ -140,7 +140,7 @@ def _goback_tool() -> dict:
 
 
 def _goto_tool() -> dict:
-    # Phase 3.H Tier 2: description을 site prompts.yaml에서 로드. Library에 없으면
+    #  description을 site prompts.yaml에서 로드. Library에 없으면
     # site-agnostic minimal description으로 fallback.
     from .prompts import default_prompt_library
 
@@ -296,7 +296,7 @@ def _report_success_tool(*, is_last_goal: bool, task_type: str) -> dict:
 def _report_failure_tool() -> dict:
     """Terminal tool for a non-success task outcome.
 
-    Phase 3.I refactor: benchmark-specific status enum 제거. Agent는 "task를
+     refactor: benchmark-specific status enum 제거. Agent는 "task를
     완수할 수 없다"는 판단만 보고하고, 그것을 NOT_FOUND_ERROR / PERMISSION_DENIED /
     UNKNOWN_ERROR 등 benchmark-specific status로 분류하는 것은 benchmark adapter의
     `outcome_classifier` 몫. 이 분리로 agent runtime이 특정 벤치마크에 결합되지

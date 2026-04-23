@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from scripts.paired_stats import (
+from scripts.eval.paired_stats import (
     compare_binary,
     compare_continuous,
     load_paired_csv,

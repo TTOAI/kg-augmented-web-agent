@@ -1,6 +1,6 @@
 """Manually-seeded Reddit (Postmill) class rules.
 
-Phase 3.H Tier 3 cross-site 실증용. GitLab은 57개 annotation에서 자동 도출한
+ cross-site 실증용. GitLab은 57개 annotation에서 자동 도출한
 class_rules.json을 쓰지만, reddit은 annotation이 없으므로 Postmill URL 스키마
 기반으로 주요 class 20여개를 수동 seed한다. 이는 GitLab workflow의 annotation
 단계에 해당 — "수동 작업"은 새 site 적용의 고유 비용으로 인정된다.

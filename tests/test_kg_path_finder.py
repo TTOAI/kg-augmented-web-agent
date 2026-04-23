@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from site_adaptive_webagent.kg.site_extras import load_site_cascade
-from site_adaptive_webagent.kg_solution.path_finder import (
+from site_adaptive_webagent.kg.runtime.path_finder import (
     CascadeConfig,
     PathResult,
     extract_family,

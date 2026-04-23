@@ -1,6 +1,6 @@
 """Site-configurable prompt library.
 
-Phase 3.H Tier 2: scaffold 여러 파일에 흩어져 있던 prompt fragment를 통합한 layer.
+ scaffold 여러 파일에 흩어져 있던 prompt fragment를 통합한 layer.
 각 site는 `config/sites/<site>/prompts.yaml`에 해당 site의 field/role 어휘가 담긴
 prompt 구조를 제공하고, runtime은 이 library를 조회해 prompt 단편을 합성한다.
 

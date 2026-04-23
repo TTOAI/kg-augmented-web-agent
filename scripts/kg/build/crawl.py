@@ -17,14 +17,14 @@ from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
 
-from scripts.validation.stage_a_classify import load_classifier
+from scripts.kg.utils.classify import load_classifier
 from site_adaptive_webagent.kg.seed.manual_config import load_site_config
 from site_adaptive_webagent.kg.site_extras import load_site_crawl
 from site_adaptive_webagent.kg.urlnorm import normalize_url
 
 import os
 
-# Phase 3.H Tier 1: crawl 상수를 config/sites/<site>/crawl.yaml에서 로드.
+#  crawl 상수를 config/sites/<site>/crawl.yaml에서 로드.
 # 기존 하드코드 값(BASE_URL, SEEDS, FORBIDDEN_PATTERNS)은 gitlab crawl.yaml에 이관.
 _SITE_NAME = os.getenv("SITE_NAME", "gitlab")
 _SITE_CRAWL = load_site_crawl(_SITE_NAME)

@@ -4,7 +4,7 @@ Combines class_rules (URL templates) with V1_pages annotations (user_reason)
 to produce a compact `{class: {url_template, description, filter_templates}}`
 mapping consumed by `site_adaptive_webagent/kg_solution/class_descriptions.py`.
 
-filter_templates: Phase 3.F β에서 추가. Stage B self-edges의 URL 쿼리 파라미터
+filter_templates:  β에서 추가. Stage B self-edges의 URL 쿼리 파라미터
 패턴을 per-class로 추출해, agent가 Label/status filter 같은 visible UI 상호작용
 없이도 `goto(url)` 한 step으로 filter state에 도달하게 한다. 예: state=opened,
 state=merged, sort=created_asc 등 observed pattern 열거.
@@ -12,7 +12,7 @@ state=merged, sort=created_asc 등 observed pattern 열거.
 Input:
   output/validation/rules/class_rules.json
   output/validation/V1_pages/all_annotated.json
-  output/validation/stage_b/action_catalog.json  (Phase 3.F β)
+  output/validation/stage_b/action_catalog.json  ( β)
 
 Output:
   output/validation/kg_solution/class_descriptions.json
@@ -35,7 +35,7 @@ OUT = Path("output/validation/kg_solution/class_descriptions.json")
 MAX_DESC_CHARS = 140
 FILTER_TEMPLATE_LIMIT = 10  # per class, top-N by instance_freq
 
-# Phase 3.K — structured description derivation.
+#  — structured description derivation.
 #
 # Class names follow `<scope>/<resource>[_<suffix>]` convention. Scope kind
 # ("user" | "entity" | "admin" | "site" | ...) and the site's entity_noun
@@ -294,7 +294,7 @@ def main() -> None:
         if reason:
             reasons_by_class[cls].append(reason)
 
-    # Phase 3.F β: action_catalog에서 per-class filter URL 템플릿 도출
+    #  β: action_catalog에서 per-class filter URL 템플릿 도출
     try:
         action_catalog = json.loads(ACTION_CATALOG.read_text(encoding="utf-8")).get("catalog", {})
     except Exception:

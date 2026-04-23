@@ -51,7 +51,7 @@ async def observe_page(page: Any) -> PageObservation:
     # readonly input의 value를 text_lines에 병합
     all_text = text_lines + readonly_values
     # Checkbox / radio 상태를 inputs에 prepend — agent가 form 제출 전 확인 가능하게.
-    # Phase 3.E P1.1 (task 479): 기본 checkbox selector가 이들을 배제해 intent의
+    #  P1.1 (task 479): 기본 checkbox selector가 이들을 배제해 intent의
     # "empty" / "private" 등 qualifier가 form 필드로 매핑 안 되고 default로 submit.
     all_inputs = toggle_states + inputs
     # Latent nav에서 visible link 중복 제거 — observation 표면에 이미 있는 것은 불필요
@@ -228,7 +228,7 @@ async def extract_toggle_states(page: Any) -> list[str]:
       "<radio_group_name>: <option1> | <option2 selected> ✓ | <option3>"
 
     이 신호 없이는 agent가 intent의 non-default 수식어 (site별 어휘)를 form 필드와
-    매핑 못함 — default submit이 고질적 실패 원인 (Phase 3.E P1.1 진단).
+    매핑 못함 — default submit이 고질적 실패 원인 ( P1.1 진단).
     """
     try:
         results: list[str] = await page.evaluate(
@@ -295,7 +295,7 @@ async def extract_readonly_values(page: Any) -> list[str]:
 async def try_click_target(page: Any, target_terms: list[str]) -> bool:
     """target term과 맞는 첫 링크 / 버튼 / 폼 label을 클릭한다.
 
-    Phase 3.E P1.1: label 포함. Checkbox/radio는 `<label>` 클릭으로 toggle된다.
+     P1.1: label 포함. Checkbox/radio는 `<label>` 클릭으로 toggle된다.
     Intent의 "empty" / "private" 등이 checkbox·radio와 매핑되어야 하는데
     label 경로가 없으면 agent가 토글 불가 (task 479 deadlock).
     """

@@ -21,8 +21,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
-from scripts.validation.stage_a_classify import load_classifier
-from scripts.validation.stage_a_f_crawl import BASE_URL, is_forbidden, is_same_host
+from scripts.kg.utils.classify import load_classifier
+from scripts.kg.build.crawl import BASE_URL, is_forbidden, is_same_host
 
 IN = Path("output/validation/stage_b/raw_actions_per_class.json")
 OUT = Path("output/validation/stage_b/action_catalog.json")
@@ -127,7 +127,7 @@ def main():
         total_nav_actions += len(nav_list)
         total_dedup_saved += raw_count - len(nav_list) - len(int_list)
 
-        # Phase 3.K: aggregate form metadata per class.
+        #   aggregate form metadata per class.
         # Key: (action_url_template, method) — 같은 endpoint + 같은 method는 1개 form.
         # 첫 관측 instance의 fields를 기준으로 저장 (MUTATE form은 보통 동일).
         forms_by_key: dict[tuple[str, str], dict] = {}

@@ -6,7 +6,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from .types import AgentRunResult
-from site_adaptive_webagent.kg_solution.integration import build_kg_session
+from site_adaptive_webagent.kg.runtime.integration import build_kg_session
 from site_adaptive_webagent.runtime.browser import observe_page
 from site_adaptive_webagent.runtime.executor import execute_with_llm
 from site_adaptive_webagent.runtime.intent import analyze_intent

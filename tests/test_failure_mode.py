@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from scripts.failure_mode import (
+from scripts.eval.failure_mode import (
     cohens_kappa,
     collect_failures,
     kappa_interpretation,

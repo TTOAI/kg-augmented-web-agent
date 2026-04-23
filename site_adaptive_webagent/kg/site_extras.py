@@ -5,7 +5,7 @@ identity tokens, path aliases). This module adds *entity lists* and *crawl
 configuration* — values that were previously hardcoded as Python constants
 in `scripts/validation/` but belong to per-site configuration.
 
-Phase 3.H Tier 1 scope: value migration only. API 패턴은 `load_site_config`
+ scope: value migration only. API 패턴은 `load_site_config`
 와 동일하게 site directory 경로 받기 + YAML 로드.
 
 File layout (per site):
@@ -52,9 +52,9 @@ class SiteEntities:
 class SiteCascadeEntries:
     """Per-site cascade routing entries (used by path_finder fallback stages).
 
-    Phase 3.H Tier 2-3b: path_finder가 소비하는 site-specific config.
-    - scope_entries / hub (Tier 2): cascade fallback stage targets
-    - variant_segments / family_type_suffixes (Tier 3b): class name 파싱 상수
+     -3b: path_finder가 소비하는 site-specific config.
+    - scope_entries / hub (): cascade fallback stage targets
+    - variant_segments / family_type_suffixes (): class name 파싱 상수
       이전엔 path_finder.py 모듈 수준에 하드코드되어 있던 GitLab naming 관례.
     """
 

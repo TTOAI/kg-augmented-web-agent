@@ -1,6 +1,6 @@
 """Benchmark-side outcome classifier: agent verdict → WebArena-Verified status.
 
-Phase 3.I 구조:
+ 구조:
   Agent runtime이 benchmark-agnostic `AgentVerdict` + raw payload (answer / reason)를
   배출하고, 여기서 WebArena-Verified의 status enum + retrieved_data로 **매핑**한다.
   이 모듈이 agent_response.json의 status/retrieved_data를 결정하는 **유일한** source

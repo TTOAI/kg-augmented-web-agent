@@ -273,7 +273,7 @@ async def open_start_pages(context: BrowserContext, start_urls: list[str]) -> li
 def write_agent_response(task_output_dir: Path, result: WebArenaRunResult) -> Path:
     """최종 agent response를 benchmark 기대 형식으로 저장한다.
 
-    Phase 3.I 이후: 입력 타입은 `WebArenaRunResult` (benchmark-specific 결과).
+     이후: 입력 타입은 `WebArenaRunResult` (benchmark-specific 결과).
     Agent runtime의 neutral `AgentRunResult`는 `classify_outcome`으로 이쪽으로 변환된
     뒤 여기로 들어온다.
     """

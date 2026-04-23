@@ -270,7 +270,7 @@ else:
 - **Step budget**: 기존 `max_steps` (executor.py 내 sub-goal 분배 로직) 재사용. KG 전용 budget 제거 (무의미).
 - **Task → target class 추론**: Sub-goal 단위, LLM only, closed-set 138 class 강제. Auto-generated 1-line description per class (기존 annotations 활용). Bindings 추출하여 hint에 포함. Confidence는 **B+D hybrid** (K=3 self-consistency 불일치 시 no-hint, 제공 시 advisory binary).
 - **Agent integration**: **Prompt injection**. `build_observation_message()` 호출 지점에 hint 섹션 append. Tool set 변경 없음.
-- **Runtime classifier 연결**: `from scripts.validation.stage_a_classify import load_classifier` 재사용. run_agent 진입 시 1회 로드, 실패 시 graceful no-hint mode.
+- **Runtime classifier 연결**: `from scripts.kg.utils.classify import load_classifier` 재사용. run_agent 진입 시 1회 로드, 실패 시 graceful no-hint mode.
 - **평가 설계**: V0 + V1 (primary) + V1b (exact-only, cascade 제거) + V1c (no-replan). Online-Mind2Web은 future work. Task N은 pilot-driven (env error 해소 → pilot → power analysis → 확정).
 
 ---

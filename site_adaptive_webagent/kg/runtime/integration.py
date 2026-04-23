@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from scripts.validation.stage_a_classify import load_classifier
+from scripts.kg.utils.classify import load_classifier
 
 from site_adaptive_webagent.runtime.llm import (
     AnthropicLLMClient,
@@ -169,7 +169,7 @@ class KGSession:
         dashboard/issue_list의 state=opened, label_name[]=, assignee_username= 같은
         패턴을 볼 수 있어 agent가 pattern을 추론 가능.
 
-        Phase 3.J F2: cross-class로 가져온 template의 `path_template`을 **current class의
+         F2: cross-class로 가져온 template의 `path_template`을 **current class의
         url_template**으로 rewrite한다. 원본 sibling의 path (예: `/-/merge_requests`)을
         그대로 보여주면 agent가 현재 endpoint (`/-/issues`)에 외삽하기 어렵다. Rewrite
         후에는 `state=opened` 같은 query가 `/-/issues?state=opened` 형태로 agent에게
@@ -319,8 +319,8 @@ def build_kg_session(
             "[KG] LLM client unavailable (missing API key); KG disabled."
         )
         return None
-    # Phase 3.H Tier 2-3b: cascade config를 site_name 기반으로 외부 YAML에서 로드.
-    # 이전엔 path_finder의 DEFAULT_GITLAB_CONFIG를 직접 주입했음. Tier 3b에서
+    #  -3b: cascade config를 site_name 기반으로 외부 YAML에서 로드.
+    # 이전엔 path_finder의 DEFAULT_GITLAB_CONFIG를 직접 주입했음. 에서
     # variant_segments / family_type_suffixes도 함께 로드.
     site_cascade = load_site_cascade(site_name)
     cascade_cfg = CascadeConfig(

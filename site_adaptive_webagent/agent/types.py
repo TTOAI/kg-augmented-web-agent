@@ -12,7 +12,7 @@ RetrievedItem = str | int | float | bool | dict[str, Any] | None
 class AgentRunResult:
     """Benchmark-agnostic agent verdict 결과.
 
-    Phase 3.I refactor: 이전에는 WebArena-Verified status enum(NOT_FOUND_ERROR 등)을
+     refactor: 이전에는 WebArena-Verified status enum(NOT_FOUND_ERROR 등)을
     들고 있었지만, 이제는 runtime의 neutral verdict만 보유한다. Benchmark-specific
     status/retrieved_data 매핑은 benchmark adapter의 `outcome_classifier`가 수행한다.
 

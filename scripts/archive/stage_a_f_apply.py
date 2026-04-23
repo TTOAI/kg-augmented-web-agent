@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from urllib.parse import urlparse
 
-from scripts.validation.stage_a_classify import load_classifier
+from scripts.kg.utils.classify import load_classifier
 
 CRAWL_PATH = Path("output/validation/stage_a_f/crawled_urls.json")
 CLASSIFIED_OUT = Path("output/validation/stage_a_f/classified.json")

@@ -32,7 +32,7 @@ os.environ["OPENAI_MODEL"] = "gpt-5.4"  # full = no suffix variant
 from site_adaptive_webagent.kg.site_extras import load_site_crawl, load_site_entities
 from site_adaptive_webagent.kg.site_plugin import load_site_plugin
 from site_adaptive_webagent.runtime.llm import make_llm_client
-from scripts.validation.stage_a_classify import load_classifier
+from scripts.kg.utils.classify import load_classifier
 
 REDDIT_SITE = "reddit"
 AXTREE_DIR = Path("output/validation_reddit_cdip/axtrees")

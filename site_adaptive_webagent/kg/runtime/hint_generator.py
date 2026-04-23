@@ -87,7 +87,7 @@ def _fmt_bindings(bindings: dict[str, str]) -> str:
     return f"Bindings extracted from task: {pairs}"
 
 
-# Phase 3.J F3: parametric filter params. Value가 entity/label/user/milestone 같은
+#  F3: parametric filter params. Value가 entity/label/user/milestone 같은
 # task-dependent 변수면 `<param>` placeholder를 함께 표시해 agent가 task 값으로 치환할 수
 # 있음을 명시한다. param name → placeholder name 매핑 (site-agnostic naming 기반).
 _PARAMETRIC_PARAM_PLACEHOLDERS: dict[str, str] = {
@@ -126,11 +126,11 @@ def _render_filter_templates(
 ) -> str:
     """Render a class's observed filter URL templates.
 
-    Phase 3.F β: Agent가 UI filter widget을 탐색하지 않고 KG가 제공하는 filter
+     β: Agent가 UI filter widget을 탐색하지 않고 KG가 제공하는 filter
     URL로 `goto(...)`해 state에 도달할 수 있게 한다. Filter param 조합을 URL에
     직접 구성 → UI dropdown 탐색 우회.
 
-    Phase 3.J F3: param name이 known-parametric (`label_name[]`, `assignee_username`,
+     F3: param name이 known-parametric (`label_name[]`, `assignee_username`,
     `milestone_title` 등)이면 `<placeholder>` 안내를 같이 표시해 agent가 task에서
     추출한 구체값으로 치환하도록 유도. 예: 관측된 값이 `checklist`여도 task가 "bug"
     요구하면 agent는 `label_name[]=bug`로 치환해 goto.
@@ -138,7 +138,7 @@ def _render_filter_templates(
     if not filter_templates:
         return ""
     shown = list(filter_templates)[:limit]
-    # Phase 3.H Tier 2: preamble (header/body/emphasis)은 site prompts.yaml에서 로드
+    #  preamble (header/body/emphasis)은 site prompts.yaml에서 로드
     from site_adaptive_webagent.runtime.prompts import default_prompt_library
 
     lines: list[str] = list(default_prompt_library().render_filter_template_preamble())
@@ -316,7 +316,7 @@ def _render_filter_controls(controls: list[dict], *,
 def _render_form_shortcuts(forms: list[dict], limit: int = 5) -> str:
     """Render form metadata as an advisory MUTATE shortcut section.
 
-    Phase 3.K: Agent가 form 상호작용을 여러 step으로 수행하는 대신 미리 정의된 form
+      Agent가 form 상호작용을 여러 step으로 수행하는 대신 미리 정의된 form
     endpoint + required params를 보고 한 번에 fill+submit 할 수 있도록 힌트.
     각 form은 action URL + method + submit label + required fields + (select 시)
     options 를 짧게 나열. token budget 관리를 위해 상위 `limit`개 form, form당

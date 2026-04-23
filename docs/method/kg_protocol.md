@@ -152,16 +152,16 @@ verify_unmatched_stable(fresh, rules)
 | URL scheme 휴리스틱 (`_derive_from_single`) | **GitLab realization** | `stage_a_extract_rules.py::_derive_from_single()` | **site-specific 함수 교체 필요** (예: GitHub의 다른 path 구조) — 다른 site 이식 시 이 함수를 override |
 | 명명 convention (scope/family/type) | **generic** | `V1_protocol_spec.md` v0.6 | 재사용 |
 | Class criterion (action equivalence) | **generic** | `V1_protocol_spec.md` Step 2 | 재사용 |
-| Seed URLs | **site-specific** | `config/sites/<site>/crawl.yaml` | config 교체 (Phase 3.H Tier 1 완료 ✓) |
-| KNOWN_NAMESPACES, KNOWN_USERNAMES, ACTION_KEYWORDS, sample_values | **site-specific** | `config/sites/<site>/entities.yaml` | config 교체 (Phase 3.H Tier 1 완료 ✓) |
-| Forbidden URL patterns + allowed_hosts + base_url | **일부 site-specific** | `config/sites/<site>/crawl.yaml` | config 교체 (Phase 3.H Tier 1 완료 ✓) |
+| Seed URLs | **site-specific** | `config/sites/<site>/crawl.yaml` | config 교체 ( 완료 ✓) |
+| KNOWN_NAMESPACES, KNOWN_USERNAMES, ACTION_KEYWORDS, sample_values | **site-specific** | `config/sites/<site>/entities.yaml` | config 교체 ( 완료 ✓) |
+| Forbidden URL patterns + allowed_hosts + base_url | **일부 site-specific** | `config/sites/<site>/crawl.yaml` | config 교체 ( 완료 ✓) |
 | `site_config.yaml` (decorative_params, identity_tokens 등) | **site-specific** | `config/sites/<site>/site_config.yaml` | config 교체 (기존 ✓) |
-| Cascade config (scope_entries, hub) — runtime | **site-specific** | `config/sites/<site>/cascade.yaml` | config 교체 (Phase 3.H Tier 2 완료 ✓) |
-| MUTATE checklist + filter preamble + tool desc — runtime | **site-specific** | `config/sites/<site>/prompts.yaml` | config 교체 (Phase 3.H Tier 2 완료 ✓) |
+| Cascade config (scope_entries, hub) — runtime | **site-specific** | `config/sites/<site>/cascade.yaml` | config 교체 ( 완료 ✓) |
+| MUTATE checklist + filter preamble + tool desc — runtime | **site-specific** | `config/sites/<site>/prompts.yaml` | config 교체 ( 완료 ✓) |
 
 **현 이식 대가**:
 
-- **Config 계층 (값 이관)**: Tier 1-2 완료. 다른 site로 옮길 때 `config/sites/<site>/*.yaml` 6개 파일만 작성하면 protocol skeleton이 그대로 동작.
+- **Config 계층 (값 이관)**: -2 완료. 다른 site로 옮길 때 `config/sites/<site>/*.yaml` 6개 파일만 작성하면 protocol skeleton이 그대로 동작.
 - **Algorithm 계층 (GitLab 휴리스틱)**: `_derive_from_single()`의 URL scheme 분기 (`/-/` prefix, `tree/blob/raw/commits/blame` ref keywords 등)는 **GitLab 구체화 그대로 잔존**. 다른 site 이식 시 해당 함수를 site-specific 버전으로 교체해야 한다. Protocol paper에서는 이 함수를 "GitLab realization of the template derivation step" 으로 소개하는 것이 정직.
 
 **결론 (framing)**: CDIP **개념** = site-agnostic, CDIP **GitLab 구현** = 본 repo의 `scripts/validation/` 계열. 논문에서는 protocol의 추상적 procedure를 기술하고, 구체화는 GitLab worked example로 제시. Cross-site generalization은 explicit future work (plugin 교체 + config 작성 + 재측정).

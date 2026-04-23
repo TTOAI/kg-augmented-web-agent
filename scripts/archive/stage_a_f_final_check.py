@@ -19,8 +19,8 @@ from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
 
-from scripts.validation.stage_a_classify import load_classifier
-from scripts.validation.stage_a_f_crawl import (
+from scripts.kg.utils.classify import load_classifier
+from scripts.kg.build.crawl import (
     BASE_URL, STORAGE_STATE, FORBIDDEN_PATTERNS, LINK_EXTRACT_JS,
     is_same_host, is_forbidden, normalize_for_dedup,
 )

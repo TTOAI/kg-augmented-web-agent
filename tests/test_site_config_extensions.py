@@ -120,7 +120,7 @@ class StageABackcompatTests(unittest.TestCase):
     """Stage A scripts가 config를 로드해 기존 상수와 동일한 값을 노출하는지."""
 
     def test_stage_a_extract_rules_exposes_loaded_constants(self) -> None:
-        from scripts.validation import stage_a_extract_rules as m
+        from scripts.kg.build import classify_rules as m
         self.assertEqual(
             set(m.KNOWN_NAMESPACES),
             {"byteblaze", "a11yproject", "the-a11y-project"},
@@ -133,7 +133,7 @@ class StageABackcompatTests(unittest.TestCase):
         self.assertEqual(m.BASE_URL, "http://localhost:8023")
 
     def test_stage_a_f_crawl_exposes_loaded_constants(self) -> None:
-        from scripts.validation import stage_a_f_crawl as m
+        from scripts.kg.build import crawl as m
         self.assertEqual(m.BASE_URL, "http://localhost:8023")
         self.assertEqual(
             m.SEEDS,
@@ -146,14 +146,14 @@ class StageABackcompatTests(unittest.TestCase):
         self.assertIn("/admin", m.FORBIDDEN_PATTERNS)
 
     def test_stage_a_f_crawl_is_same_host_still_accepts_baseline(self) -> None:
-        from scripts.validation.stage_a_f_crawl import is_same_host
+        from scripts.kg.build.crawl import is_same_host
         self.assertTrue(is_same_host("http://localhost:8023/dashboard"))
         self.assertTrue(is_same_host("http://127.0.0.1:8023/help"))
         self.assertTrue(is_same_host("/relative/path"))
         self.assertFalse(is_same_host("http://example.com/"))
 
     def test_stage_a_f_crawl_is_forbidden_still_flags_baseline(self) -> None:
-        from scripts.validation.stage_a_f_crawl import is_forbidden
+        from scripts.kg.build.crawl import is_forbidden
         self.assertTrue(is_forbidden("http://localhost:8023/admin"))
         self.assertTrue(is_forbidden("http://x/y/sign_out"))
         self.assertFalse(is_forbidden("http://localhost:8023/byteblaze/repo"))

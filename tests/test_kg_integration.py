@@ -5,15 +5,15 @@ import unittest
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from site_adaptive_webagent.kg_solution.class_descriptions import (
+from site_adaptive_webagent.kg.runtime.class_descriptions import (
     ClassCatalog,
     ClassDescription,
 )
-from site_adaptive_webagent.kg_solution.integration import (
+from site_adaptive_webagent.kg.runtime.integration import (
     KGSession,
     SubGoalKGContext,
 )
-from site_adaptive_webagent.kg_solution.path_finder import (
+from site_adaptive_webagent.kg.runtime.path_finder import (
     CascadeConfig,
     PathResult,
     PathStep,
@@ -270,7 +270,7 @@ class GetClassActionsTests(unittest.TestCase):
 
 class GenerateHintForwardsActionsTests(unittest.TestCase):
     def test_generate_hint_includes_action_section(self):
-        from site_adaptive_webagent.kg_solution.path_finder import (
+        from site_adaptive_webagent.kg.runtime.path_finder import (
             PathResult,
             PathStep,
         )

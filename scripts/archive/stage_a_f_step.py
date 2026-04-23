@@ -3,7 +3,7 @@
 Extract leaves from previous step's BFS tree → use as seeds for next step.
 Skip already-visited URLs. Apply rule compression after new crawl.
 
-Usage: python -m scripts.validation.stage_a_f_step [--step-num N]
+Usage: python -m scripts.archive.stage_a_f_step [--step-num N]
 
 Pool file: output/validation/stage_a_f/classified.json (accumulated)
 """
@@ -18,8 +18,8 @@ from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright
 
-from scripts.validation.stage_a_classify import load_classifier
-from scripts.validation.stage_a_f_crawl import (
+from scripts.kg.utils.classify import load_classifier
+from scripts.kg.build.crawl import (
     BASE_URL, STORAGE_STATE, LINK_EXTRACT_JS,
     is_same_host, is_forbidden, normalize_for_dedup,
 )
@@ -216,7 +216,7 @@ async def main():
 
     # Unmatched clusters
     if unmatched:
-        from scripts.validation.stage_a_f_cluster import normalize_path_to_pattern
+        from scripts.archive.stage_a_f_cluster import normalize_path_to_pattern
         from collections import defaultdict
         clusters = defaultdict(list)
         for r in unmatched:

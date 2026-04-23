@@ -4,11 +4,11 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 
-from site_adaptive_webagent.kg_solution.class_descriptions import (
+from site_adaptive_webagent.kg.runtime.class_descriptions import (
     ClassCatalog,
     ClassDescription,
 )
-from site_adaptive_webagent.kg_solution.task_inferrer import (
+from site_adaptive_webagent.kg.runtime.task_inferrer import (
     InferResult,
     _consensus,
     _extract_json,
@@ -101,7 +101,7 @@ class ParseSampleTests(unittest.TestCase):
 
 class ConsensusTests(unittest.TestCase):
     def _mk(self, cls: str | None) -> "_Sample":
-        from site_adaptive_webagent.kg_solution.task_inferrer import InferSample
+        from site_adaptive_webagent.kg.runtime.task_inferrer import InferSample
         return InferSample(target_class=cls, bindings={}, reasoning="", raw="")
 
     def test_3_same(self):
@@ -163,7 +163,7 @@ class ConsensusTests(unittest.TestCase):
 
 class MergeBindingsTests(unittest.TestCase):
     def test_first_occurrence_wins(self):
-        from site_adaptive_webagent.kg_solution.task_inferrer import InferSample
+        from site_adaptive_webagent.kg.runtime.task_inferrer import InferSample
         samples = [
             InferSample(
                 target_class="A", bindings={"ns": "v1"}, reasoning="", raw=""
