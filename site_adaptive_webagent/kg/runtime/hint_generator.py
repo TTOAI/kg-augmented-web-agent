@@ -263,12 +263,13 @@ def _render_filter_categories(categories: list[dict], *,
         return ""
     lines: list[str] = [
         "Filter categories on this page. Two equivalent routes to apply a filter:",
-        "  (A) URL-direct — one step: `goto` with `?param=value` appended.",
-        "  (B) UI sequence — four clicks: "
-        "click the search/filter input → click the category menuitem "
-        "(e.g. `Label`) → click the operator menuitem (e.g. `= is`) → "
-        "pick or type the target value.",
-        "Categories (KG-observed):",
+        "  (A) URL-direct: `goto` with `?param=value` appended to current URL.",
+        "  (B) UI sequence: interact with the filter input on the page — "
+        "select the desired category, then an operator, then the value. "
+        "Exact click count varies (some categories have inline yes/no; others "
+        "route through a value picker).",
+        "Categories (KG-observed — category names and operators below are "
+        "literal strings the page exposes):",
     ]
     for c in (categories or [])[:max_categories]:
         name = (c.get("name") or "").strip()
