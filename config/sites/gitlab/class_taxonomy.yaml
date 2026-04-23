@@ -1,0 +1,46 @@
+# Class taxonomy for target_class inference (Phase 3.K).
+#
+# scope_taxonomy: class-name prefix → scope kind. Used by
+# `scripts/kg_solution/build_class_descriptions.py` to categorize each class
+# into a scope (user / entity / admin / site / ...) that task_inferrer relies
+# on for disambiguation.
+scope_taxonomy:
+  dashboard: user            # /dashboard/* — current user, cross-project
+  user: user_profile         # /users/{username}/*
+  admin: admin
+  project: project           # /{ns}/{proj}/*
+  group: group               # /groups/*
+  explore: site
+  site: site
+  auth: site
+  help: site
+  search: site
+
+# Entity noun for "entity-scoped" classes. Phrasing "X in a named <entity_noun>".
+entity_noun: project
+
+# Site-specific trigger phrases keyed by <scope_kind>_<suffix_kind>.
+# Appended to the universal base ("my X", "my latest X", ...). Placeholder
+# {resource} is substituted with the pluralized resource noun at build time.
+extra_triggers:
+  user_list:
+    - "{resource} assigned to me"      # GitLab: issues/MRs have assignee
+    - "{resource} authored by me"      # GitLab: issues/MRs have author
+  admin_list:
+    - "administrator's {resource} list"   # GitLab admin vocabulary
+
+# Filter-category → URL query parameter mapping.
+# When Stage B recursive expansion captures filter categories
+# (Label, Assignee, Milestone, ...) on a list page, build_class_descriptions
+# annotates each category with the correct URL param name so the agent hint
+# exposes a clean `goto(?param=value)` recipe.
+filter_category_params:
+  Label: "label_name[]"
+  Assignee: "assignee_username"
+  Author: "author_username"
+  Milestone: "milestone_title"
+  Type: "type"
+  Confidential: "confidential"
+  My-Reaction: "my_reaction_emoji"
+  Release: "release_tag"
+  Search Within: "in"

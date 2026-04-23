@@ -156,12 +156,67 @@ def main():
                 }
         form_list = sorted(forms_by_key.values(), key=lambda x: -x["instance_freq"])
 
+        # Aggregate filter_controls (dropdown/menu enumerations) per class.
+        # Dedup by label; union options across instances; infer URL param when
+        # any observed option href contains a ?param=value.
+        filters_by_label: dict[str, dict] = {}
+        for inst in instances:
+            for fc in inst.get("filter_controls") or []:
+                if not isinstance(fc, dict):
+                    continue
+                label = normalize_label(fc.get("label") or "")
+                if not label:
+                    continue
+                entry = filters_by_label.setdefault(label, {
+                    "label": label,
+                    "param": fc.get("param") or "",
+                    "options": [],
+                    "instance_freq": 0,
+                })
+                entry["instance_freq"] += 1
+                seen_values = {o.get("value") or o.get("name") for o in entry["options"]}
+                for opt in fc.get("options") or []:
+                    name = (opt.get("name") or "").strip()
+                    value = opt.get("value") or ""
+                    href = opt.get("href") or ""
+                    if not name and not value:
+                        continue
+                    key_val = value or name
+                    if key_val in seen_values:
+                        continue
+                    seen_values.add(key_val)
+                    entry["options"].append({
+                        "name": name[:80],
+                        "value": (value or "")[:80],
+                        "href": href[:200] if href else "",
+                    })
+                # Infer param from href of first option if not yet known.
+                if not entry["param"]:
+                    for opt in fc.get("options") or []:
+                        href = opt.get("href") or ""
+                        if "?" in href:
+                            qs = href.split("?", 1)[1]
+                            first = qs.split("&", 1)[0]
+                            if "=" in first:
+                                entry["param"] = first.split("=", 1)[0]
+                                break
+        # cap options per filter
+        for entry in filters_by_label.values():
+            entry["options"] = entry["options"][:30]
+        filter_list = sorted(filters_by_label.values(), key=lambda x: -x["instance_freq"])
+
+        # filter_categories is captured at class level (not per-instance) —
+        # class is a leaf node, UI generalizes across instances.
+        filter_categories = data.get("filter_categories") or []
+
         catalog[cls] = {
             "instance_count": n_instances,
             "raw_action_count": raw_count,
             "navigation_actions": nav_list,
             "internal_actions": int_list,
             "forms": form_list,
+            "filter_controls": filter_list,
+            "filter_categories": filter_categories,
         }
 
     # Compute aggregate stats

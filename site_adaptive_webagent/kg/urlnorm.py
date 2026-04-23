@@ -39,8 +39,8 @@ class NormalizedURL:
 def _resolve_identity_token(value: str, runtime_context: dict | None) -> str:
     """{{path.to.key}} 형식을 runtime_context dict에서 치환.
 
-    예: "{{current_user.username}}" + {"current_user": {"username": "byteblaze"}}
-        → "byteblaze"
+    예: "{{current_user.username}}" + {"current_user": {"username": "<user>"}}
+        → "<user>"
     치환 실패 시 원문 그대로 반환.
     """
     if runtime_context is None:
@@ -64,7 +64,7 @@ def _apply_identity_tokens_to_path(path: str, site_config: SiteConfig, runtime_c
         return path
     for token_name, token_template in site_config.identity_tokens.items():
         resolved = _resolve_identity_token(token_template, runtime_context)
-        # /me → /byteblaze; /users/me → /users/byteblaze
+        # /me → /<resolved-user>; /users/me → /users/<resolved-user>
         path = re.sub(rf"(^|/)\s*{re.escape(token_name)}\s*(?=/|$)", rf"\1{resolved}", path)
     return path
 
@@ -265,7 +265,7 @@ def extract_path_slots_from_url(
     미제공 slot의 fallback 값으로 재사용 가능.
 
     Returns:
-        매칭 성공 시 {"namespace": "byteblaze", "project_path": "cloud-to-butt", ...}
+        매칭 성공 시 {"namespace": "<ns>", "project_path": "<proj>", ...}
         매칭 실패 시 None
     """
     ok, bindings = match_pattern(url, pattern, site_config, runtime_context)

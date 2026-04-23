@@ -153,6 +153,481 @@ FORM_EXTRACT_JS = r"""
 # 읽기 전용 view switch이므로 side effect 없음 (state 변경 없는 filter URL 요청).
 # Click 후 `goto(original)`로 복원.
 TAB_CAPTURE_LIMIT = 10  # per URL, avoid runaway when page has many stale tabs
+DROPDOWN_CAPTURE_LIMIT = 15  # per URL, number of distinct filter toggles we enumerate
+DROPDOWN_OPTION_LIMIT = 30  # per toggle, number of options we retain (top-N)
+
+
+# Enumerate static dropdown options already rendered in the DOM without any
+# click (works for <select>, aria-controls listbox pre-rendered, role=menu with
+# visibility-hidden). Hidden-but-rendered options remain in the DOM tree even
+# when collapsed, so we can scrape them as filter metadata without triggering
+# any state change.
+STATIC_DROPDOWN_EXTRACT_JS = r"""
+() => {
+    const out = [];
+    function record(toggleEl, menuEl) {
+        const label = ((toggleEl.innerText || toggleEl.getAttribute('aria-label') || '') + '').trim().replace(/\s+/g, ' ').slice(0, 80);
+        if (!label) return;
+        const opts = [];
+        const optEls = menuEl.querySelectorAll('[role="menuitem"], [role="option"], [role="menuitemcheckbox"], [role="menuitemradio"], option, a[href]');
+        for (const o of optEls) {
+            const name = ((o.innerText || o.textContent || o.getAttribute('aria-label') || o.getAttribute('value') || '') + '').trim().replace(/\s+/g, ' ');
+            if (!name || name.length > 120) continue;
+            const href = o.getAttribute('href') || (o.tagName === 'OPTION' ? ('?' + (o.getAttribute('value') || '')) : null);
+            opts.push({name, href});
+            if (opts.length >= 30) break;
+        }
+        if (opts.length === 0) return;
+        out.push({label, options: opts});
+    }
+    // 1) <select> — options are DOM children, always present.
+    for (const sel of document.querySelectorAll('select[name]')) {
+        const name = sel.getAttribute('name') || '';
+        const toggleLabel = (sel.labels && sel.labels[0] ? sel.labels[0].innerText : '') || sel.getAttribute('aria-label') || name;
+        const opts = [];
+        for (const o of sel.querySelectorAll('option')) {
+            const txt = ((o.innerText || o.textContent || '') + '').trim().replace(/\s+/g, ' ');
+            const val = o.getAttribute('value') || '';
+            if (!val && !txt) continue;
+            opts.push({name: txt || val, value: val});
+            if (opts.length >= 30) break;
+        }
+        if (!opts.length) continue;
+        out.push({label: toggleLabel.trim().slice(0, 80) || name, param: name, options: opts});
+    }
+    // 2) aria-controls → target menu/listbox. Works even when menu is hidden
+    //    as long as the target is present in DOM.
+    for (const tog of document.querySelectorAll('[aria-controls][aria-haspopup], [aria-controls][role="combobox"], button[aria-controls], [data-toggle][aria-controls]')) {
+        const id = tog.getAttribute('aria-controls');
+        if (!id) continue;
+        const menu = document.getElementById(id);
+        if (!menu) continue;
+        record(tog, menu);
+    }
+    return out;
+}
+"""
+
+
+import re as _re
+
+# AXTree-based filter extraction. Playwright's `page.accessibility.snapshot()`
+# returns the browser's interpretation of the ARIA accessibility tree, which:
+#   - includes nodes behind aria-hidden / display:none (interestingOnly=False)
+#   - normalizes labels via aria-labelledby / aria-label / label-for chains
+#   - handles custom component frameworks (Pajamas, Vue, React) uniformly
+#     as long as they implement ARIA roles correctly
+# This covers combobox / listbox / menu even when the underlying DOM uses
+# bespoke class names that would miss a pure DOM-selector scan.
+_AX_COMBO_ROLES = {"combobox", "listbox", "menu"}
+_AX_OPTION_ROLES = {"option", "menuitem", "menuitemcheckbox", "menuitemradio", "tab"}
+_AX_TRAILING_COUNT = _re.compile(r"\s+\d{1,6}$")
+_AX_NEWLINE_RUN = _re.compile(r"[\n\t]+")
+_AX_SPACE_RUN = _re.compile(r"\s{2,}")
+
+
+def _ax_normalize_name(raw: str) -> str:
+    """Normalize an accessibility `label` / `name` to a clean, clickable form.
+
+    - Strip trailing count badges: "Open 40" → "Open"
+    - Collapse composite labels split by newlines: "Import CSV\\n\\nImport from Jira"
+      leaves the first segment only (individual options are captured via
+      role=option children; a composite label indicates the menu-level aggregate).
+    """
+    if not raw:
+        return ""
+    text = _AX_NEWLINE_RUN.sub(" \u0000 ", raw).strip()
+    if "\u0000" in text:
+        text = text.split("\u0000", 1)[0].strip()
+    text = _AX_SPACE_RUN.sub(" ", text)
+    text = _AX_TRAILING_COUNT.sub("", text)
+    return text.strip()[:80]
+
+
+def _cdp_axtree_walk(nodes: list[dict], out: list[dict],
+                     empty_clickables: list[dict]) -> None:
+    """Walk a flat CDP AXTree (Accessibility.getFullAXTree result).
+
+    nodes: list of {nodeId, role:{value}, name:{value}, childIds, ...}
+    Emits one entry per combobox/listbox/menu/tablist whose descendant tree
+    includes option/menuitem/tab children. Button nodes bearing a filter-like
+    accessibility name (no child options yet) are recorded in empty_clickables
+    for pass-2 click expansion.
+    """
+    by_id = {n["nodeId"]: n for n in nodes}
+    container_roles = {"combobox", "listbox", "menu", "tablist"}
+    option_roles = {"option", "menuitem", "menuitemcheckbox", "menuitemradio", "tab"}
+
+    def descendant_options(start_id: str, budget: int = 40) -> list[str]:
+        collected: list[str] = []
+        stack = [start_id]
+        seen = set()
+        while stack and len(collected) < budget:
+            nid = stack.pop()
+            if nid in seen:
+                continue
+            seen.add(nid)
+            node = by_id.get(nid)
+            if not node:
+                continue
+            r = (node.get("role") or {}).get("value")
+            nm = _ax_normalize_name((node.get("name") or {}).get("value") or "")
+            if r in option_roles and nm:
+                if nm not in collected:
+                    collected.append(nm)
+            for cid in (node.get("childIds") or []):
+                stack.append(cid)
+        return collected
+
+    for node in nodes:
+        role = (node.get("role") or {}).get("value")
+        if role in container_roles:
+            label = _ax_normalize_name((node.get("name") or {}).get("value") or "")
+            opts = descendant_options(node["nodeId"])
+            if opts:
+                out.append({
+                    "label": label or f"<{role}>",
+                    "options": [{"name": o} for o in opts],
+                    "_ax_role": role,
+                })
+        elif role == "button":
+            # Capture button whose name looks like a filter toggle (hint for
+            # pass-2 expansion). Pajamas / Vue dropdown buttons land here.
+            label = _ax_normalize_name((node.get("name") or {}).get("value") or "")
+            if not label or len(label) > 40:
+                continue
+            # Skip obvious non-filter buttons by keyword (create, submit, save,
+            # delete, cancel). Opt-in: label must be short token.
+            lw = label.lower()
+            if any(s in lw for s in ("save", "create", "submit", "delete",
+                                      "cancel", "confirm", "add", "edit",
+                                      "close", "comment")):
+                continue
+            empty_clickables.append({"label": label, "nodeId": node["nodeId"]})
+
+
+async def _extract_ax_filter_controls(
+    page, original_url: str, max_expand: int = 6
+) -> list[dict]:
+    """Extract filter-control metadata from CDP accessibility tree.
+
+    Pass 1: static CDP AXTree snapshot — captures combobox/listbox/menu/tablist
+            + descendant option/menuitem/tab children.
+    Pass 2: for button nodes whose label looks like a filter toggle, click to
+            trigger lazy expansion, re-snapshot, and capture newly appeared
+            option descendants. Escape to collapse.
+    """
+    results: list[dict] = []
+    empty_clickables: list[dict] = []
+    try:
+        cdp = await page.context.new_cdp_session(page)
+    except Exception:
+        return results
+    try:
+        snap1 = await cdp.send("Accessibility.getFullAXTree")
+        nodes1 = snap1.get("nodes") or []
+    except Exception:
+        nodes1 = []
+    if nodes1:
+        _cdp_axtree_walk(nodes1, results, empty_clickables)
+
+    # Signature of pass-1 containers, so pass-2 can detect newly-appeared ones.
+    def _sig(entry: dict) -> tuple:
+        return (entry.get("label", ""), tuple(o["name"] for o in entry.get("options") or []))
+    pass1_sigs = {_sig(e) for e in results}
+
+    for entry in empty_clickables[:max_expand]:
+        label = entry["label"]
+        try:
+            btn = page.get_by_role("button", name=label).first
+            if await btn.count() == 0:
+                continue
+            try:
+                await btn.click(timeout=2000)
+            except Exception:
+                continue
+            await page.wait_for_timeout(350)
+            try:
+                snap2 = await cdp.send("Accessibility.getFullAXTree")
+                nodes2 = snap2.get("nodes") or []
+            except Exception:
+                nodes2 = []
+            if nodes2:
+                tmp: list[dict] = []
+                _cdp_axtree_walk(nodes2, tmp, [])
+                for new_entry in tmp:
+                    s = _sig(new_entry)
+                    if s in pass1_sigs:
+                        continue
+                    if new_entry["label"].startswith("<") and new_entry["label"].endswith(">"):
+                        new_entry["label"] = label
+                    results.append(new_entry)
+                    pass1_sigs.add(s)
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            if page.url != original_url:
+                try:
+                    await page.goto(original_url, wait_until="domcontentloaded",
+                                    timeout=8000)
+                except Exception:
+                    break
+        except Exception:
+            continue
+
+    deduped: dict[str, dict] = {}
+    for e in results:
+        lbl = e.get("label") or ""
+        if lbl.startswith("<") and lbl.endswith(">"):
+            continue
+        opts = e.get("options") or []
+        if not opts:
+            continue
+        key = lbl
+        existing = deduped.get(key)
+        if existing is None:
+            deduped[key] = {"label": lbl, "options": opts, "param": ""}
+        else:
+            seen_opts = {o["name"] for o in existing["options"]}
+            for o in opts:
+                if o["name"] not in seen_opts:
+                    existing["options"].append(o)
+                    seen_opts.add(o["name"])
+    return list(deduped.values())
+
+
+async def _extract_filter_categories(
+    page, original_url: str, *,
+    filter_category_params: dict[str, str],
+    max_categories: int = 12,
+) -> list[dict]:
+    """Recursive 3-level expansion of a GitLab-style filtered-search input.
+
+    Level 1: click the search/filter input → collect role=menuitem entries
+             (filter categories: Label, Assignee, Author, Milestone, ...)
+    Level 2: click each category → collect operators (role=menuitem), e.g.
+             "=\\nis" / "!=\\nis not"
+    Level 3: click the first operator → networkidle + brief wait → collect
+             a few menuitem entries as **existence proof** (example values,
+             not a complete inventory).
+
+    Produces per-category entries with URL param (from filter_category_params
+    config) and operators + example values. Missing categories in the config
+    map yield `param=""` — still useful for agent ("filter exists").
+
+    Site-agnostic: matches the ARIA menuitem pattern. Sites whose filter UI
+    uses non-ARIA controls capture nothing (graceful).
+    """
+    out: list[dict] = []
+    try:
+        search = page.locator(
+            'input[placeholder*="Search or filter" i], input[placeholder*="filter results" i]'
+        ).first
+        if await search.count() == 0:
+            return out
+    except Exception:
+        return out
+
+    async def _open_l1() -> list[str]:
+        try:
+            await search.click(timeout=3000)
+            await page.wait_for_timeout(350)
+            items = await page.evaluate(
+                """() => [...document.querySelectorAll('[role="menuitem"]')]
+                    .filter(e => e.offsetParent)
+                    .map(e => (e.innerText || '').trim())
+                    .filter(x => x && x.length < 60)"""
+            )
+            return items
+        except Exception:
+            return []
+
+    async def _close_all() -> None:
+        for _ in range(3):
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            await page.wait_for_timeout(100)
+        if page.url != original_url:
+            try:
+                await page.goto(original_url, wait_until="domcontentloaded", timeout=8000)
+            except Exception:
+                pass
+
+    categories = await _open_l1()
+    if not categories:
+        await _close_all()
+        return out
+    # Filter to configured categories first (keeps list compact), then add
+    # any unmapped names as a tail so novel categories still appear with empty
+    # param.
+    ordered: list[str] = []
+    for name in categories:
+        if name in filter_category_params and name not in ordered:
+            ordered.append(name)
+    for name in categories:
+        if name not in ordered:
+            ordered.append(name)
+    ordered = ordered[:max_categories]
+
+    # GitLab filter UI has a quirk: Escape inside the operator popup can
+    # advance to the value popup (L3) rather than collapsing. Robust recovery
+    # requires a full page reload between categories. Cost ≈ 2s/category.
+    async def _reload_and_open_search() -> bool:
+        try:
+            await page.goto(original_url, wait_until="domcontentloaded", timeout=10000)
+            await page.wait_for_timeout(300)
+            s = page.locator(
+                'input[placeholder*="Search or filter" i], input[placeholder*="filter results" i]'
+            ).first
+            if await s.count() == 0:
+                return False
+            await s.click(timeout=2000)
+            await page.wait_for_timeout(250)
+            return True
+        except Exception:
+            return False
+
+    # Phase A: for each category, reload → open search → click category →
+    # read operators. Page state is clean between iterations.
+    for cat in ordered:
+        if not await _reload_and_open_search():
+            break
+        try:
+            await page.get_by_role("menuitem", name=cat).first.click(timeout=2000)
+        except Exception:
+            continue
+        await page.wait_for_timeout(250)
+        try:
+            operators = await page.evaluate(
+                """() => [...document.querySelectorAll('[role="menuitem"]')]
+                    .filter(e => e.offsetParent)
+                    .map(e => (e.innerText || '').trim().replace(/\\s+/g, ' '))
+                    .filter(x => x && x.length < 40)"""
+            )
+        except Exception:
+            operators = []
+        out.append({
+            "name": cat,
+            "param": filter_category_params.get(cat, ""),
+            "operators": operators[:4],
+            "example_values": [],
+            "has_values": False,
+        })
+
+    # Phase B: existence proof — drill the first captured category through L3.
+    await _close_all()
+    for entry in out:
+        ops = entry.get("operators") or []
+        if not ops:
+            continue
+        try:
+            await page.goto(original_url, wait_until="domcontentloaded", timeout=10000)
+            await page.wait_for_timeout(400)
+            await search.click(timeout=2000)
+            await page.wait_for_timeout(200)
+            await page.get_by_role("menuitem", name=entry["name"]).first.click(timeout=2000)
+            await page.wait_for_timeout(200)
+            op_label = ops[0].split("\n")[0].strip() or ops[0]
+            await page.get_by_role("menuitem", name=op_label).first.click(timeout=2000)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=4000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(400)
+            values = await page.evaluate(
+                """() => [...document.querySelectorAll('[role="menuitem"]')]
+                    .filter(e => e.offsetParent)
+                    .map(e => (e.innerText || '').trim().replace(/\\s+/g, ' '))
+                    .filter(x => x && x.length < 60)"""
+            )
+            if values:
+                entry["has_values"] = True
+                entry["example_values"] = values[:5]
+        except Exception:
+            pass
+        break  # only drill one category
+
+    await _close_all()
+    return out
+
+
+async def _enumerate_click_dropdowns(
+    page, original_url: str
+) -> list[dict]:
+    """Click each unseen dropdown toggle, read newly visible menu options, revert.
+
+    Complement to STATIC_DROPDOWN_EXTRACT_JS: targets toggles whose menu content
+    is lazily inserted into DOM only after click. ARIA contract for a toggle
+    with aria-haspopup=menu/listbox is that opening is view-only (no state
+    change), so clicking is safe.
+    """
+    captured: list[dict] = []
+    try:
+        tog_locators = page.locator(
+            '[aria-haspopup="menu"], [aria-haspopup="listbox"], [role="combobox"]'
+        )
+        total = await tog_locators.count()
+    except Exception:
+        return captured
+    total = min(total, DROPDOWN_CAPTURE_LIMIT)
+    for idx in range(total):
+        try:
+            tog = tog_locators.nth(idx)
+            if not await tog.is_visible():
+                continue
+            label_raw = (await tog.inner_text() or
+                         await tog.get_attribute("aria-label") or "").strip()
+            label = label_raw.replace("\n", " ")[:80]
+            if not label:
+                continue
+            try:
+                await tog.click(timeout=2000)
+            except Exception:
+                continue
+            try:
+                await page.wait_for_timeout(200)
+            except Exception:
+                pass
+            # Scrape any newly visible menuitem/option
+            opts = await page.evaluate(r"""
+                () => {
+                    const out = [];
+                    const nodes = document.querySelectorAll(
+                        '[role="menu"]:not([aria-hidden="true"]) [role="menuitem"], '
+                        + '[role="menu"]:not([aria-hidden="true"]) [role="menuitemcheckbox"], '
+                        + '[role="menu"]:not([aria-hidden="true"]) [role="menuitemradio"], '
+                        + '[role="listbox"]:not([aria-hidden="true"]) [role="option"]'
+                    );
+                    for (const n of nodes) {
+                        if (n.offsetParent === null) continue;
+                        const name = ((n.innerText || n.textContent || n.getAttribute('aria-label') || '') + '').trim().replace(/\s+/g, ' ');
+                        if (!name || name.length > 120) continue;
+                        const href = n.getAttribute('href') || null;
+                        out.push({name, href});
+                        if (out.length >= 30) break;
+                    }
+                    return out;
+                }
+            """)
+            if opts:
+                captured.append({"label": label, "options": opts})
+            # Close menu via Escape to revert state
+            try:
+                await page.keyboard.press("Escape", timeout=1000)
+            except Exception:
+                pass
+        except Exception:
+            continue
+        finally:
+            if page.url != original_url:
+                try:
+                    await page.goto(original_url, wait_until="domcontentloaded", timeout=10000)
+                except Exception:
+                    break
+    return captured
 
 
 async def _capture_tab_click_urls(
@@ -215,6 +690,26 @@ async def _capture_tab_click_urls(
     return captured
 
 
+def _merge_dropdowns(static_list: list[dict], click_list: list[dict]) -> list[dict]:
+    """Merge static + click-sourced dropdown captures, dedup by label.
+
+    Each entry: {label, options: [{name, href?, value?}], param?}.
+    Static source takes precedence if both exist (already has param for <select>).
+    """
+    merged: dict[str, dict] = {}
+    for entry in static_list or []:
+        lbl = (entry.get("label") or "").strip()
+        if not lbl:
+            continue
+        merged[lbl] = entry
+    for entry in click_list or []:
+        lbl = (entry.get("label") or "").strip()
+        if not lbl or lbl in merged:
+            continue
+        merged[lbl] = entry
+    return list(merged.values())
+
+
 def load_pool() -> list[dict]:
     pool = []
     for p in POOL_PATHS:
@@ -249,6 +744,18 @@ async def main():
     total_urls = sum(len(v) for v in class_samples.values())
     print(f"Total URLs to visit: {total_urls}")
 
+    import os as _os_mod
+    from site_adaptive_webagent.kg.site_plugin import load_site_plugin
+    _plugin = load_site_plugin(_os_mod.getenv("SITE_NAME", "gitlab"))
+    filter_category_params = getattr(_plugin, "filter_category_params", {}) or {}
+    print(f"[stage_b_collect_actions] filter_category_params: {len(filter_category_params)} entries")
+
+    # Classes eligible for deep (3-level) filter expansion: list-type classes
+    # where a filtered-search input is likely to exist. `_detail`, `_new_form`,
+    # etc. are skipped. Per-class expansion runs on the first sample URL only
+    # (class is a leaf node — UI generalizes across instances).
+    LIST_SUFFIXES = ("_list", "_board", "_feed")
+
     results: dict[str, dict] = {}
 
     async with async_playwright() as p:
@@ -263,15 +770,18 @@ async def main():
         i = 0
         for cls, urls in sorted(class_samples.items()):
             cls_actions: list[dict] = []
-            for url in urls:
+            cls_filter_categories: list[dict] = []
+            # Deep 3-level expansion is allowed for list-type classes only,
+            # and only on the first sample URL (class is a leaf — UI generalizes).
+            deep_eligible = any(cls.endswith(sfx) for sfx in LIST_SUFFIXES)
+            for url_idx, url in enumerate(urls):
                 i += 1
                 try:
                     resp = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
                     await page.wait_for_timeout(DELAY_MS)
                     if resp and resp.status == 200:
                         actions = await page.evaluate(ACTION_EXTRACT_JS)
-                        # Phase 3.J F1: additionally click role=tab with href=# to
-                        # capture the query-param URL that the tab navigates to.
+                        # Tab click URL capture (static href=# tabs → query-param URL).
                         existing_hrefs = {
                             a.get("href") for a in actions if a.get("href")
                         }
@@ -279,27 +789,48 @@ async def main():
                             page, original_url=url, existing_hrefs=existing_hrefs,
                         )
                         actions.extend(extra)
-                        # Phase 3.K: extract form metadata for MUTATE shortcut hints.
                         try:
                             forms = await page.evaluate(FORM_EXTRACT_JS)
                         except Exception:
                             forms = []
+                        # Shallow AXTree-based filter extraction — cheap,
+                        # runs on every URL.
+                        try:
+                            filter_controls = await _extract_ax_filter_controls(
+                                page, original_url=url,
+                            )
+                        except Exception:
+                            filter_controls = []
+                        # Deep 3-level filter expansion — only for list-type
+                        # classes and only on the first sample URL.
+                        if deep_eligible and url_idx == 0 and not cls_filter_categories:
+                            try:
+                                cls_filter_categories = await _extract_filter_categories(
+                                    page, original_url=url,
+                                    filter_category_params=filter_category_params,
+                                )
+                            except Exception:
+                                cls_filter_categories = []
                     else:
                         actions = []
                         forms = []
+                        filter_controls = []
                 except Exception as e:
                     actions = [{"error": str(e)[:100]}]
                     forms = []
+                    filter_controls = []
                 cls_actions.append({
                     "url": url,
                     "actions": actions,
                     "forms": forms,
+                    "filter_controls": filter_controls,
                 })
                 if i % 50 == 0:
                     print(f"  [{i}/{total_urls}] visited, current class={cls}")
             results[cls] = {
                 "sample_count": len(urls),
                 "instances": cls_actions,
+                "filter_categories": cls_filter_categories,
             }
         await browser.close()
 

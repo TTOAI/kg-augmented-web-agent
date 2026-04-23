@@ -6,9 +6,9 @@
 
 - Total classes in graph: 131
 - Classes in catalog (source-side): 130
-- **Unique edges** (source → target, distinct): **2751**
+- **Unique edges** (source → target, distinct): **2757**
 - Self-edges (within-class): 119
-- Actions with unresolved target: 18
+- Actions with unresolved target: 25
 - Isolated source classes (out-degree 0): 6
 - Unreachable classes (in-degree 0): 9
 
@@ -16,8 +16,8 @@
 
 | trust | count |
 |---|---:|
-| `high` | 2462 |
-| `medium` | 280 |
+| `high` | 2464 |
+| `medium` | 284 |
 | `low` | 9 |
 | `unknown` | 0 |
 
@@ -25,60 +25,60 @@
 
 | class | out-degree | in-degree |
 |---|---:|---:|
-| `project/main` | 38 | 95 |
+| `project/main` | 38 | 96 |
 | `project/blob_detail` | 33 | 4 |
-| `project/settings_integration_edit` | 32 | 3 |
-| `project/settings_repository` | 32 | 10 |
 | `project/settings_integrations` | 32 | 11 |
 | `project/blame_view` | 32 | 1 |
+| `project/settings_integration_edit` | 32 | 3 |
 | `project/tag_list` | 32 | 15 |
-| `project/tag_detail` | 31 | 1 |
+| `project/settings_repository` | 32 | 10 |
 | `project/branch_list` | 31 | 15 |
 | `project/settings_ci_cd` | 31 | 12 |
-| `project/settings_general` | 31 | 81 |
-| `project/settings_access_tokens` | 31 | 10 |
-| `project/usage_quota` | 31 | 11 |
+| `project/commit_detail` | 31 | 9 |
+| `project/tag_detail` | 31 | 3 |
+| `project/webhook_list` | 31 | 10 |
 | `project/settings_operations` | 31 | 12 |
+| `project/settings_general` | 31 | 81 |
 | `project/settings_merge_requests` | 31 | 10 |
 
 ## Top in-degree classes (destinations)
 
 | class | in-degree | out-degree |
 |---|---:|---:|
-| `dashboard/issue_list` | 123 | 9 |
 | `dashboard/merge_request_list` | 123 | 9 |
+| `global/root_redirect` | 123 | 14 |
 | `global/new_project_form` | 123 | 5 |
 | `global/help_landing` | 123 | 6 |
-| `global/root_redirect` | 123 | 14 |
+| `dashboard/issue_list` | 123 | 9 |
 | `dashboard/todo_list/pending` | 123 | 9 |
-| `user/profile` | 100 | 16 |
-| `project/main` | 95 | 38 |
+| `user/profile` | 100 | 18 |
+| `project/main` | 96 | 38 |
 | `project/issue_list` | 87 | 26 |
 | `project/merge_request_list` | 87 | 25 |
-| `project/value_stream_analytics` | 81 | 23 |
-| `project/snippet_list` | 81 | 23 |
-| `project/security_config` | 81 | 23 |
-| `project/activity_list` | 81 | 26 |
+| `project/file_list` | 81 | 29 |
 | `project/environment_list` | 81 | 25 |
+| `project/security_config` | 81 | 23 |
+| `project/pipeline_list` | 81 | 26 |
+| `project/activity_list` | 81 | 23 |
 
 ## Isolated source (no out-edges)
 
-- `global/help_image` (instance count: 2)
 - `project/issue_feed` (instance count: 2)
-- `explore/topic_detail` (instance count: 2)
-- `project/merge_request_feed` (instance count: 2)
 - `project/raw_file` (instance count: 2)
+- `global/help_image` (instance count: 2)
+- `explore/topic_detail` (instance count: 2)
 - `project/snippet_detail` (instance count: 2)
+- `project/merge_request_feed` (instance count: 2)
 
 ## Unreachable classes (no in-edges)
 
-- `project/cluster_new_docs` (out-degree: 24)
-- `global/search_page` (out-degree: 6)
-- `explore/topic_detail` (out-degree: 0)
 - `dashboard/group_list` (out-degree: 7)
-- `global/import_form` (out-degree: 7)
 - `project/jira_import_form` (out-degree: 23)
+- `global/import_form` (out-degree: 7)
+- `global/search_page` (out-degree: 6)
 - `global/snippet_list` (out-degree: 9)
+- `explore/topic_detail` (out-degree: 0)
+- `project/cluster_new_docs` (out-degree: 24)
 - `project/snippet_detail` (out-degree: 0)
 - `ide/mr_detail` (out-degree: 7)
 

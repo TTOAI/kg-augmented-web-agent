@@ -31,7 +31,21 @@ SYSTEM_PROMPT = (
     "You MUST pick one class from the list or return null if no class fits. "
     "Extract any entity bindings (project namespace, project name, etc.) "
     "that the sub-goal or task mentions. Respond with JSON only, no "
-    "commentary, no markdown code fences."
+    "commentary, no markdown code fences.\n\n"
+    "Class selection rules:\n"
+    "1. Prefer user-scoped classes (scope=user or scope=user_profile) when "
+    "the task uses first-person pronouns ('my', 'I', 'me') or refers to the "
+    "current account's resources across the site. Do NOT pick an "
+    "entity-scoped class unless the task explicitly names that entity.\n"
+    "2. Prefer entity-scoped classes only when the task binds to a specific "
+    "entity (project, forum, group, namespace, repo, etc.) named or clearly "
+    "implied in the task.\n"
+    "3. Prefer scope=admin classes only when the task requires administrative "
+    "privileges or site-wide configuration.\n"
+    "4. Read each class's `triggers` and `not_for` fields — these are the "
+    "primary disambiguation signal, more reliable than URL or name alone.\n"
+    "5. If two classes have similar `role`, the one whose `triggers` match "
+    "the task phrasing wins."
 )
 
 USER_TEMPLATE = """Task: {task}

@@ -81,8 +81,7 @@ def classify_template(
     then classify.
 
     Phase 3.H Tier 1: placeholder 치환값을 `config/sites/<site>/entities.yaml`
-    의 `sample_values`에서 로드. 이전에는 실제 WebArena entity 이름 ("byteblaze",
-    "a11y-syntax-highlighting" 등)을 literal로 하드코드했던 부분.
+    의 `sample_values`에서 로드.
     """
     import os
     import re

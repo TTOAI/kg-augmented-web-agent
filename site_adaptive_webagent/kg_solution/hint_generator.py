@@ -214,11 +214,26 @@ def _render_class_actions(
             meta = f" ({', '.join(meta_parts)})" if meta_parts else ""
             lines.append(f"  - [{label}]{meta}")
 
-    # Phase 3.K: MUTATE form shortcut section (disabled by default).
-    # 데이터는 action_catalog에 수집되어 있으나 agent hint에는 rendering 안 함.
-    # pilot_form 결과 (-4pp overall) 에서 agent가 form URL을 misinterpret하여 오히려
-    # 성능 하락 → agent visibility 제거. 데이터는 `actions.get("forms")`로 여전히
-    # 접근 가능 (별도 ablation 실험용).
+    # Filter controls (enumerated dropdown/menu options) — give the agent the
+    # concrete values it can plug into a filter param, so it can either click
+    # the toggle and pick the value directly, or jump to `goto(?param=value)`.
+    filter_section = _render_filter_controls(actions.get("filter_controls") or [])
+    if filter_section:
+        if lines:
+            lines.append("")
+        lines.append(filter_section)
+
+    # Filtered-search categories (3-level expansion: category → operator → value).
+    # KG only needs to tell the agent the categories exist + URL params; actual
+    # filter values are task-supplied.
+    fc_section = _render_filter_categories(actions.get("filter_categories") or [])
+    if fc_section:
+        if lines:
+            lines.append("")
+        lines.append(fc_section)
+
+    # MUTATE form shortcut (off by default — agent treated form URLs
+    # inconsistently in prior experiments; enable with KG_FORM_SHORTCUT=1).
     if _os.getenv("KG_FORM_SHORTCUT", "0") == "1":
         form_section = _render_form_shortcuts(actions.get("forms") or [])
         if form_section:
@@ -227,6 +242,75 @@ def _render_class_actions(
             lines.append(form_section)
 
     return "\n".join(lines)
+
+
+def _render_filter_categories(categories: list[dict], *,
+                              max_categories: int = 12) -> str:
+    """Render recursive filter-search categories as a hint section.
+
+    Per category: name, URL param (if configured), operator list, and whether
+    values were confirmed to exist. The agent supplies the actual filter value
+    from task context; KG only signals the category's existence + URL recipe.
+    """
+    if not categories:
+        return ""
+    lines: list[str] = [
+        "Filter categories available via the search/filter input "
+        "(open it to pick a category, or use `goto(?param=value)` directly):"
+    ]
+    for c in (categories or [])[:max_categories]:
+        name = (c.get("name") or "").strip()
+        if not name:
+            continue
+        param = (c.get("param") or "").strip()
+        ops = c.get("operators") or []
+        has_vals = bool(c.get("has_values"))
+        op_summary = ""
+        if ops:
+            op_clean = [o.split("\n")[0].strip() for o in ops if o]
+            op_summary = f" operators=[{', '.join(op_clean[:3])}]"
+        param_str = f" param=`{param}`" if param else ""
+        vals_flag = " (values exist — supply from task)" if has_vals else ""
+        lines.append(f"  - {name}:{param_str}{op_summary}{vals_flag}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _render_filter_controls(controls: list[dict], *,
+                            max_controls: int = 8,
+                            max_options: int = 15) -> str:
+    """Render enumerated filter-control entries as an advisory hint section.
+
+    controls: list of {label, param, options:[{name,value,href}], instance_freq}.
+    Caps shown controls by instance_freq and options by freq (as-ordered).
+    """
+    if not controls:
+        return ""
+    top = sorted(controls, key=lambda c: -int(c.get("instance_freq") or 0))[:max_controls]
+    lines: list[str] = [
+        "In-page filter controls on this class (values KG observed; combine "
+        "freely with `goto(?param=value)` or click the toggle and pick):"
+    ]
+    for ctl in top:
+        label = (ctl.get("label") or "").strip()
+        if not label:
+            continue
+        param = (ctl.get("param") or "").strip()
+        opts = ctl.get("options") or []
+        shown = []
+        for opt in opts[:max_options]:
+            name = (opt.get("name") or opt.get("value") or "").strip()
+            if not name:
+                continue
+            shown.append(name)
+        overflow = max(0, len(opts) - len(shown))
+        head = f"  - [{label}]"
+        if param:
+            head += f" → param `{param}`"
+        if shown:
+            overflow_tag = f" …+{overflow}" if overflow else ""
+            head += f", options: {shown}{overflow_tag}"
+        lines.append(head)
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _render_form_shortcuts(forms: list[dict], limit: int = 5) -> str:

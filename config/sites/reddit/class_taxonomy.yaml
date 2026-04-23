@@ -1,0 +1,28 @@
+# Class taxonomy for target_class inference (Phase 3.K) — Reddit (Postmill).
+#
+# Postmill URL scheme:
+#   /f/{forum}/*           — forum-entity-scoped
+#   /user/{username}/*     — user-profile-scoped
+#   /submission/*          — (referenced via /f/{forum}/{post_id})
+#   /auth/*, /search/*     — site-scoped
+scope_taxonomy:
+  f: forum_entity
+  forum: forum_entity
+  user: user_profile
+  submission: forum_entity
+  comment: forum_entity
+  message: user
+  inbox: user
+  auth: site
+  site: site
+  search: site
+
+entity_noun: forum
+
+# Postmill has no assignee concept (posts/comments have no "assigned to").
+# Moderators exist but aren't referenced in typical task intents.
+extra_triggers: {}
+
+# Postmill's filter UI is URL-level only (sort, time-range) — no category
+# dropdown of the GitLab filtered-search style.
+filter_category_params: {}
