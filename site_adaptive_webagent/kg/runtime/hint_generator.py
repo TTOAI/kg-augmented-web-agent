@@ -248,15 +248,27 @@ def _render_filter_categories(categories: list[dict], *,
                               max_categories: int = 12) -> str:
     """Render recursive filter-search categories as a hint section.
 
-    Per category: name, URL param (if configured), operator list, and whether
-    values were confirmed to exist. The agent supplies the actual filter value
-    from task context; KG only signals the category's existence + URL recipe.
+    Exposes TWO equivalent routes to apply a filter so the agent can choose
+    whichever matches its current state:
+      (A) URL-direct (single `goto` step): append `?param=value` to the
+          current URL using the KG-known `param` for this category.
+      (B) UI sequence (4 clicks): search/filter input → category menuitem
+          → operator menuitem → value (click if listed, type if autocomplete).
+
+    Per-category fields: name, URL param (if configured), operator list, and
+    a sample of observed values (existence proof, not full inventory — the
+    agent supplies the task-specific value from task context).
     """
     if not categories:
         return ""
     lines: list[str] = [
-        "Filter categories available via the search/filter input "
-        "(open it to pick a category, or use `goto(?param=value)` directly):"
+        "Filter categories on this page. Two equivalent routes to apply a filter:",
+        "  (A) URL-direct — one step: `goto` with `?param=value` appended.",
+        "  (B) UI sequence — four clicks: "
+        "click the search/filter input → click the category menuitem "
+        "(e.g. `Label`) → click the operator menuitem (e.g. `= is`) → "
+        "pick or type the target value.",
+        "Categories (KG-observed):",
     ]
     for c in (categories or [])[:max_categories]:
         name = (c.get("name") or "").strip()
@@ -265,6 +277,7 @@ def _render_filter_categories(categories: list[dict], *,
         param = (c.get("param") or "").strip()
         ops = c.get("operators") or []
         has_vals = bool(c.get("has_values"))
+        examples = c.get("example_values") or []
         op_summary = ""
         if ops:
             op_clean = [o.split("\n")[0].strip() for o in ops if o]
@@ -272,6 +285,11 @@ def _render_filter_categories(categories: list[dict], *,
         param_str = f" param=`{param}`" if param else ""
         vals_flag = " (values exist — supply from task)" if has_vals else ""
         lines.append(f"  - {name}:{param_str}{op_summary}{vals_flag}")
+        if examples:
+            lines.append(
+                f"      example values seen: "
+                f"{', '.join(str(v) for v in examples[:3])}"
+            )
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
