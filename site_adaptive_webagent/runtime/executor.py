@@ -668,7 +668,7 @@ async def _try_sub_goal(
         # intention/conclusion 둘 다 잡힐 가능성이 있지만, terminal 시점의 thought은
         # "이 sub-goal에서 무엇을 확인했는가"에 대한 결론 성격이 강함. final
         # answer stage가 task_notes만 보는 구조에서 이 conclusion을 보존해야
-        # hallucination을 막는다 (task 168 smoke).
+        # 직전 sub-goal의 결론이 누락되면서 생기는 hallucination을 막는다.
         if action_name in ("report_success", "report_failure") and thought:
             conclusion = thought.strip()
             if conclusion:
@@ -1523,13 +1523,13 @@ def _verify_done(
 ) -> str | bool:
     """Hard-rule based done verification (표준 ReAct 지향).
 
-    Rules (refined  β):
-    - 마지막 [navigation] sub-goal: task-level 이동이 전혀 없었으면 reject. 이전엔
-      `sub_goal_start_url == current.url`만 보고 reject했으나, 이는 직전 sub-goal이
-      이미 target으로 navigate한 후 final sub-goal이 confirmation 성격일 때 false
-      reject를 일으켜 agent가 URL을 억지로 변경(정답 filter 드롭)하게 만들었다
-      (task 339 진단). 개선: task_start_url과 비교해 **task 전체에서** 이동이 있었는지
-      확인하고, 그 경우 final sub-goal의 URL 변경은 요구하지 않음.
+    Rules:
+    - 마지막 [navigation] sub-goal: task-level 이동이 전혀 없었으면 reject.
+      이전 구현은 `sub_goal_start_url == current.url`만 보고 reject했으나, 이는
+      직전 sub-goal이 이미 target으로 navigate한 후 final sub-goal이 confirmation
+      성격일 때 false reject를 일으켜 agent가 URL을 억지로 변경(정답 filter 드롭)
+      하게 만들었다. 개선: task_start_url과 비교해 **task 전체에서** 이동이 있었는지
+      확인하고, 그 경우 final sub-goal의 URL 변경은 요구하지 않는다.
     - 그 외는 agent의 done 선언을 그대로 수용 (표준 ReAct 동작).
 
     Returns:

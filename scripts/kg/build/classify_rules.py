@@ -44,7 +44,7 @@ _SITE_NAME = os.getenv("SITE_NAME", "gitlab")
 _SITE_ENTITIES = load_site_entities(_SITE_NAME)
 _SITE_CRAWL = load_site_crawl(_SITE_NAME)
 
-BASE_URL = _SITE_CRAWL.base_url or "http://localhost:8023"
+BASE_URL = _SITE_CRAWL.base_url
 
 # 외부화된 entity 집합. 기존 하드코드된 KNOWN_NAMESPACES 등과 동일 값을 가짐
 # (entities.yaml에 이관됨). 다른 site 적용 시 entities.yaml만 교체.

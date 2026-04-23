@@ -604,9 +604,9 @@ def build_observation_message(
     observation을 우선한다.
 
     task_type: "MUTATE" + 현재 page에 form inputs이 있을 때 form-submission
-    checklist를 추가 주입.  P1.1 (task 479 등) 진단에서 발견:
-    Agent가 intent의 non-primary qualifier (empty/private/guest 등)를 form
-    non-default 필드와 연결하지 못해 default 값으로 submit하는 구조적 결함.
+    checklist를 추가 주입. Agent가 intent의 non-primary qualifier
+    (empty/private/guest 등)를 form의 non-default 필드와 연결하지 못해
+    default 값으로 submit하는 구조적 결함을 방지한다.
     """
     from urllib.parse import urlparse, parse_qs
 

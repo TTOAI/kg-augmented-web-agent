@@ -29,7 +29,7 @@ import os
 _SITE_NAME = os.getenv("SITE_NAME", "gitlab")
 _SITE_CRAWL = load_site_crawl(_SITE_NAME)
 
-BASE_URL = _SITE_CRAWL.base_url or "http://localhost:8023"
+BASE_URL = _SITE_CRAWL.base_url
 STORAGE_STATE = Path("output/validation/.storage_state.json")
 SITE_CONFIG_PATH = Path("config/sites") / _SITE_NAME / "site_config.yaml"
 RULES_PATH = Path("output/validation/rules/class_rules.json")

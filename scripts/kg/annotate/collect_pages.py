@@ -8,16 +8,26 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from playwright.async_api import async_playwright
 
-BASE_URL = "http://localhost:8023"
+from site_adaptive_webagent.kg.site_extras import load_site_crawl
+
+_SITE = os.getenv("SITE_NAME", "gitlab")
+BASE_URL = load_site_crawl(_SITE).base_url
+if not BASE_URL:
+    raise ValueError(
+        f"crawl.base_url not configured for site={_SITE!r}. "
+        f"Set it in config/sites/{_SITE}/crawl.yaml."
+    )
 STORAGE_STATE = Path("output/validation/.storage_state.json")
 OUTPUT_DIR = Path("output/validation/V1_pages")
 PAGES_DIR = OUTPUT_DIR / "pages"
 
-# ~57 representative pages. Base project: a11y-syntax-highlighting (byteblaze)
+# ~57 representative pages captured from a single site; the page list below
+# is the site-specific observation table used by this one-shot script.
 PAGES = [
     # ── Original 23 sample ──
     ("dashboard_home", "/dashboard"),

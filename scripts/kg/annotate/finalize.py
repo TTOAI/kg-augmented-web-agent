@@ -242,23 +242,23 @@ ANNOTATIONS = {
     # ── Project scope: instance variance (5) ────────────────────
     "webring_main": {
         "user_class": "project/main",
-        "user_reason": "Scope=project. Widget=main. Instance: byteblaze/a11y-webring.club (기존 a11y-syntax-highlighting과 다른 project). Rule 일반화 검증용.",
+        "user_reason": "Scope=project. Widget=main. Instance: byteblaze/a11y-webring.club (기존 a11y-syntax-highlighting과 다른 project).",
     },
     "webring_issues": {
         "user_class": "project/issue_list",
-        "user_reason": "Scope=project. Widget=issue_list. Instance: byteblaze/a11y-webring.club의 issue_list. Rule 일반화 검증용.",
+        "user_reason": "Scope=project. Widget=issue_list. Instance: byteblaze/a11y-webring.club의 issue_list.",
     },
     "empathy_main": {
         "user_class": "project/main",
-        "user_reason": "Scope=project. Widget=main. Instance: byteblaze/empathy-prompts. Rule 일반화 검증용.",
+        "user_reason": "Scope=project. Widget=main. Instance: byteblaze/empathy-prompts.",
     },
     "empathy_merge_requests": {
         "user_class": "project/merge_request_list",
-        "user_reason": "Scope=project. Widget=merge_request_list. Instance: byteblaze/empathy-prompts의 MR 리스트 (MR 존재 project). Rule 일반화 검증용.",
+        "user_reason": "Scope=project. Widget=merge_request_list. Instance: byteblaze/empathy-prompts의 MR 리스트 (MR 존재 project).",
     },
     "a11yproject_issues": {
         "user_class": "project/issue_list",
-        "user_reason": "Scope=project. Widget=issue_list. Instance: a11yproject/a11yproject.com (다른 namespace). Namespace 변형 검증용.",
+        "user_reason": "Scope=project. Widget=issue_list. Instance: a11yproject/a11yproject.com (다른 namespace).",
     },
 
     # ── Account scope (3): v0.5 신규, /-/profile/* 전용 14-action 사이드바 ──

@@ -109,7 +109,12 @@ def classify_template(
     # Fallback: any remaining {xxx} → samples.get("fallback", "placeholder")
     filled = re.sub(r"\{[^}]+\}", _sample("fallback", "placeholder"), filled)
     classify = load_classifier(rules_path, site_config_path)
-    base_url = crawl.base_url or "http://localhost:8023"
+    base_url = crawl.base_url
+    if not base_url:
+        raise ValueError(
+            f"crawl.base_url not configured for site={site_name!r}. "
+            f"Set it in config/sites/{site_name}/crawl.yaml."
+        )
     return classify(base_url + filled)
 
 

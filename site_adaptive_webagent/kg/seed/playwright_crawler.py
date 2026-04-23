@@ -3,7 +3,7 @@
 `source=crawl` / `trust=verified` layer를 생산한다.
 
 입력:
-- base_url: 사이트 루트 URL (예: "http://localhost:8023")
+- base_url: 사이트 루트 URL (config/sites/<site>/crawl.yaml에 정의)
 - seed_urls: crawl 시작점 URL 목록 (사이트 공식 기능 표면 기준; 실험 task 미참조)
 - max_depth: link-following 최대 깊이
 - storage_state_file: 로그인 상태 Playwright storage_state JSON (선택)
