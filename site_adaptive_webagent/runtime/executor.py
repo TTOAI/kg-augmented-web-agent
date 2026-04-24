@@ -757,9 +757,15 @@ async def _try_sub_goal(
             # attempt 요구. "target 없음" 같은 즉각 정답은 실제 sub-goal 흐름에서 탐색이
             # 어차피 여러 step 발생하므로 실전에서 block되지 않음.
             prior_attempts = len(previous_failures)
-            # _required_attempts는 `_MAX_RETRIES_PER_GOAL - 1`로 derive —
-            # cap을 줄이더라도 "최소 1번은 탐색 시도 후 report_failure 수용" 원칙 유지.
-            _required_attempts = max(1, _MAX_RETRIES_PER_GOAL - 1)
+            # RETRIEVE task는 "정답이 존재하지 않음" 자체가 유효한 결과일 수 있다
+            # (예: star 조건 맞는 project 0개). 이 경우 agent가 증거 관찰 후 즉시
+            # report_failure를 내는 것이 정답. 일반 retry 요건을 그대로 적용하면
+            # 존재하지 않는 것을 억지로 찾게 만들어 허위 답을 유도한다.
+            # NAVIGATE/MUTATE는 여러 전략을 시도하는 게 정상이므로 엄격 유지.
+            if task_type == "RETRIEVE":
+                _required_attempts = max(1, _MAX_RETRIES_PER_GOAL // 4)
+            else:
+                _required_attempts = max(1, _MAX_RETRIES_PER_GOAL - 1)
             if prior_attempts < _required_attempts:
                 logger.info(
                     "[LLM] report_failure REJECTED (attempts=%d/%d): reason=%r",
