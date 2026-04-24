@@ -205,9 +205,10 @@ def main():
             entry["options"] = entry["options"][:30]
         filter_list = sorted(filters_by_label.values(), key=lambda x: -x["instance_freq"])
 
-        # filter_categories is captured at class level (not per-instance) —
-        # class is a leaf node, UI generalizes across instances.
+        # filter_categories / modal_structures captured at class level
+        # (not per-instance) — class is a leaf node, UI generalizes.
         filter_categories = data.get("filter_categories") or []
+        modal_structures = data.get("modal_structures") or []
 
         catalog[cls] = {
             "instance_count": n_instances,
@@ -217,6 +218,7 @@ def main():
             "forms": form_list,
             "filter_controls": filter_list,
             "filter_categories": filter_categories,
+            "modal_structures": modal_structures,
         }
 
     # Compute aggregate stats

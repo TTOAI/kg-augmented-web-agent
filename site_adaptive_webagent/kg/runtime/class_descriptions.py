@@ -62,6 +62,35 @@ class FilterCategory:
 
 
 @dataclass(frozen=True)
+class ModalInput:
+    role: str
+    name: str = ""
+    label: str = ""
+    placeholder: str = ""
+    has_popup: str = ""
+    autocomplete: str = ""
+    options: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ModalStructure:
+    """Dialog-opening interaction captured by clicking an aria-haspopup=dialog
+    trigger and scraping the modal's form-like contents.
+
+    trigger_label: button text that opens the modal
+    inputs: input/select/textbox/combobox/searchbox elements inside the modal
+    submit_labels: submit-type button labels
+    form_action: action URL of the modal's form (if any)
+    form_method: HTTP method of the form (POST/PATCH/etc.)
+    """
+    trigger_label: str
+    inputs: tuple[ModalInput, ...] = ()
+    submit_labels: tuple[str, ...] = ()
+    form_action: str = ""
+    form_method: str = ""
+
+
+@dataclass(frozen=True)
 class ClassDescription:
     class_name: str
     url_template: Optional[str]
@@ -69,6 +98,7 @@ class ClassDescription:
     filter_templates: tuple[FilterTemplate, ...] = ()
     filter_controls: tuple[FilterControl, ...] = ()
     filter_categories: tuple[FilterCategory, ...] = ()
+    modal_structures: tuple[ModalStructure, ...] = ()
     # Structured fields for target inference disambiguation.
     scope: str = ""                         # "user" | "project" | "group" | "admin" | "site" | ...
     role: str = ""                          # one-line natural description
@@ -177,6 +207,33 @@ def load_class_catalog(path: Optional[Path] = None) -> ClassCatalog:
             for fc in fcat_raw
             if isinstance(fc, dict) and fc.get("name")
         )
+        modal_raw = payload.get("modal_structures") or []
+        modal_structures = tuple(
+            ModalStructure(
+                trigger_label=str(m.get("trigger_label") or ""),
+                inputs=tuple(
+                    ModalInput(
+                        role=str(inp.get("role") or ""),
+                        name=str(inp.get("name") or ""),
+                        label=str(inp.get("label") or ""),
+                        placeholder=str(inp.get("placeholder") or ""),
+                        has_popup=str(inp.get("has_popup") or ""),
+                        autocomplete=str(inp.get("autocomplete") or ""),
+                        options=tuple(
+                            str(o) for o in (inp.get("options") or [])
+                        ),
+                    )
+                    for inp in (m.get("inputs") or [])
+                ),
+                submit_labels=tuple(
+                    str(s) for s in (m.get("submit_labels") or [])
+                ),
+                form_action=str(m.get("form_action") or ""),
+                form_method=str(m.get("form_method") or ""),
+            )
+            for m in modal_raw
+            if isinstance(m, dict) and m.get("trigger_label")
+        )
         entries[cls] = ClassDescription(
             class_name=cls,
             url_template=payload.get("url_template"),
@@ -184,6 +241,7 @@ def load_class_catalog(path: Optional[Path] = None) -> ClassCatalog:
             filter_templates=filter_templates,
             filter_controls=filter_controls,
             filter_categories=filter_categories,
+            modal_structures=modal_structures,
             scope=str(payload.get("scope") or ""),
             role=str(payload.get("role") or ""),
             triggers=tuple(str(t) for t in (payload.get("triggers") or [])),

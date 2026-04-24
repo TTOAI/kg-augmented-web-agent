@@ -232,6 +232,14 @@ def _render_class_actions(
             lines.append("")
         lines.append(fc_section)
 
+    # Modal structures — dialog-opening triggers + their inner input fields.
+    # Values (usernames, emails) are task-supplied; KG only names the structure.
+    modal_section = _render_modal_structures(actions.get("modal_structures") or [])
+    if modal_section:
+        if lines:
+            lines.append("")
+        lines.append(modal_section)
+
     # MUTATE form shortcut (off by default — agent treated form URLs
     # inconsistently in prior experiments; enable with KG_FORM_SHORTCUT=1).
     if _os.getenv("KG_FORM_SHORTCUT", "0") == "1":
@@ -242,6 +250,61 @@ def _render_class_actions(
             lines.append(form_section)
 
     return "\n".join(lines)
+
+
+def _render_modal_structures(modals: list[dict], *,
+                              max_modals: int = 4,
+                              max_inputs: int = 8) -> str:
+    """Render dialog-opening interactions and their inner field structure.
+
+    KG records the structural surface only — button that opens it, the
+    searchbox/combobox/textbox inside, their aria-label / placeholder, option
+    lists for selects. The actual values (usernames, emails, custom text) the
+    agent supplies from task context.
+    """
+    if not modals:
+        return ""
+    lines: list[str] = [
+        "Dialog interactions on this page (click the trigger button to open "
+        "the dialog, then fill the listed fields with task-supplied values):"
+    ]
+    for m in (modals or [])[:max_modals]:
+        trigger = (m.get("trigger_label") or "").strip()
+        if not trigger:
+            continue
+        inputs = m.get("inputs") or []
+        submits = m.get("submit_labels") or []
+        form_action = (m.get("form_action") or "").strip()
+        form_method = (m.get("form_method") or "").strip()
+        lines.append(f"  - trigger: [{trigger}]")
+        for inp in inputs[:max_inputs]:
+            role = (inp.get("role") or "").strip()
+            label = (inp.get("label") or "").strip()
+            placeholder = (inp.get("placeholder") or "").strip()
+            has_popup = (inp.get("has_popup") or "").strip()
+            autocomplete = (inp.get("autocomplete") or "").strip()
+            options = inp.get("options") or []
+            desc_parts = [f"role={role}"]
+            if label:
+                desc_parts.append(f"label={label!r}")
+            if placeholder:
+                desc_parts.append(f"placeholder={placeholder!r}")
+            if has_popup:
+                desc_parts.append(f"has_popup={has_popup}")
+            if autocomplete:
+                desc_parts.append(f"autocomplete={autocomplete}")
+            if options:
+                opt_head = options[:6]
+                extra = f" +{len(options)-6}" if len(options) > 6 else ""
+                desc_parts.append(f"options={opt_head}{extra}")
+            lines.append(f"      • {', '.join(desc_parts)}")
+        if submits:
+            lines.append(f"      submit buttons: {submits[:3]}")
+        if form_action:
+            lines.append(
+                f"      form: {form_method or 'POST'} {form_action}"
+            )
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _render_filter_categories(categories: list[dict], *,

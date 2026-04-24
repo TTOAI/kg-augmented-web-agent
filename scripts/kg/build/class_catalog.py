@@ -333,12 +333,14 @@ def main() -> None:
         )
         filter_controls = action_catalog.get(cls, {}).get("filter_controls") or []
         filter_categories = action_catalog.get(cls, {}).get("filter_categories") or []
+        modal_structures = action_catalog.get(cls, {}).get("modal_structures") or []
         entries[cls] = {
             "url_template": url_template,
             "description": description,
             "filter_templates": filter_templates,
             "filter_controls": filter_controls,
             "filter_categories": filter_categories,
+            "modal_structures": modal_structures,
             **structured,
         }
 

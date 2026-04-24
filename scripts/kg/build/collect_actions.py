@@ -554,6 +554,138 @@ async def _extract_filter_categories(
     return out
 
 
+MODAL_TRIGGER_LIMIT = 8  # per URL, max number of modal triggers we try
+
+
+async def _extract_modal_structures(
+    page, original_url: str, max_triggers: int = MODAL_TRIGGER_LIMIT,
+) -> list[dict]:
+    """Collect structural info of dialog-opening interactions — ARIA only.
+
+    Trigger = `[aria-haspopup="dialog"]` (WAI-ARIA standard).
+    Dialog appearance is detected by `[role="dialog"]` + `aria-modal="true"`
+    (or plain `role="dialog"` as a fallback). Sites that open dialogs via
+    custom components without this ARIA annotation are out of scope; their
+    dialogs are not captured. That is a property of the target site's ARIA
+    conformance, not a limit of the protocol.
+
+    Returns list of entries shaped as:
+      {"trigger_label": str, "inputs": [...], "submit_labels": [str],
+       "form_action": str?, "form_method": str?}
+    """
+    out: list[dict] = []
+    try:
+        triggers = page.locator('[aria-haspopup="dialog"]')
+        n = await triggers.count()
+    except Exception:
+        return out
+    n = min(n, max_triggers)
+    seen_labels: set[str] = set()
+    for i in range(n):
+        try:
+            loc = triggers.nth(i)
+            if not await loc.is_visible():
+                continue
+            label_raw = (
+                (await loc.inner_text()) or (await loc.get_attribute("aria-label")) or ""
+            )
+            label = label_raw.strip().replace("\n", " ")[:80]
+            if not label or label in seen_labels:
+                continue
+            seen_labels.add(label)
+            try:
+                await loc.click(timeout=2000)
+            except Exception:
+                continue
+            try:
+                await page.wait_for_selector(
+                    '[role="dialog"][aria-modal="true"]:visible, '
+                    '[role="dialog"]:visible',
+                    timeout=2500,
+                )
+            except Exception:
+                continue
+            entry = await page.evaluate(
+                r"""
+                () => {
+                    const modal = document.querySelector(
+                        '[role="dialog"][aria-modal="true"], '
+                        + '[role="dialog"]:not([aria-hidden="true"])'
+                    );
+                    if (!modal) return null;
+                    const inputs = [];
+                    const els = modal.querySelectorAll(
+                        'input, textarea, select, '
+                        + '[role="searchbox"], [role="combobox"], [role="textbox"], [role="listbox"]'
+                    );
+                    for (const e of els) {
+                        const tag = e.tagName.toLowerCase();
+                        const role = e.getAttribute('role') || tag;
+                        const type = (e.getAttribute('type') || '').toLowerCase();
+                        if (type === 'hidden') continue;
+                        const name = e.getAttribute('name') || '';
+                        if (name.startsWith('_') || name === 'authenticity_token' || name === 'utf8') continue;
+                        const ariaLabel = e.getAttribute('aria-label') || '';
+                        let labelText = '';
+                        const id = e.getAttribute('id');
+                        if (id) {
+                            const lab = modal.querySelector('label[for="' + id + '"]');
+                            if (lab) labelText = (lab.innerText || '').trim();
+                        }
+                        const options = [];
+                        if (tag === 'select') {
+                            for (const o of e.querySelectorAll('option')) {
+                                const t = (o.innerText || o.textContent || '').trim();
+                                if (t && t.length < 60) options.push(t);
+                                if (options.length >= 15) break;
+                            }
+                        }
+                        inputs.push({
+                            role, type, name,
+                            label: (ariaLabel || labelText || '').slice(0, 80),
+                            placeholder: (e.getAttribute('placeholder') || '').slice(0, 80),
+                            has_popup: e.getAttribute('aria-haspopup') || '',
+                            autocomplete: e.getAttribute('aria-autocomplete') || '',
+                            options,
+                        });
+                        if (inputs.length >= 20) break;
+                    }
+                    const submits = [];
+                    for (const b of modal.querySelectorAll('button[type="submit"], input[type="submit"]')) {
+                        const t = (b.innerText || b.getAttribute('aria-label') || b.getAttribute('value') || '').trim().slice(0, 40);
+                        if (t && submits.indexOf(t) < 0) submits.push(t);
+                        if (submits.length >= 5) break;
+                    }
+                    const form = modal.querySelector('form[action]');
+                    return {
+                        inputs,
+                        submit_labels: submits,
+                        form_action: form ? form.getAttribute('action') : null,
+                        form_method: form ? (form.getAttribute('method') || 'GET').toUpperCase() : null,
+                    };
+                }
+                """
+            )
+            if entry and entry.get("inputs"):
+                out.append({
+                    "trigger_label": label,
+                    **entry,
+                })
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            await page.wait_for_timeout(200)
+            if page.url != original_url:
+                try:
+                    await page.goto(original_url, wait_until="domcontentloaded", timeout=8000)
+                except Exception:
+                    break
+        except Exception:
+            continue
+    return out
+
+
 async def _enumerate_click_dropdowns(
     page, original_url: str
 ) -> list[dict]:
@@ -771,6 +903,7 @@ async def main():
         for cls, urls in sorted(class_samples.items()):
             cls_actions: list[dict] = []
             cls_filter_categories: list[dict] = []
+            cls_modal_structures: list[dict] = []
             # Deep 3-level expansion is allowed for list-type classes only,
             # and only on the first sample URL (class is a leaf — UI generalizes).
             deep_eligible = any(cls.endswith(sfx) for sfx in LIST_SUFFIXES)
@@ -811,6 +944,16 @@ async def main():
                                 )
                             except Exception:
                                 cls_filter_categories = []
+                        # Modal structural capture — any page can host dialog
+                        # triggers (member list, settings, group, etc.). Only
+                        # the first sample URL per class, to keep cost bounded.
+                        if url_idx == 0 and not cls_modal_structures:
+                            try:
+                                cls_modal_structures = await _extract_modal_structures(
+                                    page, original_url=url,
+                                )
+                            except Exception:
+                                cls_modal_structures = []
                     else:
                         actions = []
                         forms = []
@@ -831,6 +974,7 @@ async def main():
                 "sample_count": len(urls),
                 "instances": cls_actions,
                 "filter_categories": cls_filter_categories,
+                "modal_structures": cls_modal_structures,
             }
         await browser.close()
 
