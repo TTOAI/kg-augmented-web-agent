@@ -17,7 +17,7 @@ KG는 **구조적 방향**(어느 페이지·어느 경로·어느 필터 카테
 ## Benchmark + agent
 
 - 벤치마크: WebArena-Verified GitLab 자가 호스팅 인스턴스.
-- 에이전트 LLM: Anthropic Claude Sonnet 4.6 (`claude-sonnet-4-6`), Anthropic SDK 0.89.0+, prompt caching 활성화.
+- 에이전트 LLM: OpenAI `gpt-5.4-mini`, OpenAI SDK. (Round 0 pilot은 Anthropic Claude Sonnet 4.6으로 수행 후 archive — `output/characterization_claude_archive/` + `task_cards/candidates/L1_411.md` 그대로 보존, 본 측정에는 미포함.)
 - 단일 모델. cross-model 일반화는 향후 연구로 명시.
 
 ## Variants — V0 vs V1 (V1−tc 제외)

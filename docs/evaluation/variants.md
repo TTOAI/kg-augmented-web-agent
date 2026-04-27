@@ -35,8 +35,8 @@ V1−tc (target inferrer 비활성, page-surface only) variant는 pilot에서 pa
 ## 공통 환경
 
 ```
-LLM_PROVIDER=anthropic
-ANTHROPIC_MODEL=claude-sonnet-4-6
+LLM_PROVIDER=openai
+OPENAI_MODEL=gpt-5.4-mini
 LLM_TEMPERATURE=0
 LLM_REQUEST_TIMEOUT=300
 MAX_RETRIES_PER_GOAL=8

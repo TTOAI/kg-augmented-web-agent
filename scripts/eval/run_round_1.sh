@@ -12,8 +12,8 @@
 #   - NAV+RET back-to-back; MUT env restart between every trial AND variant boundary.
 set -u
 export NODE_OPTIONS=""
-export LLM_PROVIDER=anthropic
-export ANTHROPIC_MODEL=claude-sonnet-4-6
+export LLM_PROVIDER=openai
+export OPENAI_MODEL=gpt-5.4-mini
 
 TASKS_FILE=output/tasks.gitlab.json
 CONFIG=config/webarena_verified.json
