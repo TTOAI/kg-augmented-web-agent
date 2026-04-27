@@ -83,6 +83,14 @@ class KGSession:
     def infer_target_for_sub_goal(
         self, sub_goal: str, task: str
     ) -> SubGoalKGContext:
+        # V1-tc ablation gate: target classifier 비활성. page-surface 힌트만 노출되도록
+        # target_class=None을 반환. caller(executor)는 target=None을 stay_and_explore
+        # path로 처리해 현재 클래스의 액션·필터 카탈로그만 hint에 담는다.
+        if os.getenv("KG_DISABLE_TARGET_INFERRER", "").strip().lower() in (
+            "1", "true", "yes", "on"
+        ):
+            logger.info("[KG] target inferrer disabled (V1-tc ablation)")
+            return SubGoalKGContext(target_class=None)
         try:
             result: InferResult = _infer_target(
                 sub_goal=sub_goal,

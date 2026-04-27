@@ -590,37 +590,49 @@ async def _try_sub_goal(
             )
 
         kg_hint: str | None = None
-        if (
-            kg_session is not None
-            and kg_context is not None
-            and kg_context.target_class is not None
-        ):
+        if kg_session is not None and kg_context is not None:
             current_class = kg_session.classify_url(current_obs.url)
             if current_class:
-                if (
-                    kg_session.replan_per_step
-                    or kg_context.cached_initial_path is None
-                ):
-                    path_result = kg_session.find_path(
-                        current_class, kg_context.target_class
+                if kg_context.target_class is not None:
+                    # V1: full target-driven path + current/target filter merge.
+                    if (
+                        kg_session.replan_per_step
+                        or kg_context.cached_initial_path is None
+                    ):
+                        path_result = kg_session.find_path(
+                            current_class, kg_context.target_class
+                        )
+                        if kg_context.cached_initial_path is None:
+                            kg_context.cached_initial_path = path_result
+                    else:
+                        path_result = kg_context.cached_initial_path
+                    tgt_filter_templates = kg_session.get_filter_templates(
+                        kg_context.target_class
                     )
-                    if kg_context.cached_initial_path is None:
-                        kg_context.cached_initial_path = path_result
                 else:
-                    path_result = kg_context.cached_initial_path
+                    # V1-tc: target inferrer 비활성. path 없이 현재 클래스 page-surface
+                    # 힌트만 합성. stay_and_explore 전략으로 hint_generator가 액션·필터
+                    # 섹션만 렌더한다.
+                    from site_adaptive_webagent.kg.runtime.path_finder import (
+                        PathResult as _PR,
+                    )
+                    path_result = _PR(
+                        strategy="stay_and_explore",
+                        actual_target=current_class,
+                        inferred_target="",
+                        progress_checked=True,
+                    )
+                    tgt_filter_templates = []
                 current_class_actions = None
                 if kg_session.expose_actions:
                     current_class_actions = kg_session.get_class_actions(
                         current_class
                     )
-                #  β: target class의 filter URL 템플릿도 함께 전달
-                tgt_filter_templates = kg_session.get_filter_templates(
-                    kg_context.target_class
-                )
                 cur_filter_templates = kg_session.get_filter_templates(
                     current_class
                 )
-                # Target + current class의 filter 예시를 합친다 (dedup)
+                # Target + current class의 filter 예시를 합친다 (dedup).
+                # V1-tc에서 tgt_filter_templates는 빈 리스트 → 사실상 current만.
                 seen_sigs = set()
                 filter_templates: list = []
                 for ft in tgt_filter_templates + cur_filter_templates:
