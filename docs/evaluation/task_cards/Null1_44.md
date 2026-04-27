@@ -2,6 +2,7 @@
 
 **Type**: NAVIGATE
 **Source**: WebArena-Verified task 44
+**Round**: 1 (smoke 1 trial: V0=V1=2 step. Round 1에서 3 trial active control 안정성 확보)
 
 ## Intent
 > Open my todos page

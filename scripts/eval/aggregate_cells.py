@@ -23,13 +23,28 @@ from pathlib import Path
 from typing import Optional
 
 
-VARIANTS = ("v0", "v1", "v1_tc")
-CONDITION_TO_TASK = {
-    "H1": 309, "H2": 102, "H3": 156,
-    "L1": 411, "L2": 568, "L3": 308,
-    "Null1": 44, "Null2": 664,
-}
-TASK_TO_CONDITION = {v: k for k, v in CONDITION_TO_TASK.items()}
+VARIANTS = ("v0", "v1")
+DEFAULT_TASK_CARDS_DIR = Path("docs/evaluation/task_cards")
+
+
+def discover_condition_to_task(task_cards_dir: Path = DEFAULT_TASK_CARDS_DIR) -> dict[str, int]:
+    """Discover condition → task_id mapping from task_cards/<COND>_<task_id>.md filenames.
+
+    Only the *root* of task_cards/ counts as the active round set; cards in
+    `task_cards/candidates/` are future-round candidates and are not aggregated.
+    """
+    mapping: dict[str, int] = {}
+    if not task_cards_dir.is_dir():
+        return mapping
+    for p in sorted(task_cards_dir.glob("*.md")):
+        stem = p.stem
+        parts = stem.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            mapping[parts[0]] = int(parts[1])
+    return mapping
+
+
+CONDITION_TO_TASK = discover_condition_to_task()
 
 
 def _majority(values: list[Optional[str]]) -> Optional[str]:
