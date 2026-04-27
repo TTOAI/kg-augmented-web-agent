@@ -24,12 +24,12 @@ INPUT_DIR = Path("output/validation/V1_pages/pages")
 OUTPUT_PATH = Path("output/validation/V1_pages/all_llm_annotated.json")
 
 
-SYSTEM_PROMPT = """You are classifying GitLab web pages into page classes based on their AXTree structure.
+SYSTEM_PROMPT = """You are classifying web pages into page classes based on their AXTree structure.
 
 Given a page's URL and AXTree dump, output:
 1. A concise class name (snake_case, e.g., "issue_list", "project_main_page")
 2. A short reason (1-2 sentences) explaining the class based on observable evidence:
-   - URL pattern (e.g., `/-/issues` suggests issue_list)
+   - URL pattern (path segments and query shape suggesting page type)
    - Main heading text
    - Repeated sibling patterns (e.g., rows of items → list page)
    - Interactive widgets visible
