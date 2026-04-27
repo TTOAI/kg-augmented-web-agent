@@ -133,6 +133,14 @@ class AnthropicLLMClient:
             tools=cached_tools,
             **self._extra_kwargs(),
         )
+        u = getattr(response, "usage", None)
+        if u is not None:
+            logger.info(
+                "[LLM] tokens in=%d out=%d cache_create=%d cache_read=%d",
+                u.input_tokens, u.output_tokens,
+                getattr(u, "cache_creation_input_tokens", 0) or 0,
+                getattr(u, "cache_read_input_tokens", 0) or 0,
+            )
         thought = None
         tool_calls: list[ToolCall] = []
         for block in response.content:
