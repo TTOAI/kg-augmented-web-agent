@@ -93,7 +93,8 @@ class AnthropicLLMClient:
 
     def __init__(self, model: str = "claude-sonnet-4-6", temperature: float | None = None) -> None:
         import anthropic  # lazy import — 패키지 미설치 시 런타임 오류만 발생
-        self._client = anthropic.Anthropic()
+        timeout_s = float(os.getenv("LLM_REQUEST_TIMEOUT", "300"))
+        self._client = anthropic.Anthropic(timeout=timeout_s, max_retries=3)
         self._model = model
         self._temperature = temperature
 
@@ -115,13 +116,21 @@ class AnthropicLLMClient:
         max_tokens: int = 1024,
         reasoning_effort: str | None = None,
     ) -> LLMToolResponse:
-        # Anthropic은 reasoning_effort 파라미터를 노출하지 않음 — silently ignore.
+        # reasoning_effort는 Anthropic API 미노출 — silently ignore.
+        # Prompt caching: system prompt + tools 카탈로그는 task 내내 정적이므로
+        # ephemeral cache_control로 표시. 최소 캐시 토큰 미달 시 SDK가 silently no-op.
+        system_blocks = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ]
+        cached_tools: list[dict] = list(tools)
+        if cached_tools:
+            cached_tools[-1] = {**cached_tools[-1], "cache_control": {"type": "ephemeral"}}
         response = self._client.messages.create(
             model=self._model,
             max_tokens=max_tokens,
-            system=system,
+            system=system_blocks,
             messages=messages,
-            tools=tools,
+            tools=cached_tools,
             **self._extra_kwargs(),
         )
         thought = None
