@@ -24,6 +24,38 @@ logger = logging.getLogger("webarena_verified")
 
 _HINT_HEADER = "[KG navigation hint — advisory]"
 
+
+def _weakened_mode() -> bool:
+    """Whether KG is in map+signpost (weakened) mode.
+
+    When true, hints suppress URL-parameter recipes and present filter/search
+    structure as in-page interaction targets only (click toggle → pick option).
+    This avoids agent over-commitment to exact filter URLs that return empty
+    results, and preserves KG's role as a knowledge provider rather than an
+    auto-pilot URL constructor.
+
+    Implies-by-inclusion: `minimal` mode also suppresses URL-parameter recipes.
+    """
+    mode = _os.getenv("KG_MODE", "auto").lower()
+    return mode in ("weakened", "minimal")
+
+
+def _minimal_mode() -> bool:
+    """Whether KG is in minimal (shortcut + page-surface only) mode.
+
+    When true, in addition to `weakened` suppression, hints also hide:
+      - the conceptual navigation-hint framing header
+      - current / target / path class names
+      - `→ class_name` suffixes on action listings
+
+    The agent receives only: the next-hop action label (or target URL path as
+    a shortcut) and the list of buttons / filters visible on the landed page.
+    This avoids agent over-analysis caused by exposing structural class
+    expectations (e.g., treating a form as a specific typed entity whose
+    labels must match).
+    """
+    return _os.getenv("KG_MODE", "auto").lower() == "minimal"
+
 # Regex for normalizing multi-instance action labels. See solution2_design §7.
 # Strips trailing counts (" 5"), user mentions (" @alice"), issue refs ("#42"),
 # and runs of whitespace. Preserves the semantic prefix.
@@ -126,15 +158,14 @@ def _render_filter_templates(
 ) -> str:
     """Render a class's observed filter URL templates.
 
-     β: Agent가 UI filter widget을 탐색하지 않고 KG가 제공하는 filter
-    URL로 `goto(...)`해 state에 도달할 수 있게 한다. Filter param 조합을 URL에
-    직접 구성 → UI dropdown 탐색 우회.
-
-     F3: param name이 known-parametric (`label_name[]`, `assignee_username`,
-    `milestone_title` 등)이면 `<placeholder>` 안내를 같이 표시해 agent가 task에서
-    추출한 구체값으로 치환하도록 유도. 예: 관측된 값이 `checklist`여도 task가 "bug"
-    요구하면 agent는 `label_name[]=bug`로 치환해 goto.
+    In default (auto) mode this exposes `path?query` URL recipes so the agent
+    can `goto(...)` a filtered state directly. In weakened (map+signpost) mode
+    this section is suppressed entirely — the agent should reach the class via
+    the base URL and invoke filters through in-page controls, not by
+    constructing parameterized URLs.
     """
+    if _weakened_mode():
+        return ""
     if not filter_templates:
         return ""
     shown = list(filter_templates)[:limit]
@@ -195,7 +226,14 @@ def _render_class_actions(
                 href_tail = parsed.path
                 if parsed.query:
                     href_tail += f"?{parsed.query}"
-            tgt_part = f" → {target}" if target else ""
+            # In minimal mode, hide class-name suffixes (→ target_class) to
+            # avoid priming the agent with structural expectations. The URL
+            # tail alone serves as the shortcut target.
+            tgt_part = (
+                ""
+                if _minimal_mode()
+                else (f" → {target}" if target else "")
+            )
             href_part = f" [{href_tail}]" if href_tail else ""
             lines.append(f"  - [{label}]{tgt_part}{href_part}")
 
@@ -324,16 +362,27 @@ def _render_filter_categories(categories: list[dict], *,
     """
     if not categories:
         return ""
-    lines: list[str] = [
-        "Filter categories on this page. Two equivalent routes to apply a filter:",
-        "  (A) URL-direct: `goto` with `?param=value` appended to current URL.",
-        "  (B) UI sequence: interact with the filter input on the page — "
-        "select the desired category, then an operator, then the value. "
-        "Exact click count varies (some categories have inline yes/no; others "
-        "route through a value picker).",
-        "Categories (KG-observed — category names and operators below are "
-        "literal strings the page exposes):",
-    ]
+    weakened = _weakened_mode()
+    if weakened:
+        lines: list[str] = [
+            "Filter categories on this page — interact with the filter input "
+            "on the page: select the desired category, then an operator, then "
+            "the value (exact click count varies; some categories have inline "
+            "yes/no, others route through a value picker).",
+            "Categories (KG-observed — category names and operators are "
+            "literal strings the page exposes):",
+        ]
+    else:
+        lines: list[str] = [
+            "Filter categories on this page. Two equivalent routes to apply a filter:",
+            "  (A) URL-direct: `goto` with `?param=value` appended to current URL.",
+            "  (B) UI sequence: interact with the filter input on the page — "
+            "select the desired category, then an operator, then the value. "
+            "Exact click count varies (some categories have inline yes/no; others "
+            "route through a value picker).",
+            "Categories (KG-observed — category names and operators below are "
+            "literal strings the page exposes):",
+        ]
     for c in (categories or [])[:max_categories]:
         name = (c.get("name") or "").strip()
         if not name:
@@ -346,10 +395,14 @@ def _render_filter_categories(categories: list[dict], *,
         if ops:
             op_clean = [o.split("\n")[0].strip() for o in ops if o]
             op_summary = f" operators=[{', '.join(op_clean[:3])}]"
-        param_str = f" param=`{param}`" if param else ""
+        # Suppress URL param name in weakened mode — it encourages URL recipe
+        # construction and is not needed for in-page interaction.
+        param_str = "" if weakened else (f" param=`{param}`" if param else "")
         vals_flag = " (values exist — supply from task)" if has_vals else ""
         lines.append(f"  - {name}:{param_str}{op_summary}{vals_flag}")
-        if examples:
+        # Design principle: KG는 방향(카테고리·연산자)까지만, 구체값은 agent가 페이지
+        # 상호작용으로 직접 찾는다. weakened/minimal에서는 example_values 노출 금지.
+        if examples and not weakened:
             lines.append(
                 f"      example values seen: "
                 f"{', '.join(str(v) for v in examples[:3])}"
@@ -367,11 +420,19 @@ def _render_filter_controls(controls: list[dict], *,
     """
     if not controls:
         return ""
+    weakened = _weakened_mode()
     top = sorted(controls, key=lambda c: -int(c.get("instance_freq") or 0))[:max_controls]
-    lines: list[str] = [
-        "In-page filter controls on this class (values KG observed; combine "
-        "freely with `goto(?param=value)` or click the toggle and pick):"
-    ]
+    if weakened:
+        header = (
+            "In-page filter controls on this page — click the toggle button "
+            "and pick from the options shown:"
+        )
+    else:
+        header = (
+            "In-page filter controls on this class (values KG observed; combine "
+            "freely with `goto(?param=value)` or click the toggle and pick):"
+        )
+    lines: list[str] = [header]
     for ctl in top:
         label = (ctl.get("label") or "").strip()
         if not label:
@@ -386,11 +447,18 @@ def _render_filter_controls(controls: list[dict], *,
             shown.append(name)
         overflow = max(0, len(opts) - len(shown))
         head = f"  - [{label}]"
-        if param:
+        # Suppress URL param in weakened mode (keeps focus on in-page action).
+        if param and not weakened:
             head += f" → param `{param}`"
+        # Design principle: weakened/minimal에서 option 값 리스트는 구체값에 해당해
+        # 노출 금지. agent가 토글 클릭 후 페이지에서 직접 옵션을 본다. 단 옵션 *개수*는
+        # 방향 정보로 유지 (선택지 규모 = 직접 클릭이 적정한지의 판단 근거).
         if shown:
-            overflow_tag = f" …+{overflow}" if overflow else ""
-            head += f", options: {shown}{overflow_tag}"
+            if weakened:
+                head += f" ({len(shown)}+{overflow} options — click toggle to view)" if overflow else f" ({len(shown)} options — click toggle to view)"
+            else:
+                overflow_tag = f" …+{overflow}" if overflow else ""
+                head += f", options: {shown}{overflow_tag}"
         lines.append(head)
     return "\n".join(lines) if len(lines) > 1 else ""
 
@@ -403,9 +471,14 @@ def _render_form_shortcuts(forms: list[dict], limit: int = 5) -> str:
     각 form은 action URL + method + submit label + required fields + (select 시)
     options 를 짧게 나열. token budget 관리를 위해 상위 `limit`개 form, form당
     top-N fields만 노출.
+
+    Design principle: weakened/minimal mode에서는 default 값·placeholder·option 값
+    리스트 등 *구체값*을 억제하고 form 구조(action, method, field name/type/required)
+    만 노출. 구체값은 agent가 페이지 상호작용으로 직접 확인한다.
     """
     if not forms:
         return ""
+    weakened = _weakened_mode()
     top = sorted(forms, key=lambda f: -int(f.get("instance_freq", 0)))[:limit]
     lines: list[str] = ["Forms on this page (MUTATE shortcut — use `goto(action) + fill + submit`):"]
     for f in top:
@@ -427,21 +500,29 @@ def _render_form_shortcuts(forms: list[dict], limit: int = 5) -> str:
             typ = fd.get("type") or ""
             req_mark = " *" if fd.get("required") else ""
             sens = " (sensitive)" if fd.get("sensitive") else ""
-            default = fd.get("default_value")
             default_part = ""
-            if default not in (None, ""):
-                default_str = str(default)
-                if len(default_str) > 40:
-                    default_str = default_str[:37] + "..."
-                default_part = f" default={default_str!r}"
-            placeholder = fd.get("placeholder") or ""
-            placeholder_part = f" placeholder={placeholder!r}" if placeholder else ""
-            # Select options (short list)
-            options = fd.get("options") or []
+            placeholder_part = ""
             opt_part = ""
-            if options:
-                opt_vals = [f"{o.get('value','')}={o.get('label','')}" for o in options[:5]]
-                opt_part = f" options=[{', '.join(opt_vals)}]"
+            if not weakened:
+                default = fd.get("default_value")
+                if default not in (None, ""):
+                    default_str = str(default)
+                    if len(default_str) > 40:
+                        default_str = default_str[:37] + "..."
+                    default_part = f" default={default_str!r}"
+                placeholder = fd.get("placeholder") or ""
+                if placeholder:
+                    placeholder_part = f" placeholder={placeholder!r}"
+                # Select options (short list)
+                options = fd.get("options") or []
+                if options:
+                    opt_vals = [f"{o.get('value','')}={o.get('label','')}" for o in options[:5]]
+                    opt_part = f" options=[{', '.join(opt_vals)}]"
+            else:
+                # weakened: 옵션 *개수*만 방향으로 노출 (선택지 규모는 구조 정보).
+                options = fd.get("options") or []
+                if options:
+                    opt_part = f" ({len(options)} options)"
             lines.append(
                 f"      {name}{req_mark} [{typ}]{sens}{default_part}{placeholder_part}{opt_part}"
             )
@@ -452,10 +533,14 @@ def _render_form_shortcuts(forms: list[dict], limit: int = 5) -> str:
 
 def _fmt_path_steps(path: list[PathStep]) -> list[str]:
     out: list[str] = []
+    minimal = _minimal_mode()
     for i, step in enumerate(path, start=1):
-        out.append(
-            f"  {i}. Click {_fmt_action_labels(step.actions)} → {step.target}"
-        )
+        if minimal:
+            out.append(f"  {i}. Click {_fmt_action_labels(step.actions)}")
+        else:
+            out.append(
+                f"  {i}. Click {_fmt_action_labels(step.actions)} → {step.target}"
+            )
     return out
 
 
@@ -476,16 +561,26 @@ def _template_exact(
     current_class_actions: Optional[dict] = None,
 ) -> str:
     assert path_result.path is not None
-    lines = [
-        _HINT_HEADER,
-        f"Current page class: {current}",
-        f"Inferred target: {path_result.inferred_target}",
-        f"Suggested path ({path_result.hops} hop{'s' if path_result.hops != 1 else ''}):",
-    ]
-    if path_result.path:
-        lines.extend(_fmt_path_steps(path_result.path))
+    minimal = _minimal_mode()
+    if minimal:
+        # Minimal: no class/target framing, shortcut steps + page surface only.
+        lines: list[str] = ["[Page shortcut — advisory]"]
+        if path_result.path:
+            lines.append("Suggested next steps:")
+            lines.extend(_fmt_path_steps(path_result.path))
+        else:
+            lines.append("(already at the right page — proceed with the task action)")
     else:
-        lines.append("  (already at target class — proceed with task action)")
+        lines = [
+            _HINT_HEADER,
+            f"Current page class: {current}",
+            f"Inferred target: {path_result.inferred_target}",
+            f"Suggested path ({path_result.hops} hop{'s' if path_result.hops != 1 else ''}):",
+        ]
+        if path_result.path:
+            lines.extend(_fmt_path_steps(path_result.path))
+        else:
+            lines.append("  (already at target class — proceed with task action)")
     bind_line = _fmt_bindings(bindings)
     if bind_line:
         lines.append(bind_line)
@@ -495,9 +590,10 @@ def _template_exact(
     )
     if actions_section:
         lines.append(actions_section)
-    lines.append(
-        "(Structural suggestion — verify against the observed page.)"
-    )
+    if not minimal:
+        lines.append(
+            "(Structural suggestion — verify against the observed page.)"
+        )
     return "\n".join(lines)
 
 
@@ -508,14 +604,22 @@ def _template_stay(
     *,
     current_class_actions: Optional[dict] = None,
 ) -> str:
-    lines = [
-        _HINT_HEADER,
-        f"Current page class: {current}",
-        f"Inferred target: {path_result.inferred_target}",
-        "No direct path to the target is recorded in the site structure.",
-        "Best option: explore the current page — look for visible links or "
-        "buttons that relate to the target and follow them.",
-    ]
+    if _minimal_mode():
+        lines: list[str] = [
+            "[Page shortcut — advisory]",
+            "No direct shortcut is recorded for this action.",
+            "Best option: explore the current page — look for visible links or "
+            "buttons related to the task intent.",
+        ]
+    else:
+        lines = [
+            _HINT_HEADER,
+            f"Current page class: {current}",
+            f"Inferred target: {path_result.inferred_target}",
+            "No direct path to the target is recorded in the site structure.",
+            "Best option: explore the current page — look for visible links or "
+            "buttons that relate to the target and follow them.",
+        ]
     bind_line = _fmt_bindings(bindings)
     if bind_line:
         lines.append(bind_line)
@@ -611,6 +715,14 @@ def generate_hint(
         current_class_actions,
         exclude_labels=_path_step_labels(path_result.path),
     )
+    # In minimal mode, always use a terse template (never LLM-generated text)
+    # to guarantee class names are not leaked into the hint.
+    if _minimal_mode():
+        base = "[Page shortcut — advisory]"
+        bind_line = _fmt_bindings(bindings)
+        if bind_line:
+            base = f"{base}\n{bind_line}"
+        return f"{base}\n{actions_section}" if actions_section else base
     if llm is None:
         # No LLM: degrade to a terse template so integration still proceeds.
         base = (
