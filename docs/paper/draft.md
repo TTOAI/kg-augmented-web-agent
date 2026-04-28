@@ -6,7 +6,7 @@
 
 ## 요 약
 
-LLM 기반 웹 에이전트가 같은 사이트의 페이지 구조를 매번 관측에서 재발견하는 비효율을 해소하기 위해, 사이트 구조를 사전 계산된 지식 그래프(Knowledge Graph, KG)로 외부화하고 페이지 클래스 식별자를 숨긴 최소 힌트로 주입하는 접근을 제시한다. 본 연구는 KG의 _우월성을 주장하지 않고_ WebArena-Verified GitLab의 7개 사전 등록 과제를 V0(KG 미사용)와 V1(KG 사용)로 각 3 trial 측정하여 KG 효과의 발생·무효·부정 조건을 특성화한다. (1) **효과 발생 4건**: V1이 평균 step을 0.7~7.7 단축한다. 그 중 2건(309, 664)은 V0의 catastrophic trial(각 54·37 step)을 V1이 일관된 범위로 안정화하여 표준편차를 5~12배 감소시키는 *worst-case 안정화* 효과가 지배적이다. (2) **효과 미발생 1건**: baseline이 이미 1-hop 효율적이라 KG가 추가 가치를 못 준다. (3) **효과 부정 1건**: 비ARIA 모달 내부에서 KG 기여가 소멸하며 두 변종 모두 시간 초과한다. (4) **무영향 1건**: 1-step 직접 링크 과제로 active control이 작동한다. 모든 과제에서 KG는 평가기 통과율을 변경하지 않으며 step 효율에만 영향한다. 결론적으로 KG는 보편적 가속이 아니라 *평균 단축과 worst-case 안정화의 조건부 효과* 를 가지며, 비ARIA 컴포넌트 내부에서는 기여가 소멸한다.
+LLM 기반 웹 에이전트가 같은 사이트의 페이지 구조를 매번 관측에서 재발견하는 비효율을 해소하기 위해, 사이트 구조를 사전 계산된 지식 그래프(Knowledge Graph, KG)로 외부화하고 페이지 클래스 식별자를 숨긴 최소 힌트로 주입한 V1을 KG 미사용 baseline V0와 WebArena-Verified GitLab 7개 사전 등록 과제 × 3 trial로 비교한다. 측정 도중 평가기의 메타데이터·답 포맷·API endpoint mismatch 결함이 다수 식별되어 평가기 통과율을 KG 효과 지표로 그대로 쓸 수 없었기에 *의미적 성공률*(에이전트가 task의 의미적 목표에 도달·완수했는지를 로그·HAR로 검증한 trial 비율)을 재정의해 비교했다. 결과: (i) **의미적 성공률은 V0=V1=6/7 (task-level)** 로 동일 — KG는 통과 여부를 바꾸지 않으며 이는 baseline LLM 능력에 좌우된다. (ii) **Step 효율**은 의미적-성공한 6 과제 중 4 과제에서 V1이 평균 0.7~7.7 단축하며 그 중 2 과제(309, 664)는 V0의 catastrophic trial을 V1이 일관된 범위로 안정화해 표준편차를 5~12배 감소시키는 *worst-case 안정화* 가 주요 메커니즘이다. (iii) **비ARIA 모달 단일 과제(568)** 는 V0/V1 모두 시간 초과 — KG의 ARIA 표준 기반 수집기가 modern 비표준 컴포넌트를 포착하지 못함이 적용 boundary로 드러난다. KG는 *step 효율 도구* 로 유의미한 효과를 보이지만 의미적 성공률 자체에는 영향하지 않는다.
 
 주요어: 지식 그래프, 웹 에이전트, 사이트별 구조, 힌트 주입, 효과 조건 특성화
 
@@ -18,7 +18,7 @@ LLM 기반 웹 에이전트[1, 2]는 매 서브목표마다 (1) 어느 페이지
 
 선행 연구는 사이트 지식의 사전 자산화에 집중했다. SteP[3]은 수동 정책 스택을, WALT[4]는 역공학 도구 함수를, AWM[5]은 실행 궤적 재사용을 제공한다. 본 연구는 *사이트 구조 자체*를 KG로 외부화하고 최소 힌트로 주입한다.
 
-본 논문은 KG가 일반적으로 도움이 된다고 _주장하지 않는다_. 대신 다음 질문을 묻는다. **KG는 어떤 조건에서 step을 줄이고, 어떤 조건에서 효과가 없거나 부정적인가?** 기여는 (C1) ARIA 표준 기반 사이트에 무관한 KG 구축 프로토콜과 "방향만 노출, 구체값은 에이전트가 직접 찾는다" 라는 최소 힌트 설계 원칙, (C2) 7-과제 사전 등록 측정으로 효과 발생 4건·미발생 1건·부정 1건·무영향 1건을 정직하게 특성화한 점이며, 그 중 V1이 V0의 catastrophic trial을 prevent하는 *worst-case 안정화* 가 효과 발생의 주요 메커니즘 중 하나임을 관찰한 점, (C3) KG 효과가 평가기 통과율과 직교하며 step 효율에만 영향한다는 관찰이다.
+본 논문은 KG가 일반적으로 도움이 된다고 _주장하지 않는다_. 대신 다음 질문을 묻는다. **KG는 어떤 조건에서 step을 줄이고, 어떤 조건에서 효과가 없거나 부정적인가? 그리고 그 효과는 task 통과율 변화로 이어지는가?** 기여는 (C1) ARIA 표준 기반 사이트에 무관한 KG 구축 프로토콜과 "방향만 노출, 구체값은 에이전트가 직접 찾는다" 라는 최소 힌트 설계 원칙, (C2) 벤치마크 평가기의 strict-match·메타데이터 결함이 KG 효과 측정의 noise가 되는 사례를 식별하고 *의미적 성공률* 을 별도 지표로 재정의해 통과율과 효율을 분리 분석한 방법론, (C3) 7-과제 사전 등록 측정으로 (a) 의미적 성공률은 V0=V1으로 동일, (b) step 효율은 V1이 4 과제에서 평균 단축 + 2 과제에서 worst-case 표준편차 5~12배 감소, (c) 비ARIA 모달이 KG 적용 boundary 라는 정직한 특성화이다.
 
 ## 2. 방 법
 
@@ -34,60 +34,107 @@ LLM 기반 웹 에이전트[1, 2]는 매 서브목표마다 (1) 어느 페이지
 
 ## 3. 실험 설정
 
-WebArena-Verified GitLab 자가 호스팅 인스턴스를 사용한다. 에이전트 LLM은 OpenAI `gpt-5.4-mini` 단일 모델이다. 변종은 V0(`KG_ENABLED=0`)와 V1(`KG_ENABLED=1 KG_MODE=minimal`) 둘이며 각 (과제 × 변종) cell에 3 trial을 측정한다. 측정 방법론은 _task fixed-set 사전 lock이 아니라_ iterative round + 약한 사전 등록이다. round 시작 전에 (a) 선정 규칙(archetype gap 기반), (b) stopping rule(세 archetype에 ≥1 task + 누적 task ≤ 8), (c) 모든 결과 보고 의무를 git에 commit한다. 본 측정은 Round 1·2 합계 7 과제 × 2 변종 × 3 trial = 42 trial이다.
+WebArena-Verified GitLab 자가 호스팅 인스턴스를 사용한다. 에이전트 LLM은 OpenAI `gpt-5.4-mini` 단일 모델이다. 변종은 V0(`KG_ENABLED=0`)와 V1(`KG_ENABLED=1 KG_MODE=minimal`) 둘이며 각 (과제 × 변종) cell에 3 trial을 측정한다. 측정 방법론은 _task fixed-set 사전 lock이 아니라_ iterative round + 약한 사전 등록이다. round 시작 전에 (a) 선정 규칙(archetype gap 기반), (b) stopping rule(세 archetype에 ≥1 task + 누적 task ≤ 8), (c) 모든 결과 보고 의무를 git에 commit한다. 본 측정은 Round 1·2 합계 **7 과제 × 2 변종 × 3 trial = 42 trial** 이다.
 
 ## 4. 결 과
 
-그림 1은 7 과제의 per-trial step 분포를 V0/V1 box plot + raw 3 trial scatter로 보여준다. H1(309)·Null2(664) 두 과제에서 V0 box가 위로 길게 늘어진 것은 baseline의 catastrophic trial이 worst-case를 끌어올린 결과이며, 같은 과제의 V1 box가 좁게 붙어 있는 것이 *worst-case 안정화* 효과의 시각적 표지다. L2(568)는 두 변종 모두 timeout(붉은 ×)으로 표시된다. 표 1은 동일 데이터를 mean (sd) + raw trial 값으로 정량 표기한다.
+### 4.1 과제 개요
 
-![그림 1. 과제별 V0/V1 step 분포 (3 trial 각각, raw point + box). 회색 = V0(KG 미사용), 파랑 = V1(KG minimal mode). 568은 V0/V1 모두 시간 초과로 box 없이 ×로 표시.](figures/step_box.png)
+표 1은 7개 과제의 intent와 type, KG 추론 클래스를 요약한다. NAV 3건 / RET 1건 / MUT 3건로 task type이 분산되며 각 과제는 측정 *전*에 archetype 라벨(효과 후보 H / 한계 후보 L / 무영향 후보 Null)이 task_cards에 등록되어 있다.
 
+| ID | 유형 | Intent (요약) | KG 추론 클래스 |
+|----|------|--------------|----------------|
+| 102 | NAV | a11yproject 저장소의 *help wanted* 라벨 open issue 목록 도달 | project/issue_list |
+| 156 | NAV | 내가 assignee인 merge request 목록 도달 | dashboard/merge_request_list |
+| 309 | RET | thoughtbot/administrate에 최다 commit한 사용자명 조회 | project/main |
+| 418 | MUT | 사용자 GitLab status를 "Busy"로 설정 | account/edit |
+| 568 | MUT | a11yproject 저장소에 두 사용자를 collaborator로 초대 | project/member_list |
+| 44 | NAV | 사용자 To-Do List 페이지 열기 | dashboard/todo_list |
+| 664 | MUT | awesome-python 저장소에 특정 제목의 issue 생성 | project/issue_detail |
 
-| 과제 ID | 유형 | V0 trials | V0 mean (sd) | V1 trials | V1 mean (sd) | Δmean | KG 추론 클래스 | 평가기 V0/V1 |
-|---------|------|-----------|--------------|-----------|--------------|-------|----------------|--------------|
-| 102 | NAV | [11,15,16] | 14.0 (2.7) | [8,9,12] | **9.7 (2.1)** | **−4.3** | project/issue_list | 실패/실패 |
-| 156 | NAV | [4,4,4] | 4.0 (0.0) | [4,4,6] | 4.7 (1.2) | +0.7 | dashboard/merge_request_list | 통과/통과 |
-| 309 | RET | [13,19,54] | 28.7 (22.1) | [18,24]ᵃ | **21.0 (4.2)** | **−7.7** | project/main | 실패/실패 |
-| 418 | MUT | [8,9,18] | 11.7 (5.5) | [7,11,15] | **11.0 (4.0)** | **−0.7** | account/edit | 통과/통과 |
-| 568 | MUT | 시간초과×3 | — | 시간초과×3 | — | — | project/member_list | 오류/오류 |
-| 44 | NAV | [2,2,2] | 2.0 (0.0) | [2,2,2] | 2.0 (0.0) | 0.0 | dashboard/todo_list | 통과/통과 |
-| 664 | MUT | [12,14,37] | 21.0 (13.9) | [14,14,16] | **14.7 (1.2)** | **−6.3** | project/issue_detail | 실패/실패 |
+### 4.2 벤치마크 평가기 결함과 의미적 성공률 재정의
 
-ᵃ 309 V1은 trial 1에서 ERROR로 종료, 2 trial로 집계.
+WebArena-Verified 평가기 출력만으로 V0와 V1을 비교하면 KG 효과 측정이 *평가기 결함의 noise*에 가려진다. 본 측정에서 식별한 결함 유형은 다음 셋이다.
 
-### 4.1 효과 발생 조건 (4건)
+(a) **메타데이터 mismatch** (과제 102): 평가기의 expected URL이 task intent와 *다른 저장소*(`byteblaze/a11y-syntax-highlighting`)를 가리킨다. 에이전트는 task가 명시한 `a11yproject/a11yproject.com` 저장소에 정확히 도달했음에도 NetworkEventEvaluator가 fail로 기록한다.
 
-각 과제의 효과 메커니즘을 분리해 기술한다. 102는 *평균 단축* 우세, 309·664는 *worst-case 안정화* 우세, 418은 *작은 양쪽 개선* 으로 패턴이 다르다.
+(b) **답 포맷 mismatch** (과제 309): task는 *username* 을 묻지만 평가기 expected 값은 *email*(`wright.grayson@gmail.com`)이다. 에이전트의 username 답은 strict-match에서 실패한다.
 
-**과제 102 — 안정적 평균 단축 (다중 hop NAV)**. "a11yproject/repo의 help wanted 라벨 이슈 목록 열기". V0는 프로젝트 진입→Issues→라벨 dropdown 탐색→라벨 적용의 3-hop을 평균 14.0 step (sd 2.7)에 처리한다. V1은 KG가 `project/issue_list`로 추론해 `/-/issues` path를 단축으로 노출하고 라벨 *카테고리 존재* 만 알려준다. 에이전트는 첫 step에서 `goto`로 issue 목록에 직행하고 라벨 dropdown을 직접 클릭한다. 라벨 *값* "help wanted"는 task에서 추출한다. **V1 mean 9.7 (sd 2.1), Δ −4.3 (31% 단축)**. 두 변종 모두 sd가 작아 효과가 trial 간 안정적으로 재현된다.
+(c) **API endpoint mismatch** (과제 664): UI 폼 제출(`/-/issues/new`→이슈 페이지 redirect)로 이슈가 *실제 생성*(#2393)되었음에도 평가기는 REST `/api/v4/projects/{id}/issues` POST만 인정해 실패로 기록한다.
 
-**과제 309 — V0 검색 폭주의 prevent (single URL RET)**. "thoughtbot/administrate 최다 commit 사용자명 조회". V0 raw trial은 [13, 19, **54**]이며 sd 22.1로 분산이 극단적이다. 54-step trial 로그를 보면 에이전트가 검색 결과의 명확성을 의심하여 commit 페이지·검색 박스·필터 사이를 반복 왕복하는 패턴이다. V1은 KG가 `project/main`으로 K=3 합의 추론해 프로젝트 메인 페이지를 anchored target으로 제시하고 에이전트는 그 trajectory에 머물러 commit 페이지를 빠르게 식별한다. V1 raw [18, 24] (n=2, 1 trial은 ERROR), sd 4.2. **mean −7.7, sd 5배 감소**. KG의 직접적 효과는 commit 페이지 자체를 가리키는 게 아니라 *프로젝트 anchor 제공*으로 V0의 검색 폭주 회로를 차단하는 것이다.
+이 세 결함이 V0와 V1 모두에 동일하게 작동하므로 *KG 효과 비교 자체*는 깨지지 않으나, 평가기 통과율을 보조 지표로 쓰면 KG의 실제 영향이 가려진다. 따라서 본 절 이하에서는 **의미적 성공률**(`agent_response.json` status=SUCCESS + 로그·HAR 검증으로 task가 명시한 의미적 목표에 도달·완수했음이 확인된 trial 비율)을 별도 지표로 채택한다.
 
-**과제 664 — V0 폼 혼란의 prevent (issue 작성 MUT)**. "awesome-python repo에 Python 3.11 관련 이슈 작성". V0 raw [12, 14, **37**] (sd 13.9). 37-step trial은 폼 작성 도중 다른 프로젝트로 잘못 이동·복귀를 반복한 결과다. V1은 KG가 `project/issue_detail`로 추론하는데 — 정확히는 `issue_new_form`이 더 적합하지만 issue_detail family 안에서 *new issue* 사이드바 항목이 즉시 가시되어 useful adjacent로 작용한다. V1 raw [14, 14, 16], sd 1.2. **mean −6.3, sd 12배 감소**. 309와 동일한 "anchored trajectory가 catastrophic 분기 prevent" 메커니즘이지만 패턴은 다르다 — 309는 *검색 회로*, 664는 *폼 작성 중 분기*가 차단되는 형태다.
+### 4.3 의미적 성공률 — V0와 V1이 동일
 
-**과제 418 — 작은 양쪽 개선 (status 설정 MUT)**. V0 raw [8, 9, 18], V1 raw [7, 11, 15]. mean 11.7 → 11.0 (Δ −0.7), sd 5.5 → 4.0. 작은 평균 단축에 worst-case 약간 개선(18→15)이 동반된다. KG는 `account/edit`으로 confident 추론하며 사용자 status UI가 navbar avatar 팝오버에 있어 매핑은 정확하지 않으나 useful adjacent로 작용한다. 사전 가설인 능동적 오도(timeout)는 관측되지 않으며 작은 비용 없는 개선이 발생한다.
+표 2는 의미적 성공 trial 카운트다. **task-level**(과제 내 1 trial이라도 성공)에서 V0=V1=6/7로 *동일* 하다. **trial-level**(전체 21 trial)에서는 V0 18/21·V1 17/21로 V1이 1 trial 낮다 — 과제 309 V1 trial 1에서 KG의 confident routing이 잘못된 trajectory에 갇혀 모든 retry를 소진한 사례를 정직하게 노출한다.
 
-### 4.2 효과 미발생 조건 (1건)
+| ID | V0 의미적 | V1 의미적 | 비고 |
+|----|----------|----------|------|
+| 102 | 3/3 | 3/3 | 라벨 필터 적용된 issue 페이지 도달 |
+| 156 | 3/3 | 3/3 | dashboard MR assigned 도달 |
+| 309 | 3/3 | **2/3** | V1 trial 1: KG anchor 신뢰 후 retry 소진 |
+| 418 | 3/3 | 3/3 | status "Busy" 설정 완료 |
+| 568 | 0/3 | 0/3 | 모달 한계 — §4.6에서 별도 분석 |
+| 44 | 3/3 | 3/3 | /dashboard/todos 도달 |
+| 664 | 3/3 | 3/3 | issue #2393 실제 생성 |
+| **계** | **18/21 (86%)** | **17/21 (81%)** | task-level 6/7 동일 |
 
-**과제 156**(scope 모호 NAV) V0 mean 4.0 (sd 0) vs V1 mean 4.7 (sd 1.2). baseline이 이미 1-2 hop 효율적이라 KG가 추가 단축 여지를 못 준다. V1 trial 중 1건은 6 step으로 확장되어 KG가 *역효과*를 주는 경계 사례를 보인다.
+### 4.4 Step 효율 — V1이 4 과제에서 평균 단축
 
-### 4.3 효과 부정 조건 (1건)
+그림 1은 과제별 V0/V1 step 분포(3 trial 각각, box+scatter)를 시각화한다. H1(309)·Null2(664)에서 V0 box가 위로 길게 늘어진 것은 baseline의 catastrophic trial이 worst-case를 끌어올린 결과이며, 같은 과제의 V1 box가 좁게 붙어 있는 것이 *worst-case 안정화* 의 시각적 표지다. 568은 양쪽 모두 timeout으로 ×표기.
 
-**과제 568**(비ARIA 모달 MUT): "Invite members" 다이얼로그가 GitLab Pajamas Vue 컴포넌트로 ARIA-non-conformant이며 KG의 `project/member_list` 클래스에 modal 내부 액션 카탈로그가 비어 있다. V0/V1 모두 modal에 진입하지만 사용자 검색 입력·역할 선택을 처리하지 못해 3 trial 모두 20분 시간 초과한다. KG 기여는 modal 트리거 도달 직전까지로 한정되며 내부에서 소멸한다.
+![그림 1. 과제별 V0/V1 step 분포 (3 trial, raw + box). 회색=V0, 파랑=V1. 568은 timeout으로 ×.](figures/step_box.png)
 
-### 4.4 무영향 조건 (1건)
+표 3은 의미적-성공한 6 과제의 step 통계이다.
 
-**과제 44**(1-step 직접 링크 NAV) V0=V1=2 step (sd 0). KG가 줄 추가 구조 정보가 없다. active control 작동 — 측정 instrument가 "차이 없음"을 출력할 능력을 가짐을 입증한다.
+| ID | V0 trials | V0 mean (sd) | V1 trials | V1 mean (sd) | Δmean | sd 변화 |
+|----|-----------|--------------|-----------|--------------|-------|---------|
+| 102 | [11,15,16] | 14.0 (2.7) | [8,9,12] | **9.7 (2.1)** | **−4.3** | 2.7→2.1 |
+| 156 | [4,4,4] | 4.0 (0.0) | [4,4,6] | 4.7 (1.2) | +0.7 | 0→1.2 |
+| 309 | [13,19,54] | 28.7 (22.1) | [18,24]ᵃ | **21.0 (4.2)** | **−7.7** | **5×↓** |
+| 418 | [8,9,18] | 11.7 (5.5) | [7,11,15] | **11.0 (4.0)** | **−0.7** | 5.5→4.0 |
+| 44 | [2,2,2] | 2.0 (0.0) | [2,2,2] | 2.0 (0.0) | 0.0 | 동일 |
+| 664 | [12,14,37] | 21.0 (13.9) | [14,14,16] | **14.7 (1.2)** | **−6.3** | **12×↓** |
 
-### 4.5 KG 효과와 평가기의 직교성
+ᵃ 309 V1은 trial 1 ERROR 제외 2 trial 집계.
 
-7 과제 모두에서 V0와 V1의 평가기 (응답·네트워크) 통과/실패 결과가 _동일_ 하다. 즉 KG는 step 효율에는 영향하지만 task 통과율에는 영향하지 않는다. 답 포맷 strict-match·HTTP 요청 매칭 같은 평가 인공 요소는 KG 메커니즘과 별개로 작동한다.
+V1이 mean 단축한 과제는 **4건(102, 309, 418, 664)**, parity 1건(44), V1이 약간 손해 1건(156)이다. 그 중 309·664는 sd 감소(5~12배)가 두드러져 worst-case 안정화가 평균 단축의 주요 동인이다.
+
+### 4.5 인사이트 — KG 효과의 발생 조건과 메커니즘 (568 제외 6 과제)
+
+각 과제의 효과 메커니즘을 분리해 정리한다.
+
+**102 — 안정적 평균 단축 (다중 hop NAV)**. V1은 KG의 `project/issue_list` 추론과 `/-/issues` path 단축을 활용해 V0의 3-hop(프로젝트→Issues→라벨)을 1-hop `goto`로 압축한다. KG는 라벨 *카테고리 존재* 만 알려주고 라벨 *값* "help wanted"는 에이전트가 task에서 추출 → dropdown 직접 클릭. 양쪽 sd가 작아 효과가 trial 간 안정.
+
+**309 — V0 검색 폭주의 prevent (single URL RET)**. V0 [13, 19, **54**] sd 22.1 — 54-step trial은 commit 페이지·검색 박스·필터 사이를 반복 왕복하는 회로다. V1은 KG가 `project/main`으로 합의 추론해 프로젝트 메인을 anchor로 제시 → trajectory에 머물러 commit 페이지를 빠르게 식별. KG의 직접 효과는 commit 페이지 자체가 아니라 *프로젝트 anchor* 로 V0의 검색 회로를 차단하는 것이다. 단 V1 trial 1은 KG anchor에 갇혀 retry 소진된 *반대 사례* 도 함께 발생.
+
+**664 — V0 폼 혼란의 prevent (issue 작성 MUT)**. V0 [12, 14, **37**] sd 13.9 — 37-step trial은 폼 작성 중 다른 프로젝트로의 잘못된 이동·복귀를 반복한다. V1은 KG의 `project/issue_detail` adjacent 안내로 *new issue* 사이드바 항목에 즉시 도달 → 폼을 한 번에 작성. 309와 동일한 "anchored trajectory가 catastrophic 분기 prevent" 메커니즘이나 폭주 *패턴* 은 다르다 — 309는 검색 회로, 664는 폼 작성 중 분기.
+
+**418 — 작은 양쪽 개선 (status 설정 MUT)**. KG는 `account/edit`으로 confident 추론하지만 status UI는 navbar avatar 팝오버에 위치해 정확 매핑은 아니다. 그럼에도 useful adjacent로 작용해 평균 −0.7 단축, worst-case 18→15. 사전 가설이었던 *능동적 오도*(timeout)는 발생하지 않았다.
+
+**156 — 효과 미발생 (scope 모호 NAV)**. V0 mean 4.0 (sd 0) → V1 mean 4.7 (sd 1.2). baseline이 이미 1-2 hop 효율적이라 KG의 단축 여지가 없으며 V1 trial 1건은 6 step으로 확장되어 *역효과* 경계 사례를 보인다.
+
+**44 — 무영향 (1-step 직접 링크 NAV)**. V0=V1=2 step (sd 0). KG가 줄 추가 구조 정보가 없는 active control. 측정 instrument가 "차이 없음"을 출력할 능력을 가짐을 입증한다.
+
+종합하면, **KG는 (i) baseline이 catastrophic 분기 가능성이 있는 multi-step 경로를 거치고 (ii) target 또는 useful adjacent 클래스가 KG에 매핑되어 있을 때** 평균 단축과 worst-case 안정화로 step 효율을 개선한다. **baseline이 이미 효율적인 경우 KG는 무영향이거나 작은 역효과**를 줄 수 있으며, 모든 효과는 step 단위에 한정되어 *의미적 성공 여부 자체는 변화시키지 않는다* — task 통과 능력은 baseline LLM 에이전트의 일반 reasoning 성능에 의해 결정된다.
+
+### 4.6 과제 568 — 비ARIA 모달의 KG 적용 한계 (별도 분석)
+
+다른 6 과제와 달리 568은 V0/V1 모두 의미적으로 *실패* 한다. "Invite members" 다이얼로그가 GitLab Pajamas Vue 컴포넌트로 ARIA-non-conformant이며 KG의 `project/member_list` 클래스에 modal 내부 액션 카탈로그가 비어 있다. 두 변종 모두 modal 트리거(`Invite members` 버튼)까지는 도달하지만 모달 내부의 사용자 검색 입력·역할 선택을 처리하지 못해 3 trial 모두 20분 시간 초과한다. KG 기여는 모달 진입 *직전까지* 로 한정되며 내부에서 소멸한다. 이 한계는 KG가 ARIA 표준 기반 수집기로 빌드되어 있다는 *의도적 설계 선택*에서 기인하며, 비표준 컴포넌트가 다수인 modern 웹 프레임워크에서는 KG 적용 boundary가 된다. 568은 다른 6 과제와는 *전혀 다른 패턴*(둘 다 실패, KG 도움 범위 밖)이므로 §4.5의 효과 조건 분석에서 분리해 별도 절로 보고한다.
 
 ## 5. 결론 및 향후 연구
 
-본 연구는 사이트별 KG의 효과를 보편 주장 없이 7-과제 probe로 특성화하였다. **효과 발생 조건은 (i) target 클래스가 KG에 정확 또는 useful adjacent로 매핑되고 (ii) baseline이 비효율적 multi-hop 또는 catastrophic 폭주 가능성이 있는 경로를 거칠 때**로 모인다. 7 과제 중 4 과제(102/309/418/664)에서 V1 평균 step이 0.7~7.7 단축됐으며, 그 중 2 과제(309, 664)에서는 V0의 catastrophic trial(54·37 step)을 V1이 일관된 범위로 안정화하여 표준편차를 5~12배 감소시키는 *worst-case 안정화* 가 효과의 주요 메커니즘이다. **효과 미발생 조건**은 baseline이 이미 효율적인 경우(156)이며, **효과 부정 조건**은 비ARIA 모달 내부에서 KG 기여 소멸(568)로 분포한다. KG는 평가기 통과율과 직교하며 step 효율에만 영향한다. 실용 함의는 KG가 _보편 가속 도구가 아니라 평균 단축과 worst-case 안정화의 조건부 도구_ 라는 점이다.
+본 연구는 OpenAI `gpt-5.4-mini` 단일 모델 위에서 WebArena-Verified GitLab의 7 과제를 V0(KG 미사용)와 V1(KG minimal mode)로 측정해 사이트별 KG의 효과를 정직하게 특성화했다. 핵심 발견은 다음 셋이다.
 
-한계. N=7 과제·단일 사이트(GitLab)·단일 모델(OpenAI gpt-5.4-mini)·iterative 선정으로 일반화는 제한적이다. 향후 (i) cross-site (Reddit/Postmill) 측정으로 KG 구축 프로토콜의 사이트 무관성을 실증, (ii) cross-model 측정으로 효과 조건이 모델 의존인지 검증, (iii) 비ARIA 컴포넌트로 수집기 확장하여 모달 내부 한계 완화, (iv) 미매핑 클래스 인지 및 "unmapped" 옵션 도입으로 inferrer 페널티 억제를 진행한다.
+(1) **Step 효율에서 유의미한 효과**. V1은 의미적 성공한 6 과제 중 4 과제(102, 309, 418, 664)에서 평균 step을 0.7~7.7 단축한다. 그 중 2 과제(309, 664)는 baseline의 catastrophic trial(54·37 step)을 V1이 일관된 범위로 안정화하여 표준편차를 5~12배 감소시키는 *worst-case 안정화*가 효과의 주요 메커니즘이다. KG의 anchored target이 baseline의 catastrophic 분기(검색 회로·폼 혼란)를 차단한다.
+
+(2) **Task 성공률은 baseline 능력에 좌우**. 의미적 성공률은 V0=V1=6/7(task-level)로 *동일* 하다. trial-level에서는 V0 18/21·V1 17/21로 V1이 한 trial 낮다(309의 KG anchor 갇힘 사례). KG는 task가 *통과되는지 여부*가 아니라 *통과까지의 효율*에 기여하며, 의미적 성공·실패는 LLM 에이전트의 일반 reasoning 능력에 의해 결정된다.
+
+(3) **비ARIA 컴포넌트가 적용 boundary**. 568에서 KG는 modal 트리거 도달 직전까지만 안내하고 내부에서 기여가 소멸한다. ARIA 표준 기반 수집기의 *의도적* 한계이며 modern 웹 프레임워크에서 KG 적용 범위를 제약한다.
+
+향후 연구 방향은 (i) **KG 재설계** — 비ARIA 컴포넌트를 직접 탐색하는 수집기 확장으로 modal·Vue 기반 widget 내부도 매핑하여 적용 boundary를 넓히는 것, (ii) **다른 사이트에서의 일반화** — Reddit/Postmill 등 ARIA conformance 수준이 다른 사이트에서 동일 KG 구축 프로토콜이 site-agnostic하게 작동하는지 cross-site 측정으로 실증하는 것, (iii) **성공률 측면 기여 가능성** — KG가 step 효율을 넘어 답 포맷·HTTP 요청 패턴까지 가이드하면 의미적 성공률 자체에도 기여할 수 있는지 — 본 연구가 step-efficiency 효과는 실증했지만 통과율 기여는 *시도되지 않은 차원* 으로 남았다 — 를 조사하는 것이다.
+
+한계. N=7 과제·단일 사이트(GitLab)·단일 모델·iterative 선정으로 일반화는 제한적이며, 평가기 메타데이터·strict-match 결함이 KG 효과 측정의 외부 noise로 작용한다.
 
 ## 참 고 문 헌
 
