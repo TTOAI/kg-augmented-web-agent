@@ -40,17 +40,17 @@ WebArena-Verified GitLab 자가 호스팅 인스턴스를 사용한다. 에이�
 
 ### 3.1 과제 개요와 의미적 성공률 도입
 
-표 1은 7개 과제의 의도(intent)와 type, KG 추론 클래스를 요약한다. NAV 3건 / RET 1건 / MUT 3건로 과제 type이 분산되며 각 과제는 측정 전에 분류 라벨(효과 후보 H / 한계 후보 L / 무영향 후보 Null)이 가설 카드(`task_cards`)에 등록되어 있다.
+표 1은 7개 과제의 의도(intent)와 type, KG 추론 클래스를 요약한다(각 과제의 자세한 의도는 §3.4의 인사이트에서 함께 풀어 쓴다). NAV 3건 / RET 1건 / MUT 3건로 과제 type이 분산되며 각 과제는 측정 전에 분류 라벨(효과 후보 H / 한계 후보 L / 무영향 후보 Null)이 가설 카드(`task_cards`)에 등록되어 있다.
 
-| ID | type | 의도 (요약) | KG 추론 클래스 |
-|----|------|-----------|----------------|
-| 102 | NAV | a11yproject 저장소의 help wanted 라벨 open issue 목록 도달 | project/issue_list |
-| 156 | NAV | 내가 assignee인 merge request 목록 도달 | dashboard/merge_request_list |
-| 309 | RET | thoughtbot/administrate에 최다 commit한 사용자명 조회 | project/main |
-| 418 | MUT | 사용자 GitLab status를 "Busy"로 설정 | account/edit |
-| 568 | MUT | a11yproject 저장소에 두 사용자를 collaborator로 초대 | project/member_list |
-| 44 | NAV | 사용자 To-Do List 페이지 열기 | dashboard/todo_list |
-| 664 | MUT | awesome-python 저장소에 특정 제목의 issue 생성 | project/issue_detail |
+| ID | type | 의도 | KG 클래스 |
+|----|------|------|-----------|
+| 102 | NAV | help wanted 라벨 이슈 목록 | project/issue_list |
+| 156 | NAV | 내 assignee MR 목록 | dashboard/merge_request_list |
+| 309 | RET | 최다 commit 사용자명 | project/main |
+| 418 | MUT | status "Busy" 설정 | account/edit |
+| 568 | MUT | collaborator 초대 | project/member_list |
+| 44 | NAV | To-Do List 열기 | dashboard/todo_list |
+| 664 | MUT | issue 생성 | project/issue_detail |
 
 WebArena-Verified 평가기 출력만으로 두 변종을 비교하면 KG 효과 측정이 평가기 결함의 잡음에 가려진다. 본 측정에서 식별한 결함 유형은 셋이다. (a) 메타데이터 불일치 (과제 102): 평가기의 기대 URL이 과제 의도와 다른 저장소(`byteblaze/a11y-syntax-highlighting`)를 가리키므로 에이전트가 과제 명시 저장소(`a11yproject/a11yproject.com`)에 정확히 도달했음에도 fail로 기록. (b) 답 포맷 불일치 (과제 309): 과제는 username을 묻지만 평가기 기대 값은 email(`wright.grayson@gmail.com`)이라 username 답이 엄격 일치에서 실패. (c) API 엔드포인트 불일치 (과제 664): UI 폼 제출로 이슈 #2393이 실제 생성되었음에도 평가기는 REST `/api/v4/projects/{id}/issues` POST만 인정해 실패로 기록.
 
