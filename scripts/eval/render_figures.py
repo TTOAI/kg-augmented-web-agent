@@ -242,10 +242,10 @@ def render_step_box_plot(cells: dict, out_path: Path) -> None:
     ax.set_xticks(range(len(conditions)))
     ax.set_xticklabels(labels, fontsize=9)
     ax.set_ylabel("Step count (per trial)")
-    ax.set_title("V0 vs V1 step distribution per task (3 trials each, raw points overlaid)")
+    ax.set_title("Per-task step distribution: Baseline vs KG (3 trials each, raw points overlaid)")
     legend_elements = [
-        Patch(facecolor="#888", alpha=0.55, edgecolor="black", label="V0 (no KG)"),
-        Patch(facecolor="#1f77b4", alpha=0.55, edgecolor="black", label="V1 (KG minimal)"),
+        Patch(facecolor="#888", alpha=0.55, edgecolor="black", label="Baseline (no KG)"),
+        Patch(facecolor="#1f77b4", alpha=0.55, edgecolor="black", label="KG (minimal mode)"),
     ]
     ax.legend(handles=legend_elements, loc="upper left")
     ax.grid(True, axis="y", alpha=0.3)
