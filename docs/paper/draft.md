@@ -38,7 +38,10 @@ WebArena-Verified GitLab 자가 호스팅 인스턴스를 사용한다. 에이�
 
 ## 4. 결 과
 
-표 1은 7 과제의 V0/V1 step 통계이다. mean (sd) 와 raw 3 trial 값을 병기하여 worst-case trial이 평균에 미친 영향을 투명하게 노출한다.
+그림 1은 7 과제의 per-trial step 분포를 V0/V1 box plot + raw 3 trial scatter로 보여준다. H1(309)·Null2(664) 두 과제에서 V0 box가 위로 길게 늘어진 것은 baseline의 catastrophic trial이 worst-case를 끌어올린 결과이며, 같은 과제의 V1 box가 좁게 붙어 있는 것이 *worst-case 안정화* 효과의 시각적 표지다. L2(568)는 두 변종 모두 timeout(붉은 ×)으로 표시된다. 표 1은 동일 데이터를 mean (sd) + raw trial 값으로 정량 표기한다.
+
+![그림 1. 과제별 V0/V1 step 분포 (3 trial 각각, raw point + box). 회색 = V0(KG 미사용), 파랑 = V1(KG minimal mode). 568은 V0/V1 모두 시간 초과로 box 없이 ×로 표시.](figures/step_box.png)
+
 
 | 과제 ID | 유형 | V0 trials | V0 mean (sd) | V1 trials | V1 mean (sd) | Δmean | KG 추론 클래스 | 평가기 V0/V1 |
 |---------|------|-----------|--------------|-----------|--------------|-------|----------------|--------------|

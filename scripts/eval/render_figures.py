@@ -186,6 +186,77 @@ def render_step_bar_chart(cells: dict, out_path: Path) -> None:
     print(f"[ok] {out_path}")
 
 
+def render_step_box_plot(cells: dict, out_path: Path) -> None:
+    """Per-trial box+scatter plot: V0 (gray) vs V1 (blue) side-by-side per task.
+
+    With only 3 trials per cell a true box is degenerate; we overlay raw trial
+    points so the reader sees the full distribution. Timeouts are shown as a
+    red 'x' marker at a sentinel height.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Patch
+    except ImportError:
+        print("[warn] matplotlib not installed; skipping box plot", file=sys.stderr)
+        return
+    conditions = list(CONDITION_TO_TASK.keys())
+    task_ids = [CONDITION_TO_TASK[c] for c in conditions]
+    labels = [f"{c}\n#{tid}" for c, tid in zip(conditions, task_ids)]
+    width = 0.32
+
+    # Determine y-axis range from non-timeout values across all cells.
+    all_vals: list[float] = []
+    for cond in conditions:
+        tid = CONDITION_TO_TASK[cond]
+        for variant in VARIANTS:
+            cell = cells.get(f"{tid}__{variant}") or {}
+            raw = (cell.get("step") or {}).get("raw") or []
+            all_vals.extend([v for v in raw if v is not None])
+    y_max = (max(all_vals) if all_vals else 30) + 5
+    timeout_y = y_max - 2
+
+    fig, ax = plt.subplots(figsize=(11, 5.5))
+    for i, tid in enumerate(task_ids):
+        for j, variant in enumerate(VARIANTS):
+            offset = (j - (len(VARIANTS) - 1) / 2) * width
+            x = i + offset
+            cell = cells.get(f"{tid}__{variant}") or {}
+            raw = (cell.get("step") or {}).get("raw") or []
+            valid = [v for v in raw if v is not None]
+            if not valid:
+                ax.scatter([x], [timeout_y], marker="x", s=80, color="red", zorder=4)
+                ax.text(x, timeout_y + 0.6, "timeout", ha="center", fontsize=7, color="red")
+                continue
+            color = "#888" if variant == "v0" else "#1f77b4"
+            ax.boxplot(
+                valid, positions=[x], widths=width * 0.85,
+                patch_artist=True, whis=(0, 100), showfliers=False,
+                medianprops={"color": "black"},
+                boxprops={"facecolor": color, "alpha": 0.55, "edgecolor": "black"},
+                whiskerprops={"color": "black"},
+                capprops={"color": "black"},
+            )
+            jitter = [x + ((k - (len(valid) - 1) / 2) * 0.05) for k in range(len(valid))]
+            ax.scatter(jitter, valid, color="black", s=22, zorder=3, alpha=0.85)
+
+    ax.set_xticks(range(len(conditions)))
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_ylabel("Step count (per trial)")
+    ax.set_title("V0 vs V1 step distribution per task (3 trials each, raw points overlaid)")
+    legend_elements = [
+        Patch(facecolor="#888", alpha=0.55, edgecolor="black", label="V0 (no KG)"),
+        Patch(facecolor="#1f77b4", alpha=0.55, edgecolor="black", label="V1 (KG minimal)"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper left")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.set_ylim(0, y_max + 1)
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"[ok] {out_path}")
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("root", type=Path,
@@ -204,6 +275,7 @@ def main(argv: list[str]) -> int:
     )
     print(f"[ok] {out_dir}/condition_synthesis.md")
     render_step_bar_chart(cells, out_dir / "figures" / "step_counts.png")
+    render_step_box_plot(cells, out_dir / "figures" / "step_box.png")
     return 0
 
 
