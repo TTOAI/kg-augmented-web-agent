@@ -36,19 +36,9 @@ WebArena-Verified GitLab 자가 호스팅 인스턴스를 사용한다. 에이�
 
 ## 3. 결 과
 
-### 3.1 태스크 개요와 의미적 성공률 도입
+### 3.1 평가기 결함과 의미적 성공률 도입
 
-표 1은 7개 태스크의 의도(intent)와 type, KG 추론 클래스를 요약한다(각 태스크의 자세한 의도는 §3.4의 인사이트에서 함께 풀어 쓴다). NAV 3건 / RET 1건 / MUT 3건로 태스크 type이 분산되며 각 태스크는 측정 전에 후보 라벨(효과 후보(H) / 한계 후보(L) / 무영향 후보(Null))이 가설 카드(task_cards)에 등록되어 있다.
-
-| ID  | type | 의도                       | KG 클래스                    |
-| --- | ---- | -------------------------- | ---------------------------- |
-| 102 | NAV  | help wanted 라벨 이슈 목록 | project/issue_list           |
-| 156 | NAV  | 내 assignee MR 목록        | dashboard/merge_request_list |
-| 309 | RET  | 최다 commit 사용자명       | project/main                 |
-| 418 | MUT  | status "Busy" 설정         | account/edit                 |
-| 568 | MUT  | collaborator 초대          | project/member_list          |
-| 44  | NAV  | To-Do List 열기            | dashboard/todo_list          |
-| 664 | MUT  | issue 생성                 | project/issue_detail         |
+본 측정의 7개 태스크는 NAV 3건·RET 1건·MUT 3건이며, 효과 후보(H)·한계 후보(L)·무영향 후보(Null) 세 분류 모두에 1개 이상 포함된다. 각 태스크의 의도와 KG 추론 결과는 §3.4의 인사이트에서 태스크별로 풀어 설명한다.
 
 WebArena-Verified 평가기 출력만으로 두 에이전트를 비교하면 KG 효과 측정이 평가기 결함의 잡음에 가려진다. 본 측정에서 식별한 결함 유형은 셋이다. (a) 메타데이터 불일치 (태스크 102): 평가기의 기대 URL이 태스크 의도와 다른 저장소(byteblaze/a11y-syntax-highlighting)를 가리키므로 에이전트가 태스크 명시 저장소(a11yproject/a11yproject.com)에 정확히 도달했음에도 fail로 기록. (b) 답 포맷 불일치 (태스크 309): 태스크는 username을 묻지만 평가기 기대 값은 email(wright.grayson@gmail.com)이라 username 답이 엄격 일치에서 실패. (c) API 엔드포인트 불일치 (태스크 664): UI 폼 제출로 이슈 #2393이 실제 생성되었음에도 평가기는 REST /api/v4/projects/{id}/issues POST만 인정해 실패로 기록.
 
