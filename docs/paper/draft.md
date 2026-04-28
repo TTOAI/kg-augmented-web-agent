@@ -57,11 +57,15 @@ WebArena-Verified GitLab 자가 호스팅 인스턴스를 사용한다. 에이�
 
 ### 4.1 효과 발생 조건 (4건)
 
-**과제 102** (다중 hop NAV): "a11yproject/repo의 help wanted 라벨 이슈 목록 열기". V1이 KG의 `project/issue_list` 추론과 `/-/issues` path 단축을 활용해 V0의 3-hop을 1-hop goto로 압축하고 라벨 *카테고리 존재* 만으로 dropdown을 직접 클릭한다. 라벨 *값* "help wanted"는 task에서 추출한다. **V1 mean 9.7 vs V0 mean 14.0 (Δ −4.3, 31% 단축).** 두 변종의 sd가 모두 작아 효과가 안정적으로 재현된다.
+각 과제의 효과 메커니즘을 분리해 기술한다. 102는 *평균 단축* 우세, 309·664는 *worst-case 안정화* 우세, 418은 *작은 양쪽 개선* 으로 패턴이 다르다.
 
-**과제 309·664 — *worst-case 안정화* 우세**: 두 과제 모두 V0의 한 trial이 catastrophic하게 폭주한다. **309**(single URL RET, "thoughtbot/administrate 최다 commit 사용자명 조회"): V0 trial이 [13, 19, **54**]로 분산이 매우 크다(sd 22.1). 54-step trial은 검색 결과를 신뢰하지 못해 commit 페이지·검색·필터 사이를 반복 왕복한 결과다. V1은 KG가 `project/main`으로 confident 추론해 commit 페이지 진입까지의 trajectory를 anchoring하여 [18, 24]로 안정화 (sd 4.2). **mean −7.7, sd 5배 감소**. **664**(issue 작성 MUT): V0 [12, 14, **37**] (sd 13.9). 37-step trial은 form 작성 중 잘못된 프로젝트 진입을 반복한 사례다. V1은 KG가 `project/issue_detail`로 직접 안내해 [14, 14, 16]으로 안정 (sd 1.2). **mean −6.3, sd 12배 감소**. 두 과제는 *KG의 anchored target이 baseline의 catastrophic trajectory를 prevent하는* 동일 메커니즘을 공유한다.
+**과제 102 — 안정적 평균 단축 (다중 hop NAV)**. "a11yproject/repo의 help wanted 라벨 이슈 목록 열기". V0는 프로젝트 진입→Issues→라벨 dropdown 탐색→라벨 적용의 3-hop을 평균 14.0 step (sd 2.7)에 처리한다. V1은 KG가 `project/issue_list`로 추론해 `/-/issues` path를 단축으로 노출하고 라벨 *카테고리 존재* 만 알려준다. 에이전트는 첫 step에서 `goto`로 issue 목록에 직행하고 라벨 dropdown을 직접 클릭한다. 라벨 *값* "help wanted"는 task에서 추출한다. **V1 mean 9.7 (sd 2.1), Δ −4.3 (31% 단축)**. 두 변종 모두 sd가 작아 효과가 trial 간 안정적으로 재현된다.
 
-**과제 418** (status 설정 MUT): V1 mean 11.0 vs V0 mean 11.7 (Δ −0.7). 작은 평균 단축이지만 V0의 worst trial(18 step)을 V1이 15 step으로 약간 단축. KG가 `account/edit`으로 추론하는데 사용자 status는 navbar avatar 팝오버에 있어 useful adjacent에 그치지만 worst-case 페널티는 없다. 사전 가설인 능동적 오도(timeout)는 관측되지 않았다.
+**과제 309 — V0 검색 폭주의 prevent (single URL RET)**. "thoughtbot/administrate 최다 commit 사용자명 조회". V0 raw trial은 [13, 19, **54**]이며 sd 22.1로 분산이 극단적이다. 54-step trial 로그를 보면 에이전트가 검색 결과의 명확성을 의심하여 commit 페이지·검색 박스·필터 사이를 반복 왕복하는 패턴이다. V1은 KG가 `project/main`으로 K=3 합의 추론해 프로젝트 메인 페이지를 anchored target으로 제시하고 에이전트는 그 trajectory에 머물러 commit 페이지를 빠르게 식별한다. V1 raw [18, 24] (n=2, 1 trial은 ERROR), sd 4.2. **mean −7.7, sd 5배 감소**. KG의 직접적 효과는 commit 페이지 자체를 가리키는 게 아니라 *프로젝트 anchor 제공*으로 V0의 검색 폭주 회로를 차단하는 것이다.
+
+**과제 664 — V0 폼 혼란의 prevent (issue 작성 MUT)**. "awesome-python repo에 Python 3.11 관련 이슈 작성". V0 raw [12, 14, **37**] (sd 13.9). 37-step trial은 폼 작성 도중 다른 프로젝트로 잘못 이동·복귀를 반복한 결과다. V1은 KG가 `project/issue_detail`로 추론하는데 — 정확히는 `issue_new_form`이 더 적합하지만 issue_detail family 안에서 *new issue* 사이드바 항목이 즉시 가시되어 useful adjacent로 작용한다. V1 raw [14, 14, 16], sd 1.2. **mean −6.3, sd 12배 감소**. 309와 동일한 "anchored trajectory가 catastrophic 분기 prevent" 메커니즘이지만 패턴은 다르다 — 309는 *검색 회로*, 664는 *폼 작성 중 분기*가 차단되는 형태다.
+
+**과제 418 — 작은 양쪽 개선 (status 설정 MUT)**. V0 raw [8, 9, 18], V1 raw [7, 11, 15]. mean 11.7 → 11.0 (Δ −0.7), sd 5.5 → 4.0. 작은 평균 단축에 worst-case 약간 개선(18→15)이 동반된다. KG는 `account/edit`으로 confident 추론하며 사용자 status UI가 navbar avatar 팝오버에 있어 매핑은 정확하지 않으나 useful adjacent로 작용한다. 사전 가설인 능동적 오도(timeout)는 관측되지 않으며 작은 비용 없는 개선이 발생한다.
 
 ### 4.2 효과 미발생 조건 (1건)
 
