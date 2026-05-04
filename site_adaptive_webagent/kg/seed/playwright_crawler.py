@@ -155,8 +155,7 @@ async def _crawl_site_async(
 
                 # URL 정규화 + path slot 추출은 후처리 단계 (crawl_to_kg)에서.
                 # 여기선 normalized path만 보유 (path만, query는 별도).
-                parsed = urlparse(final_url)
-                normalized = normalize_url(parsed.path or "/", cfg)
+                normalized = normalize_url(final_url, cfg)
                 template = normalized.path
                 query_names = sorted({k for k, _ in normalized.query_pairs})
 
@@ -194,8 +193,7 @@ async def _crawl_site_async(
                     for link in outgoing:
                         if link in visited_urls:
                             continue
-                        link_parsed = urlparse(link)
-                        link_norm = normalize_url(link_parsed.path or "/", cfg)
+                        link_norm = normalize_url(link, cfg)
                         link_template = link_norm.path
                         link_keys = tuple(sorted({k for k, _ in link_norm.query_pairs}))
                         sig = (link_template, link_keys)

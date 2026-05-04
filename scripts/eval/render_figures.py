@@ -3,7 +3,7 @@
 Inputs: <root>/cells.json (produced by aggregate_cells.py)
 Outputs:
     <root>/condition_synthesis.md  — paper §4 source table
-    <root>/figures/step_counts.png — grouped bar chart over 8 tasks × 3 variants
+    <root>/figures/step_counts.png — grouped bar chart over tasks × variants
 
 Outcome label per condition (automated triage; manual narrative still required):
     H*    confirmed if V1 step median < V0; partial if equal; refuted if >.
@@ -80,6 +80,12 @@ def _outcome_label(condition: str, v0: dict | None, v1: dict | None) -> str:
         # or parity-with-baseline-failure) more than V0.
         if t1 > t0:
             return "confirmed_limitation"
+        # 양쪽 모두 측정값이 없는 경우 (e.g. 둘 다 timeout) → docstring의 "또는 둘 다 실패"
+        # 케이스에 해당. None==None을 parity로 잘못 라벨링하지 않도록 별도 처리.
+        if s0 is None and s1 is None:
+            return "confirmed_limitation"
+        if s0 is None or s1 is None:
+            return "needs_review"
         if t0 == t1 and s0 == s1:
             return "parity_review"
         return "needs_review"
@@ -122,7 +128,7 @@ def render_condition_synthesis_md(cells: dict) -> str:
 
 
 def render_step_bar_chart(cells: dict, out_path: Path) -> None:
-    """Save a grouped bar chart of step counts (8 tasks × 3 variants)."""
+    """Save a grouped bar chart of step counts (tasks × variants)."""
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -157,9 +163,11 @@ def render_step_bar_chart(cells: dict, out_path: Path) -> None:
                 series[variant][i] = sentinel
 
     fig, ax = plt.subplots(figsize=(11, 5))
-    colors = {"v0": "#777777", "v1": "#1f77b4", "v1_tc": "#9467bd"}
+    colors = {"v0": "#777777", "v1": "#1f77b4"}
     for j, variant in enumerate(VARIANTS):
-        offset = (j - 1) * width
+        # render_step_box_plot과 동일한 대칭 offset (이전엔 3 variant용 (j-1)을
+        # 사용해서 2 variant 환경에서 막대가 tick 왼쪽에 anchor됐다).
+        offset = (j - (len(VARIANTS) - 1) / 2) * width
         bars = ax.bar(
             [x + offset for x in xs], series[variant],
             width=width, label=variant, color=colors.get(variant),

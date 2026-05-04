@@ -665,6 +665,20 @@ async def _try_sub_goal(
         action_name, args, thought, tool_id, messages = _get_tool_action(
             llm, system, messages, tools,
         )
+
+        # Sentinel: LLM이 2회 연속 tool을 호출하지 않은 경우 task-level stuck으로 종료.
+        # tool_id="none"인 상태로 unknown-tool 분기로 빠지면 orphan tool_result가
+        # 생성되어 다음 호출에서 Anthropic API 400을 유발한다 (`tool_use_ids found in
+        # tool_result blocks must reference an existing tool_use block`).
+        if action_name == "__scaffold_stuck__":
+            reason = args.get("reason", "scaffold stuck")
+            logger.info("[LLM] scaffold_stuck → task-level exit: %s", reason)
+            return ExecutionOutcome(
+                task_type=task_type,
+                verdict="stuck",
+                reason=reason[:200],
+            ), step + 1
+
         _action_history.append(f"{action_name}({args.get('target', args.get('keyword', args.get('fact', '')[:30]))})")
         logger.info("[LLM] step=%d  action=%s  thought=%r",
                     step + 1, action_name, (thought or "")[:200])

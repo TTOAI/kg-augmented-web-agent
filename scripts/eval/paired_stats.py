@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import statistics
 import sys
 from collections import defaultdict
 from itertools import combinations
@@ -282,7 +283,7 @@ def compare_continuous(
         "n_paired": len(diffs),
         "a_mean": sum(a_means) / len(a_means) if a_means else 0.0,
         "b_mean": sum(b_means) / len(b_means) if b_means else 0.0,
-        "median_diff": sorted(diffs)[len(diffs) // 2] if diffs else 0.0,
+        "median_diff": statistics.median(diffs) if diffs else 0.0,
         "w_plus": w_plus,
         "p_value": p,
     }

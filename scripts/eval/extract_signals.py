@@ -39,7 +39,9 @@ _RE_LLM_TOKENS = re.compile(
     r"\[LLM\] tokens in=(\d+)\s+out=(\d+)\s+cache_create=(\d+)\s+cache_read=(\d+)"
 )
 _RE_OUTCOME_DONE = re.compile(
-    r"\[LLM\] (?:all goals complete|task completed) in ([\d.]+)s \((\d+) steps?\)"
+    r"\[LLM\] (?:all goals complete|task completed|"
+    r"(?:RETRIEVE )?final answer(?: stage failed)?|"
+    r"final report_failure) in ([\d.]+)s \((\d+) steps?\)"
 )
 _RE_OUTCOME_TIMEOUT = re.compile(r"TIMEOUT|wall.?clock.*timeout|Killed", re.IGNORECASE)
 _RE_TOOL_CALL = re.compile(r"\[LLM\] (\w+)\s+(.*)$")  # generic per-tool log

@@ -240,8 +240,8 @@ def find_path(
             hops=len(sib_path),
             note=(
                 f"Exact path to {target!r} unavailable. Routed to sibling "
-                f"{sibling!r} in family {extract_family(target)!r}; agent may "
-                f"find target via in-page links not captured in KG."
+                f"{sibling!r} in family {extract_family(target, config=config)!r}; "
+                f"agent may find target via in-page links not captured in KG."
             ),
             progress_checked=True,
         )

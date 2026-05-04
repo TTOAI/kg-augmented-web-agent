@@ -715,6 +715,18 @@ def generate_hint(
         current_class_actions,
         exclude_labels=_path_step_labels(path_result.path),
     )
+
+    def _join(base: str) -> str:
+        # exact·stay_and_explore와 동일하게 cascade fallback 경로에서도 filter_section
+        # (cross-class URL recipe shortcut)을 유지한다. F2 path-rewrite의 가치는
+        # 정확히 이 fallback 경로에서 가장 크다.
+        parts = [base]
+        if actions_section:
+            parts.append(actions_section)
+        if filter_section:
+            parts.append(filter_section)
+        return "\n".join(parts)
+
     # In minimal mode, always use a terse template (never LLM-generated text)
     # to guarantee class names are not leaked into the hint.
     if _minimal_mode():
@@ -722,7 +734,7 @@ def generate_hint(
         bind_line = _fmt_bindings(bindings)
         if bind_line:
             base = f"{base}\n{bind_line}"
-        return f"{base}\n{actions_section}" if actions_section else base
+        return _join(base)
     if llm is None:
         # No LLM: degrade to a terse template so integration still proceeds.
         base = (
@@ -731,11 +743,10 @@ def generate_hint(
             f"Strategy: {strategy}; routed to {path_result.actual_target}\n"
             f"{path_result.note}"
         )
-        return f"{base}\n{actions_section}" if actions_section else base
+        return _join(base)
     key = _cache_key(path_result, current)
     if cache is not None and key in cache:
-        cached = cache[key]
-        return f"{cached}\n{actions_section}" if actions_section else cached
+        return _join(cache[key])
     user_prompt = _llm_fallback_user_prompt(path_result, current, task, bindings)
     try:
         raw = llm.complete(
@@ -748,4 +759,4 @@ def generate_hint(
     hint = f"{_HINT_HEADER}\n{raw.strip()}"
     if cache is not None:
         cache[key] = hint
-    return f"{hint}\n{actions_section}" if actions_section else hint
+    return _join(hint)

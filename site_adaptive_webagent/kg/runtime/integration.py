@@ -230,9 +230,19 @@ class KGSession:
         # 3. cross-scope siblings with same base name (예: project/issue_list
         #    → dashboard/issue_list)
         if len(parts) >= 2:
-            base_name = parts[-1] if parts[-1] not in {
-                "yours", "starred", "all", "trending", "pending", "done"
-            } else (parts[-2] if len(parts) >= 2 else parts[-1])
+            # 사이트별 variant_segments는 cascade_config에서 로드 (Tier 3b 사이트 무관
+            # refactor). 비어 있으면 path_finder 모듈 상수로 fallback.
+            from site_adaptive_webagent.kg.runtime.path_finder import (
+                VARIANT_SEGMENTS as _DEFAULT_VARIANT_SEGMENTS,
+            )
+            variant_segments = (
+                self.cascade_config.variant_segments
+                if self.cascade_config and self.cascade_config.variant_segments
+                else _DEFAULT_VARIANT_SEGMENTS
+            )
+            base_name = parts[-1] if parts[-1] not in variant_segments else (
+                parts[-2] if len(parts) >= 2 else parts[-1]
+            )
             for other_name, other_entry in self.catalog.entries.items():
                 if other_name == class_name:
                     continue

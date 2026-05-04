@@ -184,7 +184,11 @@ class OpenAILLMClient:
         )
 
     def _extra_kwargs(self) -> dict[str, Any]:
-        return {"temperature": self._temperature} if self._temperature is not None else {}
+        # reasoning model (gpt-5*, o-series)는 temperature 파라미터 미지원 (line 278 참조).
+        # chat.completions·Responses API 양쪽에 동일 제약 적용.
+        if self._temperature is None or self._use_responses_api:
+            return {}
+        return {"temperature": self._temperature}
 
     def complete(self, *, system: str, messages: list[dict[str, str]]) -> str:
         all_messages = [{"role": "system", "content": system}, *messages]
