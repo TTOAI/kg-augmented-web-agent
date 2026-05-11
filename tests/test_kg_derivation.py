@@ -16,8 +16,6 @@ from site_adaptive_webagent.kg.seed.crawl_to_kg import crawl_results_to_sitekg
 from site_adaptive_webagent.kg.seed.derivation_to_kg import derivation_to_sitekg
 from site_adaptive_webagent.kg.seed.llm_derivation import (
     DerivationResult,
-    build_derivation_system_prompt,
-    build_derive_kg_tool,
     derive_infotypes_and_actions,
 )
 from site_adaptive_webagent.kg.seed.playwright_crawler import (
@@ -127,38 +125,6 @@ def _empty_call_responses() -> list[str]:
         json.dumps({"action": "derive_infotypes", "infotypes": []}),
         json.dumps({"action": "derive_action_renames", "renames": []}),
     ]
-
-
-# ---------------------------------------------------------------------------
-# build_derive_kg_tool / build_derivation_system_prompt
-# ---------------------------------------------------------------------------
-
-class BuildDeriveKgToolTests(unittest.TestCase):
-    def test_tool_has_required_fields(self) -> None:
-        tool = build_derive_kg_tool()
-        self.assertEqual(tool["name"], "derive_kg")
-        schema = tool["input_schema"]
-        self.assertIn("infotypes", schema["properties"])
-        self.assertIn("action_renames", schema["properties"])
-        self.assertIn("state_pattern_groups", schema["properties"])
-        self.assertEqual(
-            set(schema["required"]),
-            {"state_pattern_groups", "infotypes", "action_renames"},
-        )
-
-
-class BuildSystemPromptTests(unittest.TestCase):
-    def test_prompt_lists_observed_state_patterns(self) -> None:
-        results, kg = _sample_crawl_kg()
-        prompt = build_derivation_system_prompt(kg, results)
-        for sp_id in kg.state_patterns:
-            self.assertIn(sp_id, prompt)
-
-    def test_prompt_lists_observed_actions(self) -> None:
-        results, kg = _sample_crawl_kg()
-        prompt = build_derivation_system_prompt(kg, results)
-        for act_name in kg.actions:
-            self.assertIn(act_name, prompt)
 
 
 # ---------------------------------------------------------------------------
