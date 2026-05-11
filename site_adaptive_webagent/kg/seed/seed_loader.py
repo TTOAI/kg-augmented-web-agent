@@ -90,7 +90,7 @@ def load_site_kg_from_dir(
         kg.infotypes[it.name] = it
         kg.realizes_edges.extend(it.realizes)
 
-    # Build metadata (07 §14)
+    # Build metadata
     kg.build_timestamp = datetime.now(tz=timezone.utc).isoformat()
     kg.builder_version = BUILDER_VERSION
     kg.source_mix = compute_source_mix(kg)

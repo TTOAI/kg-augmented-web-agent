@@ -5,8 +5,6 @@ consistent wording). Fallback strategies (family_sibling, scope_entry,
 hub_fallback) use an LLM to produce a 2-4 line natural explanation because
 the "why" deserves contextual wording. LLM results are cached by
 (strategy, current, actual_target, inferred_target).
-
-See docs/validation/solution2_design_decisions.md §8.
 """
 from __future__ import annotations
 
@@ -56,7 +54,7 @@ def _minimal_mode() -> bool:
     """
     return _os.getenv("KG_MODE", "auto").lower() == "minimal"
 
-# Regex for normalizing multi-instance action labels. See solution2_design §7.
+# Regex for normalizing multi-instance action labels.
 # Strips trailing counts (" 5"), user mentions (" @alice"), issue refs ("#42"),
 # and runs of whitespace. Preserves the semantic prefix.
 _NORMALIZE_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -85,8 +83,7 @@ def _fmt_action_labels(actions: list[str]) -> str:
 
     Normalizes instance-variable suffixes (counts, user mentions, issue refs),
     picks the most frequent canonical form as primary, and surfaces up to two
-    original variants so the agent can match against literal page text. See
-    solution2_design §7 for the normalize → canonical → variance-hint flow.
+    original variants so the agent can match against literal page text.
     """
     if not actions:
         return "(unknown action)"

@@ -5,9 +5,6 @@ samples do not reach a 2/K majority on a single class, the sub-goal is
 considered ambiguous and no hint is produced (returns `target_class=None`).
 The LLM is constrained to a closed set of known classes; any response outside
 the set is rejected as invalid.
-
-Design: see docs/validation/solution2_design_decisions.md §10 (target
-inference) and the pre-implementation discussion notes in plan.
 """
 from __future__ import annotations
 

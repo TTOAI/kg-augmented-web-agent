@@ -3,8 +3,6 @@
 Given current_class and target_class, return a structured PathResult describing
 how the agent can move from current to (or near) target. Uses the class-level
 edge graph produced by Stage C.
-
-Design decisions: see docs/validation/solution2_design_decisions.md §1, §6.
 """
 from __future__ import annotations
 

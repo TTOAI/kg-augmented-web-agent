@@ -183,7 +183,7 @@ class SiteKG:
     actions: dict[str, Action] = field(default_factory=dict)
     realizes_edges: list[RealizesEdge] = field(default_factory=list)
     leads_to_edges: list[LeadsToEdge] = field(default_factory=list)
-    # Build metadata (07 §14 — KG 구축 방법론)
+    # Build metadata
     build_timestamp: str | None = None
     source_mix: dict[str, int] = field(default_factory=dict)
     builder_version: str | None = None

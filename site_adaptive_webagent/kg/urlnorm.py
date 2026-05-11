@@ -1,7 +1,5 @@
 """URL 정규화·매칭·emit 3 primitive.
 
-02_open_questions.md §3-3 (정규화 8차원) + §3-8 (primitive 집합) 구현.
-
 핵심 연산:
 - normalize_url(url, site_config, runtime_context) → NormalizedURL
 - match_pattern(url, pattern, site_config, runtime_context) → (bool, bindings)
