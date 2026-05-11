@@ -38,10 +38,6 @@ def _append_task_note(task_notes: list[str] | None, note: str) -> None:
         del task_notes[: len(task_notes) - _TASK_NOTES_MAX]
 
 
-# ---------------------------------------------------------------------------
-# LLM execution loop (entry point)
-# ---------------------------------------------------------------------------
-
 import os as _os
 
 
@@ -56,18 +52,11 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-# Per-task retry/replan/budget caps — wall-time 예측성 확보.
-# Pilot 측정 시 task 당 wall-time 상한 ~8분 목표.
-# Task 744 같은 극단 MUTATE (GitLab modal invite flow)는 agent가 원천적으로 풀 수
-# 없어서 retry 허용해도 의미 없음 → 공격적 cap으로 빠르게 fail.
-# env var override 가능 (실험 iteration용).
+# Per-task caps — wall-time 예측성 확보. env vars로 override.
 _MAX_RETRIES_PER_GOAL = _env_int("MAX_RETRIES_PER_GOAL", 2)
 _MAX_REPLANS_PER_TASK = _env_int("MAX_REPLANS_PER_TASK", 1)
 
-# Global LLM call limit per task — standard ReAct는 step budget (max_steps)으로
-# 제어하지만, 본 agent는 tool call 재시도 등 parasitic LLM call 누적 가능. Task당
-# LLM call을 명시 상한해 wall-time 예측 가능하게 함.
-# 200 calls × ~3s ≈ 10분 상한. env `LLM_CALL_LIMIT_PER_TASK`로 override.
+# tool call 재시도로 인한 LLM 호출 누적까지 cap. 200 calls × ~3s ≈ 10분.
 _MAX_LLM_CALLS_PER_TASK = _env_int("LLM_CALL_LIMIT_PER_TASK", 200)
 
 
@@ -122,11 +111,7 @@ async def execute_with_llm(
     t_start = time.time()
     system = build_tool_use_system_prompt()
 
-    # Sub-goal별 KG 컨텍스트 캐시 (goal_idx → SubGoalKGContext). Infer 1회 후 재사용.
     sub_goal_kg_contexts: dict[int, "SubGoalKGContext"] = {}
-
-    # Wrap LLM client with call counter. Task 내 모든 LLM 호출이 자동으로 counter 증가 +
-    # 한도 초과 시 _LLMCallLimitExceeded 예외로 loop 탈출.
     llm = _CountingLLMClient(llm)
 
     try:
@@ -141,7 +126,7 @@ async def execute_with_llm(
     logger.info("[LLM] task=%r  task_type=%s", task, task_type)
     logger.info("[LLM] plan=%s", sub_goals)
 
-    checkpoint_stack = [page.url]  # goal별 checkpoint 스택 (index 0 = task 시작 URL)
+    checkpoint_stack = [page.url]
     task_notes: list[str] = []  # LLM이 수집한 정보 (전체 태스크 동안 유지)
     steps_used = 0
     replans_remaining = _MAX_REPLANS_PER_TASK
@@ -195,13 +180,11 @@ async def execute_with_llm(
                 )
             steps_used += used
 
-            # extract/failure → 즉시 반환
             if result is not None and result.verdict != "sub_goal_failed":
                 elapsed = time.time() - t_start
                 logger.info("[LLM] task completed in %.1fs (%d steps)", elapsed, steps_used)
                 return result
 
-            # sub-goal 성공 (done)
             if result is None:
                 checkpoint_stack.append(page.url)
                 logger.info("[LLM] goal %d/%d complete — checkpoint: %s",
@@ -209,7 +192,6 @@ async def execute_with_llm(
                 goal_succeeded = True
                 break
 
-            # sub-goal 실패 → checkpoint 복원 + retry
             failure_desc = (result.reason if result is not None else None) or f"attempt {attempt + 1} failed"
             failures.append(failure_desc)
             logger.info("[LLM] goal %d/%d failed (attempt %d): %s — restoring checkpoint",
@@ -259,9 +241,8 @@ async def execute_with_llm(
                 logger.info("[LLM] replan returned empty — failing task")
 
         if not goal_succeeded:
-            # 모든 retry + replan 소진 → 태스크 실패.
-            # 의도적 "target 없음" 선언은 agent가 report_failure로 수행해야 하며,
-            # 이 경로는 agent가 sub-goal을 완료하지 못한 "내부 실패"이므로 verdict=stuck.
+            # retry + replan 소진은 agent의 "내부 실패" → verdict=stuck.
+            # 의도적 "target 없음" 선언은 report_failure로 별도 처리.
             elapsed = time.time() - t_start
             logger.info("[LLM] goal %d/%d failed after all retries and replans in %.1fs",
                         goal_idx + 1, len(sub_goals), elapsed)
@@ -273,9 +254,7 @@ async def execute_with_llm(
 
         goal_idx += 1
 
-    # 모든 goal 완료 (또는 소진)
-    # RETRIEVE task이면 최종 답 확정 stage — hierarchical tool design:
-    # report_success(answer) vs report_failure(status) 중 하나를 LLM이 선택.
+    # RETRIEVE 최종 단계: report_success(answer) vs report_failure(reason).
     if task_type == "RETRIEVE":
         obs = await observe_page(page)
         try:
@@ -377,10 +356,7 @@ async def execute_with_llm(
                     return result
                 if call.name == "report_failure":
                     reason = str(call.arguments.get("reason", ""))
-                    #  이후: status enum 제거. final stage에서는 agent가
-                    # reason을 제공하면 즉시 abandoned으로 수용 — benchmark classifier가
-                    # reason의 의미론(없음 / 권한 / 불가능)을 분석해 final status 결정.
-                    # 이전의 "strong signal만 first-attempt accept" 분기는 불필요.
+                    # reason의 의미론 분류는 outcome_classifier의 몫 — 즉시 수용.
                     elapsed = time.time() - t_start
                     logger.info(
                         "[LLM] final report_failure in %.1fs (%d steps); reason=%r",
@@ -413,14 +389,13 @@ async def execute_with_llm(
                 break
         except Exception:
             logger.exception("[LLM] final answer stage raised")
-        # RETRIEVE인데 report_success 실패 → 데이터 없이 SUCCESS 방지.
-        # benchmark classifier가 verdict=stuck을 UNKNOWN_ERROR로 매핑할 것.
+        # report_success 실패 → 데이터 없는 SUCCESS 방지. classifier가 UNKNOWN_ERROR로 매핑.
         elapsed = time.time() - t_start
         logger.info("[LLM] RETRIEVE final answer stage failed in %.1fs (%d steps)", elapsed, steps_used)
         return ExecutionOutcome(task_type=task_type, verdict="stuck",
                                 reason="Final answer stage failed — no data retrieved")
 
-    # NAVIGATE 최종 체크: URL == 시작 URL이면 replan (navigate인데 안 움직임)
+    # NAVIGATE인데 URL이 시작점 그대로면 replan.
     if task_type == "NAVIGATE" and replans_remaining > 0 and page.url == checkpoint_stack[0]:
         logger.info("[LLM] NAVIGATE final check — URL unchanged from start, replanning")
         replans_remaining -= 1
@@ -535,18 +510,13 @@ async def _try_sub_goal(
     current_obs = await observe_page(page)
     _action_history: list[str] = []
     _MAX_MESSAGES = 10
-    _sub_goal_start_url = current_obs.url  # 현재 sub-goal 진입 시점 URL (navigation hard check용)
+    _sub_goal_start_url = current_obs.url
     tools = tools_for_goal(is_last_goal=is_last_goal, task_type=task_type)
 
-    # mid-task stuck 감지 상태: 동일 URL 다회 stall 감지용.
-    # `_consecutive_done_rejects`는 2026-04-17 `_verify_done` 단순화 후 trigger되는 경우가
-    # 극히 제한적 (final navigation URL 미변경 때만). 기존 feedback 로직(≥3 reject 시 강제
-    # report_failure)은 남겨두되, 현 hard-rule verify_done에서는 거의 발동 안 함을 명시.
     _last_url_for_stall = current_obs.url
     _url_stall_steps = 0
-    _consecutive_done_rejects = 0  # hard-rule 전환 후 low-activity counter
+    _consecutive_done_rejects = 0
 
-    # 이전 실패 이력을 피드백으로 주입 (graduated retry)
     if previous_failures:
         retry_count = len(previous_failures)
         all_failures = " | ".join(previous_failures)
@@ -571,8 +541,7 @@ async def _try_sub_goal(
     for step in range(step_budget):
         _log_step_observation(step, current_obs, sub_goals, goal_index)
 
-        # Bug 28 방어: URL이 동일 페이지에서 계속 멈춰 있으면 stuck 경고를 주입해
-        # LLM이 다른 경로를 시도하도록 유도한다.
+        # 동일 URL이 여러 step 유지되면 LLM에 stuck 경고를 주입해 다른 경로 유도.
         if current_obs.url == _last_url_for_stall:
             _url_stall_steps += 1
         else:
@@ -594,7 +563,7 @@ async def _try_sub_goal(
             current_class = kg_session.classify_url(current_obs.url)
             if current_class:
                 if kg_context.target_class is not None:
-                    # V1: full target-driven path + current/target filter merge.
+                    # target-driven path + current/target filter merge.
                     if (
                         kg_session.replan_per_step
                         or kg_context.cached_initial_path is None
@@ -610,9 +579,8 @@ async def _try_sub_goal(
                         kg_context.target_class
                     )
                 else:
-                    # V1-tc: target inferrer 비활성. path 없이 현재 클래스 page-surface
-                    # 힌트만 합성. stay_and_explore 전략으로 hint_generator가 액션·필터
-                    # 섹션만 렌더한다.
+                    # target inferrer 미사용 — current class page-surface 힌트만 합성
+                    # (stay_and_explore 전략으로 hint_generator가 액션·필터 섹션만 렌더).
                     from site_adaptive_webagent.kg.runtime.path_finder import (
                         PathResult as _PR,
                     )
@@ -631,8 +599,8 @@ async def _try_sub_goal(
                 cur_filter_templates = kg_session.get_filter_templates(
                     current_class
                 )
-                # Target + current class의 filter 예시를 합친다 (dedup).
-                # V1-tc에서 tgt_filter_templates는 빈 리스트 → 사실상 current만.
+                # target + current class filter dedup merge
+                # (target inferrer 미사용 시 tgt는 빈 리스트 → 사실상 current만).
                 seen_sigs = set()
                 filter_templates: list = []
                 for ft in tgt_filter_templates + cur_filter_templates:
@@ -683,7 +651,6 @@ async def _try_sub_goal(
         logger.info("[LLM] step=%d  action=%s  thought=%r",
                     step + 1, action_name, (thought or "")[:200])
 
-        # --- Auto-accumulate optional memo from any action tool ---
         memo_text = (args.get("memo") or "").strip()
         if memo_text:
             _append_task_note(task_notes, memo_text)
@@ -708,21 +675,17 @@ async def _try_sub_goal(
         if action_name != "report_success":
             _consecutive_done_rejects = 0
 
-        # --- Terminal actions ---
         if action_name == "report_success":
-            # 마지막 sub-goal의 report_success 시 pending network request(예: graphql)
-            # 완료 대기 → race condition(network event가 evaluator에 response_status=-1로
-            # 기록) 방지.
+            # is_last_goal: pending network request 대기 → evaluator가 미완 응답을
+            # 실패로 기록하는 race condition 방지.
             if is_last_goal:
                 try:
                     await page.wait_for_load_state("networkidle", timeout=2000)
                     current_obs = await observe_page(page)
                 except Exception:
                     pass
-            # Final sub-goal of RETRIEVE: expect `answer` field (concrete value).
-            # 이 분기가 hierarchical tool design의 핵심 — "task 성공 + RETRIEVE 최종 sub-goal"
-            # 경로에서만 answer가 terminal payload. "no match" 서술은 answer가 아니라
-            # report_failure의 몫이다 (benchmark classifier가 구체 status 결정).
+            # RETRIEVE 최종 sub-goal에서만 answer가 terminal payload.
+            # "no match" 류 서술은 answer가 아닌 report_failure로 라우팅.
             if is_last_goal and task_type == "RETRIEVE":
                 answer_raw = str(args.get("answer", "") or "").strip()
                 label = str(args.get("answer_label", "") or "")
@@ -744,7 +707,6 @@ async def _try_sub_goal(
                     last_action_feedback = feedback
                     continue
                 return _handle_retrieve_answer(answer_raw, label, task_type), step + 1
-            # Non-RETRIEVE-final: standard sub-goal verification.
             done_reason = args.get("reason", "")
             verified = _verify_done(
                 goal=sub_goal.goal, reason=done_reason, current_obs=current_obs,
@@ -777,12 +739,9 @@ async def _try_sub_goal(
             # 이 경로는 task-level outcome을 결정하므로 비문자열 인자에도 crash하지 않게 한다.
             reason = str(args.get("reason", ""))
 
-            # report_failure는 "task cannot be completed as stated"를 선언하는 valid
-            # outcome이다 (tool description 참조). Scaffold가 이를 "포기"로 해석해
-            # retry를 강요하면 증거 기반 결론 ("target entity does not exist")을 무시
-            # 하게 되어, 오히려 hallucinated placeholder answer를 유도한다. Tool의
-            # 의도대로 agent 선언을 즉시 수용하고 outcome_classifier가 세부 status를
-            # 분류하도록 맡긴다.
+            # report_failure는 valid outcome ("task cannot be completed as stated").
+            # scaffold가 "포기"로 해석해 retry를 강요하면 hallucinated placeholder
+            # answer를 유도하므로, 즉시 수용하고 status 분류는 outcome_classifier에 위임.
             logger.info("[LLM] report_failure → task-level exit: reason=%r", reason[:200])
             return ExecutionOutcome(
                 task_type=task_type,
@@ -790,7 +749,6 @@ async def _try_sub_goal(
                 reason=reason[:200] if reason else None,
             ), step + 1
 
-        # --- Cognition tools ---
         if action_name == "remember":
             fact = args.get("fact", "")
             if fact:
@@ -829,7 +787,6 @@ async def _try_sub_goal(
             messages.append(format_tool_result(tool_id, feedback))
             continue
 
-        # --- search skill ---
         if action_name == "search":
             query = args.get("query", "")
             prev_state = _capture_page_state(current_obs)
@@ -845,8 +802,7 @@ async def _try_sub_goal(
             last_action_feedback = feedback
             continue
 
-        # 알려진 tool 이름이 아니면 명시적 피드백으로 LLM에 알려 루프를 유발.
-        # (이전 코드는 default _ActionResult()로 조용히 넘어가 빈 피드백을 주어 LLM을 혼란시켰음.)
+        # 알려지지 않은 tool 이름은 명시적 피드백으로 알려 silent skip을 방지.
         if action_name not in {"click", "fill", "goback", "goto"}:
             feedback = (
                 f"Unknown tool '{action_name}'. Use one of: click, fill, search, goback, goto, "
@@ -857,7 +813,6 @@ async def _try_sub_goal(
             last_action_feedback = feedback
             continue
 
-        # --- Browser actions ---
         action_dict = {
             "target": args.get("target", ""),
             "value": args.get("value", ""),
@@ -890,9 +845,8 @@ async def _try_sub_goal(
         messages.append(format_tool_result(tool_id, feedback))
         last_action_feedback = feedback
 
-    # step_budget 소진 → done 선언 없이 끝남 = sub-goal 실패 (retry/replan 대상).
-    # verdict=sub_goal_failed는 outer loop retry/replan의 control signal로만 쓰이고,
-    # 최종 terminal state로는 노출되지 않는다 (어딘가에서 stuck/abandoned/done으로 resolve).
+    # step_budget 소진 = sub-goal 실패. verdict=sub_goal_failed는 outer loop의
+    # retry/replan control signal — 최종 terminal state로는 노출되지 않는다.
     return ExecutionOutcome(
         task_type=task_type, verdict="sub_goal_failed",
         reason=f"Not completed in {step_budget} steps. {_summarize_action_history(_action_history)}",
@@ -992,10 +946,6 @@ def _summarize_action_history(history: list[str]) -> str:
     return f"Actions tried: {' | '.join(parts)}" if parts else ""
 
 
-# ---------------------------------------------------------------------------
-# Action handlers
-# ---------------------------------------------------------------------------
-
 def _replan(
     *,
     task: str,
@@ -1079,10 +1029,8 @@ def _handle_retrieve_answer(
 ) -> ExecutionOutcome:
     """RETRIEVE 최종 sub-goal의 report_success(answer=...) → ExecutionOutcome.
 
-     이후: runtime은 answer 원문을 그대로 싣는다. 쉼표 분리·semantic 검증
-    ("none" / "no match" 등이 placeholder인지)은 benchmark outcome_classifier의 몫.
-    value가 비어 있으면 scaffold-level stuck으로 기록 (본래 empty answer는 이전 단계의
-    re-prompt에서 걸려야 함).
+    runtime은 answer 원문을 그대로 싣는다. 쉼표 분리·semantic 검증
+    ("none"/"no match" 등 placeholder 판정)은 outcome_classifier 책임.
     """
     if not value:
         logger.info("[LLM] retrieve_answer → stuck (missing value)")
@@ -1182,13 +1130,11 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
     target = action.get("target", "")
     url_hint = action.get("url", "")
     element_type = action.get("element_type", "")
-    # target에 " → /path" 포함 시 자동 파싱 (이름 + url_hint 분리)
     if " → " in target:
         parts = target.split(" → ", 1)
         target = parts[0].strip()
         if not url_hint:
             url_hint = parts[1].strip()
-    # url_hint가 전체 URL이면 경로만 추출 (href는 경로만 가짐)
     if url_hint.startswith("http"):
         from urllib.parse import urlparse
         url_hint = urlparse(url_hint).path
@@ -1198,7 +1144,7 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
 
     target_lower = target.lower()
 
-    # 0. 드롭다운 정확 매칭 (최우선 — 드롭다운 항목은 role="menuitem"이라 link/button으로 못 잡음)
+    # 드롭다운 정확 매칭 — link/button role로는 못 잡음.
     matching_dropdown = [d for d in obs.dropdown_options if d.split(" → ")[0].lower() == target_lower]
     if matching_dropdown:
         for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
@@ -1211,7 +1157,6 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
             except Exception as exc:
                 logger.debug("dropdown click (%s) failed: %s", dd_sel, exc)
 
-    # 1. element_type이 지정되면 해당 타입으로 시도
     if element_type in ("button", "link"):
         try:
             loc = page.get_by_role(element_type, name=target)
@@ -1241,7 +1186,6 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
                 return _ActionResult(succeeded=True)
         except Exception as exc:
             logger.debug("element_type=%s click failed: %s", element_type, exc)
-    # 2. 타입 충돌 감지: element_type 없이 여러 타입에 매칭되면 되묻기
     matching_links = [l for l in obs.links if target_lower in l.split(" → ")[0].lower()]
     matching_buttons = [b for b in obs.buttons if target_lower in b.split(" [")[0].lower()]
 
@@ -1262,7 +1206,6 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
                 ),
             )
 
-    # 3. 관측 links에서 매칭
     if len(matching_links) > 1 and not url_hint:
         return _ActionResult(
             should_continue=True,
@@ -1288,7 +1231,6 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
             except Exception as exc:
                 logger.debug("observation link click failed: %s", exc)
 
-    # 4. get_by_role fallback
     for role in ("link", "button", "textbox", "option", "menuitem", "tab"):
         try:
             locator = page.get_by_role(role, name=target)
@@ -1306,7 +1248,6 @@ async def _execute_click(action: dict[str, Any], page: Any, obs: PageObservation
         except Exception as exc:
             logger.debug("get_by_role(%s) failed: %s", role, exc)
 
-    # 3. try_click_target fallback
     if await try_click_target(page, [target]):
         return _ActionResult(succeeded=True)
 
@@ -1335,7 +1276,6 @@ async def _execute_search(*, query: str, page: Any) -> str:
     if not query:
         return "search requires a 'query'."
 
-    # 1. 검색/필터 input 찾아서 클릭 (포커스)
     search_selectors = [
         'input[type="search"]:visible',
         'input[placeholder*="search" i]:visible',
@@ -1355,15 +1295,13 @@ async def _execute_search(*, query: str, page: Any) -> str:
             continue
 
     if not input_clicked:
-        # fallback: try_search로 대체
         succeeded = await try_search(page, query)
         return f"search '{query}': {'submitted via fallback' if succeeded else 'search field not found'}"
 
-    # 2. DOM 안정화 (AJAX 드롭다운 로딩 대기)
+    # AJAX 드롭다운 로딩 대기 — 연속 안정 체크.
     await page.wait_for_timeout(500)
     obs_after_click = await observe_page(page)
 
-    # 연속 안정 체크
     for _ in range(4):
         await page.wait_for_timeout(500)
         obs_check = await observe_page(page)
@@ -1371,7 +1309,6 @@ async def _execute_search(*, query: str, page: Any) -> str:
             break
         obs_after_click = obs_check
 
-    # 3. 드롭다운에서 query 매칭 시도
     query_lower = query.lower()
     matched_option = None
     for opt in obs_after_click.dropdown_options:
@@ -1381,15 +1318,12 @@ async def _execute_search(*, query: str, page: Any) -> str:
             break
 
     if matched_option:
-        # 드롭다운 항목 클릭
         for dd_sel in ('.dropdown-item', '[role="option"]', '[role="menuitem"]', '[role="tab"]'):
             try:
                 loc = page.locator(f'{dd_sel}:visible').filter(has_text=matched_option)
                 if await loc.count() > 0:
                     await loc.first.click()
                     logger.info("[LLM] search: clicked dropdown option '%s' via %s", matched_option, dd_sel)
-
-                    # 하위 드롭다운 로딩 대기
                     await page.wait_for_timeout(500)
                     break
             except Exception:
@@ -1397,7 +1331,6 @@ async def _execute_search(*, query: str, page: Any) -> str:
 
         return f"search '{query}': selected '{matched_option}' from dropdown."
     else:
-        # 드롭다운에 없으면 fill + Enter
         try:
             for sel in search_selectors:
                 loc = page.locator(sel)
@@ -1423,10 +1356,6 @@ async def _execute_goback(page: Any) -> _ActionResult:
         return _ActionResult(succeeded=False)
 
 
-
-# ---------------------------------------------------------------------------
-# Result summarization
-# ---------------------------------------------------------------------------
 
 class _PageState:
     """관측 상태 스냅샷 (변경 감지용)."""
@@ -1508,10 +1437,6 @@ def _summarize_action_result(
     return ""
 
 
-# ---------------------------------------------------------------------------
-# LLM helpers
-# ---------------------------------------------------------------------------
-
 def _verify_done(
     *,
     goal: str,
@@ -1524,22 +1449,16 @@ def _verify_done(
     is_last_goal: bool = False,
     task_start_url: str = "",
 ) -> str | bool:
-    """Hard-rule based done verification (표준 ReAct 지향).
+    """Hard-rule based done verification.
 
-    Rules:
-    - 마지막 [navigation] sub-goal: task-level 이동이 전혀 없었으면 reject.
-      이전 구현은 `sub_goal_start_url == current.url`만 보고 reject했으나, 이는
-      직전 sub-goal이 이미 target으로 navigate한 후 final sub-goal이 confirmation
-      성격일 때 false reject를 일으켜 agent가 URL을 억지로 변경(정답 filter 드롭)
-      하게 만들었다. 개선: task_start_url과 비교해 **task 전체에서** 이동이 있었는지
-      확인하고, 그 경우 final sub-goal의 URL 변경은 요구하지 않는다.
-    - 그 외는 agent의 done 선언을 그대로 수용 (표준 ReAct 동작).
+    Rule: 마지막 [navigation] sub-goal에서 task 전체적으로 URL이 변하지 않았으면 reject.
+    그 외는 agent의 done 선언을 그대로 수용.
 
     Returns:
         True — agent의 done 수용
         str — hard rule 위반 시 reject 이유
     """
-    del reason, llm, task_notes  # 표준 ReAct에선 미사용
+    del reason, llm, task_notes
     if is_last_goal and sub_goal_type == "navigation":
         # task-level 이동이 있었으면 final sub-goal의 URL 변경 불필요
         task_moved = bool(task_start_url) and task_start_url != current_obs.url
@@ -1566,9 +1485,8 @@ def _get_tool_action(
         messages.append(format_assistant_tool_use(response))
 
     if not response.tool_calls:
-        # LLM이 2회 연속 tool을 호출하지 않으면 task-level stuck으로 종료.
-        # (report_failure 경로는 agent의 의도적 abandonment이므로 scaffold fallback 부적합.
-        #  대신 sub-goal 실패 카운트에 반영되어 verdict=stuck으로 bubble up.)
+        # 2회 연속 tool 미호출 → task-level stuck. (의도적 abandonment는 report_failure로
+        # 명시되므로 scaffold fallback 대신 sub-goal 실패로 bubble up.)
         return (
             "__scaffold_stuck__",
             {"reason": "LLM failed to invoke any tool after a nudge."},
