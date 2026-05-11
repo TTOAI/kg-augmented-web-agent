@@ -51,10 +51,6 @@ def _retry_transient(fn: Callable, *, max_attempts: int = 3, base_delay: float =
             time.sleep(delay)
 
 
-# ---------------------------------------------------------------------------
-# Protocol
-# ---------------------------------------------------------------------------
-
 @runtime_checkable
 class LLMClient(Protocol):
     """LLM provider-agnostic 인터페이스."""
@@ -79,10 +75,6 @@ class LLMClient(Protocol):
         """
         ...
 
-
-# ---------------------------------------------------------------------------
-# Implementations
-# ---------------------------------------------------------------------------
 
 class AnthropicLLMClient:
     """Claude API를 사용하는 LLMClient 구현.
@@ -157,24 +149,18 @@ class OpenAILLMClient:
     temperature: None이면 API 호출에 전달하지 않음 (provider default 사용).
     재현성 있는 실험을 위해 env var LLM_TEMPERATURE로 보통 0을 지정한다.
 
-    모델 분기:
-    - **Agent task 실행**: 기본 `gpt-5.4-mini` (.env OPENAI_MODEL). 모델명이 `gpt-5*`로
-      시작해 Responses API로 자동 분기. `reasoning_effort`는 넘기지 않으므로 provider
-      default 사용.
-    - **KG derivation** (`kg/seed/llm_derivation.py`): `gpt-5.4` (full) + `reasoning_effort=
-      "low"` 명시. Multi-call decomposition 안정성 확보용. Baseline agent와는 독립 경로.
-
-    Reasoning model (gpt-5*, o-series) 호출 시 reasoning_effort를 사용하려면 Responses API
-    를 써야 한다 (chat.completions에선 function tools와 동시 사용 불가). `_use_responses_api`
-    가 True면 complete_with_tools가 `client.responses.create`로 분기.
+    Reasoning model (gpt-5*, o-series)은 function tools + reasoning_effort 동시 사용을
+    위해 Responses API로 분기한다 (chat.completions은 두 기능 동시 사용 불가).
+    호출자가 `reasoning_effort`를 명시했을 때만 Responses API 경로로 가고, 그 외에는
+    chat.completions로 가서 multi-turn ReAct가 정상 작동한다.
 
     LLM_REQUEST_TIMEOUT env로 client-side timeout (초) 설정 가능 (기본 300초).
     """
 
     def __init__(self, model: str = "gpt-4o", temperature: float | None = None) -> None:
-        import openai  # lazy import
+        import openai  # lazy import — 패키지 미설치 시 런타임 오류만 발생
         timeout_s = float(os.getenv("LLM_REQUEST_TIMEOUT", "300"))
-        # OpenAI client에 timeout 적용 — server-side hang 방지
+        # client-side timeout — server-side hang 방지.
         self._client = openai.OpenAI(timeout=timeout_s)
         self._model = model
         self._temperature = temperature
@@ -184,8 +170,7 @@ class OpenAILLMClient:
         )
 
     def _extra_kwargs(self) -> dict[str, Any]:
-        # reasoning model (gpt-5*, o-series)는 temperature 파라미터 미지원 (line 278 참조).
-        # chat.completions·Responses API 양쪽에 동일 제약 적용.
+        # reasoning model (gpt-5*, o-series)은 temperature 파라미터 미지원 — drop.
         if self._temperature is None or self._use_responses_api:
             return {}
         return {"temperature": self._temperature}
@@ -205,17 +190,13 @@ class OpenAILLMClient:
         max_tokens: int = 1024,
         reasoning_effort: str | None = None,
     ) -> LLMToolResponse:
-        # Responses API는 multi-turn tool_calls 포맷이 chat.completions와 달라 agent의
-        # ReAct loop (assistant tool_call → tool_result → assistant ...)를 그대로 못 받음.
-        # 따라서 `reasoning_effort`가 명시됐을 때만 Responses API 경로 (주로 derivation
-        # single-turn tool call). agent task는 reasoning_effort 없이 호출되므로 chat.completions
-        # 경로로 분기되어 multi-turn ReAct가 정상 작동.
+        # Responses API는 multi-turn ReAct loop를 지원하지 않으므로 reasoning_effort가
+        # 명시된 single-turn 호출(주로 KG derivation)일 때만 분기. 그 외는 chat.completions.
         if self._use_responses_api and reasoning_effort is not None:
             return self._complete_via_responses_api(
                 system=system, messages=messages, tools=tools,
                 max_tokens=max_tokens, reasoning_effort=reasoning_effort,
             )
-        # 비-reasoning 모델: chat.completions
         oai_tools = [
             {
                 "type": "function",
@@ -255,7 +236,7 @@ class OpenAILLMClient:
         max_tokens: int, reasoning_effort: str | None,
     ) -> LLMToolResponse:
         """Responses API (reasoning model + function tools 지원)."""
-        # Tool spec: Responses API는 type=function + 평면 schema 사용
+        # Responses API tool spec: type=function + 평면 schema.
         resp_tools = [
             {
                 "type": "function",
@@ -265,7 +246,6 @@ class OpenAILLMClient:
             }
             for t in tools
         ]
-        # input은 chat-style messages list 그대로 받음
         input_messages: list[dict] = []
         for msg in messages:
             input_messages.extend(_to_openai_messages(msg))
@@ -279,9 +259,7 @@ class OpenAILLMClient:
         }
         if reasoning_effort is not None:
             kwargs["reasoning"] = {"effort": reasoning_effort}
-        # 주의: reasoning model (gpt-5*, o-series)는 temperature 파라미터 미지원.
-        # determinism은 reasoning model 자체 특성으로 보장된다 (default temp=1, 단
-        # 동일 input + reasoning 결정성으로 안정 cluster 결과).
+        # reasoning model은 temperature 미지원 — 결정성은 reasoning 특성으로 보장.
         response = _retry_transient(lambda: self._client.responses.create(**kwargs))
 
         thought: str | None = None
@@ -289,7 +267,6 @@ class OpenAILLMClient:
         for item in getattr(response, "output", []) or []:
             item_type = getattr(item, "type", None)
             if item_type == "message":
-                # message.content → list of content blocks
                 for block in getattr(item, "content", []) or []:
                     if getattr(block, "type", None) in ("output_text", "text"):
                         thought = (thought or "") + getattr(block, "text", "")
@@ -310,15 +287,12 @@ def _to_openai_messages(msg: dict) -> list[dict]:
     role = msg.get("role", "user")
     content = msg.get("content")
 
-    # 단순 텍스트 메시지
     if isinstance(content, str):
         return [{"role": role, "content": content}]
 
-    # content block 리스트
     if not isinstance(content, list):
         return [{"role": role, "content": str(content)}]
 
-    # assistant 메시지: text + tool_use → OpenAI assistant + tool_calls
     if role == "assistant":
         text_parts = []
         tool_calls_oai = []
@@ -343,7 +317,6 @@ def _to_openai_messages(msg: dict) -> list[dict]:
             result = {"role": "assistant", "content": text_joined}
         return [result]
 
-    # user 메시지: tool_result + text 블록 → OpenAI tool messages + user message
     results = []
     text_parts = []
     for block in content:
@@ -361,10 +334,6 @@ def _to_openai_messages(msg: dict) -> list[dict]:
         results.append({"role": "user", "content": "\n".join(text_parts)})
     return results if results else [{"role": "user", "content": ""}]
 
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
 
 def _read_temperature_env() -> float | None:
     """env var LLM_TEMPERATURE를 float로 파싱. 없거나 빈 값이면 None (provider default 사용)."""
@@ -395,16 +364,11 @@ def make_llm_client() -> LLMClient | None:
             return None
         model = os.getenv("OPENAI_MODEL", "gpt-4o")
         return OpenAILLMClient(model=model, temperature=temperature)
-    # anthropic (기본값)
     if not os.getenv("ANTHROPIC_API_KEY"):
         return None
     model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     return AnthropicLLMClient(model=model, temperature=temperature)
 
-
-# ---------------------------------------------------------------------------
-# Prompt builders
-# ---------------------------------------------------------------------------
 
 def classify_task_type(intent: str, llm: LLMClient) -> str:
     """LLM을 사용해 intent를 RETRIEVE / NAVIGATE / MUTATE 중 하나로 분류한다.
@@ -533,11 +497,8 @@ def parse_llm_action(response_text: str) -> dict[str, Any]:
 
     ```json ... ``` 마크다운 펜스를 자동으로 제거한다.
     파싱 실패 시 {"action": "parse_error", ...} 폴백을 반환한다.
-    (참고: 이 함수는 classify_task_type / build_plan의 JSON 파싱 유틸이며, action 키는
-    현재 호출자가 무시한다. 'parse_error'는 과거의 'not_found' 관용을 대체하는 중립 레이블이다.)
     """
     text = response_text.strip()
-    # 마크다운 코드 펜스 제거
     match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
         text = match.group(1).strip()
@@ -546,10 +507,6 @@ def parse_llm_action(response_text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {"action": "parse_error", "reasoning": f"LLM 응답 파싱 실패: {text[:100]}"}
 
-
-# ---------------------------------------------------------------------------
-# Tool Use prompt builders
-# ---------------------------------------------------------------------------
 
 def build_tool_use_system_prompt() -> str:
     """Tool Use 모드용 system prompt. 규칙 대신 전략을 전달한다."""
@@ -602,11 +559,6 @@ def build_tool_use_system_prompt() -> str:
     return "\n".join(lines)
 
 
-#  _MUTATE_FORM_CHECKLIST는 config/sites/<site>/prompts.yaml로
-# 이관되었음 (mutate_checklist key). `build_observation_message`는 module-level
-# `default_prompt_library()`를 사용해 현 site의 checklist 렌더.
-
-
 def build_observation_message(
     *,
     task: str,
@@ -642,16 +594,11 @@ def build_observation_message(
         sections.append(kg_hint)
 
     if task_type == "MUTATE" and getattr(observation, "inputs", None):
-        #  site별 checklist는 prompts.yaml에서 로드
         from .prompts import default_prompt_library
 
         checklist = default_prompt_library().render_mutate_checklist()
         if checklist:
             sections.append(checklist)
-    # NOTE: NAVIGATE filter checklist 추가 시도 ( P3.1) — 역효과 확인.
-    # Agent가 "search 회피" 해석을 우선해 label dropdown 탐색 중 deadlock.
-    # 근본 해결엔 observation layer 개선 (collapsed dropdown 항목 노출) 또는
-    # KG의 filter URL 템플릿 제공이 필요. Prompt-level 단독 guidance로는 regression.
 
     if sub_goals and current_goal_index < len(sub_goals):
         current_goal = sub_goals[current_goal_index].goal
