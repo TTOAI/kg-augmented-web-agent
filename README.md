@@ -1,56 +1,39 @@
-# site-adaptive-webagent
+# Site-Adaptive Web Agent
 
-사이트별 지식 그래프(site-specific KG)를 planning substrate로 사용하는 text-centric web agent 연구 프로젝트.
+사이트별 지식 그래프(site-specific KG)를 planning substrate로 사용하는 KG-augmented web agent. KG는 대상 사이트 자체로부터 site-agnostic discovery protocol을 통해 빌드된다.
 
-## 현재 브랜치 상태 (feature/kg-v2)
+## Overview
 
-- `main`: V2.5 baseline
-- `baseline/clean`: V2.5 baseline (KG 없음) — 측정용 고정 브랜치
-- `feature/kg-v2`: KG 재설계 진행 중 (현재 브랜치)
+웹 에이전트는 매 step마다 "어디로 갈지", "어떤 filter가 있는지", "URL을 어떻게 만들지"를 결정해야 한다. 이 프로젝트는 LLM 일반 추론에만 맡기지 않고, 사이트의 구조 정보를 KG로 정리해 runtime hint로 주입하는 접근을 구현·실험한다.
 
-baseline 코드는 그대로 유지하고, 옆에 KG 모듈을 추가하는 구조. KG 설계 논의 및 결정은 `docs/kg_design/`에 단계별 문서로 누적.
+핵심 구성 요소:
 
-## 디렉터리 구조
+- **Agent loop** (ReAct + tool-use): `analyze_intent()` → `build_plan()` → sub-goal loop with tool-use LLM → `_verify_done()`. 구현은 `site_adaptive_webagent/agent/`, `site_adaptive_webagent/runtime/`.
+- **KG runtime**: sub-goal target page class를 LLM self-consistency로 추론 → BFS 6-stage cascade로 path 산출 → advisory hint를 LLM에 전달. 구현은 `site_adaptive_webagent/kg/runtime/`.
+- **KG seed builder** (Stage A/B/C): URL 분류 규칙 → action catalog + filter category → class-to-class edge graph. 구현은 `site_adaptive_webagent/kg/seed/`, `scripts/kg/`.
+- **Benchmark adapter**: WebArena-Verified GitLab 사이트에 대한 Playwright 기반 측정 어댑터. 구현은 `site_adaptive_webagent/benchmarks/webarena_verified/`.
 
-- `site_adaptive_webagent/`: V2.5 baseline 에이전트 코드와 벤치마크 어댑터
-- `site_adaptive_webagent/benchmarks/webarena_verified/`: WebArena-Verified 어댑터와 러너
-- `config/`: 벤치마크별 설정 파일
-- `config/sites/<site>/`: 사이트별 KG seed 데이터 (site_config, infotypes, kg_seed) — feature/kg-v2 신규
-- `docs/kg_design/`: KG 설계 논의·결정 문서 (01~06)
-- `docs/research_proposal/`: 연구 계획서
-- `output/`: 로컬 실행 산출물 (git ignore)
+## KG 설계 원칙: 구조는 KG, 구체값은 에이전트
 
-## KG 설계 문서 (docs/kg_design/)
+KG는 사이트의 **구조 정보**(어떤 페이지·경로·필터 카테고리·컨트롤이 존재하는지)까지만 노출하고, **구체값**(필터 라벨 값·URL 쿼리 파라미터 값·자유 텍스트 콘텐츠)은 LLM 에이전트가 페이지를 직접 보고 수집한다.
 
-| 문서 | 내용 |
-|---|---|
-| 01_references_summary | KG/Agent/Web agent 배경 문헌 요약 + Introduction 초안 대비 |
-| 02_open_questions | 설계 쟁점 #1~#4 결정 로그 + 모델·예산 결정 |
-| 03_related_work_mapping | 기존 12개 접근과의 차별성 매핑 |
-| 04_baseline_failure_analysis | Phase 1 failure taxonomy (14 task pilot) |
-| 05_implementation_architecture | 모듈 경계·hook 구조·구현 순서 |
-| 06_evaluation_protocol | 측정·분석·재현 protocol |
+이 분리에는 두 가지 근거가 있다.
 
-## 외부 벤치마크 목록
+1. **데이터 노후화 회피**: KG가 구체값을 박으면 사이트 UI가 바뀔 때마다 KG를 갱신해야 한다.
+2. **LLM의 직접 관측이 더 안전**: LLM이 자신의 판단에 따라 구체값을 실시간으로 직접 수집하여 행동하는 것이, KG로 수동적으로 주입받는 것보다 워크플로우에 더 합리적이며 정보의 안전성과 신뢰성이 더 높다.
 
-- `webarena-verified`
-
-## WebArena-Verified
-
-### 설치
+## Requirements
 
 ```bash
-# 의존성 설치 (uv 권장)
 uv pip install -e .
 uv pip install playwright
 playwright install chromium
 ```
 
-### LLM 설정
+## LLM 설정
 
 ```bash
 cp .env.example .env
-# .env 안에 사용할 provider와 API 키 입력
 ```
 
 `.env` 예시:
@@ -59,61 +42,25 @@ cp .env.example .env
 LLM_PROVIDER=openai          # 또는 anthropic
 OPENAI_API_KEY=sk-...
 # ANTHROPIC_API_KEY=sk-ant-...
-# OPENAI_MODEL=gpt-4o        # provider별 모델 override (선택)
+# OPENAI_MODEL=gpt-4o
 # ANTHROPIC_MODEL=claude-sonnet-4-6
-# LLM_TEMPERATURE=0          # 실험 재현성을 위해 0 권장. 빈 값이면 provider default(보통 1.0) 사용
+# LLM_TEMPERATURE=0          # 결정론적 실행 원하면 0
 ```
 
 API 키가 없으면 LLM 없이 규칙 기반으로 폴백된다.
 
-**실험 재현성 주의**: 기본값은 provider temperature(대개 1.0)라 같은 task도 실행마다 결과가 달라질 수 있다. 논문 실험처럼 baseline을 안정화해야 하는 경우 `LLM_TEMPERATURE=0`으로 설정해 deterministic 모드로 돌린다.
+## Usage
 
-### config 준비
+### 환경 준비
 
 ```bash
 cp config/webarena_verified.example.json config/webarena_verified.json
+# config 안의 URL/포트/계정을 로컬 환경에 맞게 수정
+
+webarena-verified env start --site gitlab --port 8023 --env-ctrl-port 8024
 ```
 
-`config/webarena_verified.json` 안의 URL, 포트, 계정 정보는 현재 로컬에서 띄운 benchmark 환경에 맞게 수정
-
-### 환경 실행
-
-```bash
-webarena-verified env start --site shopping
-webarena-verified env start --site shopping_admin
-webarena-verified env start --site reddit
-webarena-verified env start --site gitlab
-```
-
-환경 중지
-
-```bash
-webarena-verified env stop --site shopping
-webarena-verified env stop-all
-```
-
-`wikipedia`, `map`은 추가 setup 필요
-
-```bash
-webarena-verified env setup init --site wikipedia --data-dir ./downloads
-webarena-verified env start --site wikipedia --data-dir ./downloads
-
-webarena-verified env setup init --site map --data-dir ./downloads
-webarena-verified env start --site map
-```
-
-### 환경 리셋
-
-MUTATE task(코멘트 작성, 상태 변경 등)는 사이트 상태를 변경하므로, 재실험 전에 사이트를 초기 상태로 리셋해야 정확한 측정이 가능하다.
-
-```bash
-webarena-verified env stop --site gitlab
-webarena-verified env start --site gitlab
-```
-
-### task export
-
-task 입력 준비
+### Task 입력 export
 
 ```bash
 webarena-verified agent-input-get \
@@ -122,23 +69,7 @@ webarena-verified agent-input-get \
   --output output/tasks.demo.json
 ```
 
-여러 task를 한 번에 export하거나 site 기준으로 필터링 가능
-
-```bash
-webarena-verified agent-input-get \
-  --task-ids 44,45,46 \
-  --config config/webarena_verified.json \
-  --output output/tasks.multi.json
-
-webarena-verified agent-input-get \
-  --sites shopping \
-  --config config/webarena_verified.json \
-  --output output/tasks.shopping.json
-```
-
-### agent 실행
-
-export된 task JSON을 읽어 agent 실행
+### Agent 실행
 
 ```bash
 .venv/bin/python run_webarena_verified.py \
@@ -149,14 +80,11 @@ export된 task JSON을 읽어 agent 실행
   --headed
 ```
 
-주요 옵션:
-
-- `--headed`: 브라우저를 직접 띄워서 에이전트 행동 확인
-- `--run-root output`: task별 산출물을 `output/` 아래에 저장
+옵션:
+- `--headed` — 브라우저를 띄워서 행동 관찰
+- `--run-root` — task별 산출물 저장 위치
 
 ### 평가
-
-특정 task만 평가
 
 ```bash
 webarena-verified eval-tasks \
@@ -165,22 +93,96 @@ webarena-verified eval-tasks \
   --config config/webarena_verified.json
 ```
 
-완료된 output 전체 평가
+### 환경 리셋 (MUTATE task 후)
+
+MUTATE task는 사이트 상태를 변경하므로 재실험 전 초기 상태로 리셋해야 정확한 측정이 된다.
 
 ```bash
-webarena-verified eval-tasks \
-  --output-dir output \
-  --config config/webarena_verified.json
+webarena-verified env stop --site gitlab
+webarena-verified env start --site gitlab
 ```
 
-### 출력물 구조
+## Building the KG
 
-```text
-output/
-├── tasks.demo.json
-└── 44/
-    ├── agent_response.json
-    └── network.har
+GitLab 기준:
+
+```bash
+# 1. 환경 띄우고 인증 갱신
+webarena-verified env start --site gitlab --port 8023 --env-ctrl-port 8024
+python -m scripts.kg.utils.refresh_auth
+
+# 2. Stage A — URL 수집 + 분류 규칙 산출
+python -m scripts.kg.build.crawl
+python -m scripts.kg.build.classify_rules
+
+# 3. Stage B — action catalog + filter category 추출
+python -m scripts.kg.build.collect_actions
+python -m scripts.kg.build.action_catalog
+
+# 4. Stage C — class-to-class edge graph 빌드
+python -m scripts.kg.build.edge_graph
+python scripts/kg/build/class_catalog.py
 ```
 
-task를 여러 번 실행하면 기존 task 디렉터리는 `44_bkp_1`, `44_bkp_2` 같은 이름으로 백업됨
+산출 위치: `output/validation/` (사이트 공통 path).
+Runtime은 `output/validation/kg_solution/class_descriptions.json`을 읽는다.
+
+## Evaluation
+
+`scripts/eval/`에 측정·분석 도구가 있다:
+
+```bash
+# 사전 정의된 condition set으로 측정
+bash scripts/eval/run_round_1.sh
+bash scripts/eval/run_round_2.sh
+
+# raw log → trial signal 추출
+.venv/bin/python -m scripts.eval.extract_signals \
+  output/<run>/v0/*/trial_*/ output/<run>/v1/*/trial_*/
+
+# trial → cell aggregate
+.venv/bin/python -m scripts.eval.aggregate_cells output/<run>/
+
+# step distribution box plot + per-task statistics table
+.venv/bin/python -m scripts.eval.render_figures output/<run>
+```
+
+산출물: `output/<run>/figures/step_box.png`, `output/<run>/step_table.md`.
+
+Task 선정 / metric / exclusion 정책은 `docs/evaluation/`에 정리.
+
+## Repository structure
+
+```
+site_adaptive_webagent/    # agent + KG runtime + KG seed
+├── agent/                 # high-level agent entrypoint
+├── runtime/               # ReAct + tool-use loop, browser primitives, LLM client
+├── kg/
+│   ├── seed/              # Stage A/B/C seed builder
+│   ├── runtime/           # task inferrer, path finder, hint generator
+│   └── ...
+└── benchmarks/
+    └── webarena_verified/ # benchmark adapter
+
+config/sites/<site>/       # site-specific KG seed + cascade config
+scripts/kg/                # KG seed build pipeline (Stage A/B/C)
+scripts/eval/              # measurement + analysis pipeline
+tests/
+docs/
+├── method/                # KG construction protocol
+├── evaluation/            # task selection, metrics, exclusions, round protocol
+└── validation/            # KG seed validation reports
+run_webarena_verified.py   # benchmark entry point
+```
+
+## Output 구조
+
+각 task 실행은 다음을 산출한다:
+
+```
+output/<task_id>/
+├── agent_response.json    # task_type, status, retrieved_data
+└── network.har            # raw network capture
+```
+
+같은 task를 다시 실행하면 기존 디렉토리는 `<task_id>_bkp_N`으로 백업된다.
