@@ -1,15 +1,9 @@
-"""Render paper §4 condition synthesis table + step bar chart from cells.json.
+"""Render result table + step box plot from cells.json.
 
 Inputs: <root>/cells.json (produced by aggregate_cells.py)
 Outputs:
-    <root>/condition_synthesis.md  — paper §4 source table
-    <root>/figures/step_counts.png — grouped bar chart over tasks × variants
-
-Outcome label per condition (automated triage; manual narrative still required):
-    H*    confirmed if V1 step median < V0; partial if equal; refuted if >.
-    L*    confirmed_limitation if V1 timeout count > V0 (or both fail);
-           needs_review otherwise.
-    Null* confirmed_parity if V0 step == V1 step; needs_review otherwise.
+    <root>/step_table.md            — per-task step statistics table
+    <root>/figures/step_box.png     — per-trial step box plot
 """
 from __future__ import annotations
 
@@ -17,7 +11,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 VARIANTS = ("v0", "v1")
@@ -39,161 +32,6 @@ def discover_condition_to_task(task_cards_dir: Path = DEFAULT_TASK_CARDS_DIR) ->
 CONDITION_TO_TASK = discover_condition_to_task()
 
 
-def _step_median(cell: Optional[dict]) -> Optional[float]:
-    if not cell:
-        return None
-    return cell.get("step", {}).get("median")
-
-
-def _step_n_timeout(cell: Optional[dict]) -> int:
-    if not cell:
-        return 0
-    return cell.get("step", {}).get("n_timeout") or 0
-
-
-def _kg_fired(cell: Optional[dict]) -> str:
-    if not cell:
-        return "—"
-    if cell.get("kg_inferrer_disabled"):
-        return "(disabled)"
-    target = cell.get("kg_inferred_target_first")
-    return target or "—"
-
-
-def _outcome_label(condition: str, v0: dict | None, v1: dict | None) -> str:
-    if not v0 or not v1:
-        return "no_data"
-    s0 = _step_median(v0)
-    s1 = _step_median(v1)
-    t0 = _step_n_timeout(v0)
-    t1 = _step_n_timeout(v1)
-    if condition.startswith("H"):
-        if s0 is None or s1 is None:
-            return "needs_review"
-        if s1 < s0:
-            return "confirmed"
-        if s1 == s0:
-            return "partial"
-        return "refuted"
-    if condition.startswith("L"):
-        # Limitation confirmed when V1 hits the predicted failure mode (timeout
-        # or parity-with-baseline-failure) more than V0.
-        if t1 > t0:
-            return "confirmed_limitation"
-        # 양쪽 모두 측정값이 없는 경우 (e.g. 둘 다 timeout) → docstring의 "또는 둘 다 실패"
-        # 케이스에 해당. None==None을 parity로 잘못 라벨링하지 않도록 별도 처리.
-        if s0 is None and s1 is None:
-            return "confirmed_limitation"
-        if s0 is None or s1 is None:
-            return "needs_review"
-        if t0 == t1 and s0 == s1:
-            return "parity_review"
-        return "needs_review"
-    if condition.startswith("Null"):
-        if s0 == s1:
-            return "confirmed_parity"
-        return "needs_review"
-    return "unknown_condition"
-
-
-def render_condition_synthesis_md(cells: dict) -> str:
-    lines: list[str] = ["# Condition synthesis (paper §4)\n"]
-    lines.append(
-        "| Cond | Task | V0 step | V1 step | V1−tc step | "
-        "V0 timeout | V1 timeout | KG fired (V1) | Auto outcome |"
-    )
-    lines.append(
-        "|------|-----:|--------:|--------:|----------:|"
-        "----------:|----------:|---------------|--------------|"
-    )
-    for cond, task_id in CONDITION_TO_TASK.items():
-        v0 = cells.get(f"{task_id}__v0")
-        v1 = cells.get(f"{task_id}__v1")
-        v1tc = cells.get(f"{task_id}__v1_tc")
-        outcome = _outcome_label(cond, v0, v1)
-        s0 = _step_median(v0); s1 = _step_median(v1); s1tc = _step_median(v1tc)
-        lines.append(
-            f"| {cond} | {task_id} | "
-            f"{s0 if s0 is not None else '—'} | "
-            f"{s1 if s1 is not None else '—'} | "
-            f"{s1tc if s1tc is not None else '—'} | "
-            f"{_step_n_timeout(v0)} | {_step_n_timeout(v1)} | "
-            f"{_kg_fired(v1)} | **{outcome}** |"
-        )
-    lines.append("")
-    lines.append("Outcome labels are automated triage. Manual narrative for")
-    lines.append("each condition (especially `needs_review` rows) is added")
-    lines.append("during paper §4 writing.")
-    return "\n".join(lines) + "\n"
-
-
-def render_step_bar_chart(cells: dict, out_path: Path) -> None:
-    """Save a grouped bar chart of step counts (tasks × variants)."""
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        print("[warn] matplotlib not installed; skipping bar chart", file=sys.stderr)
-        return
-    conditions = list(CONDITION_TO_TASK.keys())
-    task_ids = [CONDITION_TO_TASK[c] for c in conditions]
-    labels = [f"{c}\n#{tid}" for c, tid in zip(conditions, task_ids)]
-    n = len(conditions)
-    width = 0.27
-    xs = list(range(n))
-    series: dict[str, list[float]] = {v: [] for v in VARIANTS}
-    timeouts: dict[str, list[bool]] = {v: [] for v in VARIANTS}
-    for tid in task_ids:
-        for variant in VARIANTS:
-            cell = cells.get(f"{tid}__{variant}")
-            step = _step_median(cell)
-            n_to = _step_n_timeout(cell)
-            # Visualize timeout as a tall sentinel bar (max + 5) with hatch.
-            if n_to and step is None:
-                series[variant].append(0)
-                timeouts[variant].append(True)
-            else:
-                series[variant].append(step if step is not None else 0)
-                timeouts[variant].append(False)
-    # Determine max for sentinel scaling
-    flat = [s for v in series.values() for s in v if s]
-    sentinel = (max(flat) if flat else 10) + 5
-    for variant in VARIANTS:
-        for i, t in enumerate(timeouts[variant]):
-            if t:
-                series[variant][i] = sentinel
-
-    fig, ax = plt.subplots(figsize=(11, 5))
-    colors = {"v0": "#777777", "v1": "#1f77b4"}
-    for j, variant in enumerate(VARIANTS):
-        # render_step_box_plot과 동일한 대칭 offset (이전엔 3 variant용 (j-1)을
-        # 사용해서 2 variant 환경에서 막대가 tick 왼쪽에 anchor됐다).
-        offset = (j - (len(VARIANTS) - 1) / 2) * width
-        bars = ax.bar(
-            [x + offset for x in xs], series[variant],
-            width=width, label=variant, color=colors.get(variant),
-            edgecolor="black", linewidth=0.5,
-        )
-        # Hatch timed-out bars
-        for bar, is_to in zip(bars, timeouts[variant]):
-            if is_to:
-                bar.set_hatch("///")
-                bar.set_alpha(0.6)
-    ax.set_xticks(xs)
-    ax.set_xticklabels(labels, fontsize=9)
-    ax.set_ylabel("step count (median over trials)")
-    ax.set_title("Step counts by condition × variant (hatched = timeout)")
-    ax.legend(loc="upper left")
-    ax.axhline(sentinel - 0.1, linestyle=":", color="red", linewidth=0.5)
-    ax.text(n - 0.5, sentinel + 0.3, "timeout sentinel",
-            color="red", fontsize=8, ha="right")
-    ax.grid(True, axis="y", alpha=0.3)
-    plt.tight_layout()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    print(f"[ok] {out_path}")
-
-
 def render_step_box_plot(cells: dict, out_path: Path) -> None:
     """Per-trial box+scatter plot: V0 (gray) vs V1 (blue) side-by-side per task.
 
@@ -212,7 +50,6 @@ def render_step_box_plot(cells: dict, out_path: Path) -> None:
     labels = [f"{c}\n#{tid}" for c, tid in zip(conditions, task_ids)]
     width = 0.32
 
-    # Determine y-axis range from non-timeout values across all cells.
     all_vals: list[float] = []
     for cond in conditions:
         tid = CONDITION_TO_TASK[cond]
@@ -265,6 +102,56 @@ def render_step_box_plot(cells: dict, out_path: Path) -> None:
     print(f"[ok] {out_path}")
 
 
+def render_step_table(cells: dict, out_path: Path) -> None:
+    """Render per-task step statistics table.
+
+    For each (condition, task_id, variant), reports mean / std (population,
+    ddof=0) / median / range over cells[*]["step"]["raw"]. None entries
+    (non-success/non-timeout trials) are excluded; n_finite vs n_trials is
+    reported so reviewers can audit how many trials were valid.
+    """
+    import statistics
+
+    variant_label = {"v0": "baseline", "v1": "KG"}
+    lines: list[str] = ["# Per-task step statistics\n"]
+    lines.append("| 조건 | task | 비교군 | 평균 | 표준편차 | 중앙값 | 범위 | n |")
+    lines.append("|------|-----:|--------|-----:|---------:|-------:|------|--:|")
+    for cond, task_id in CONDITION_TO_TASK.items():
+        for variant in VARIANTS:
+            cell = cells.get(f"{task_id}__{variant}") or {}
+            step = cell.get("step") or {}
+            raw = step.get("raw") or []
+            valid = [v for v in raw if v is not None]
+            label = variant_label.get(variant, variant)
+            if not valid:
+                n_timeout = step.get("n_timeout") or 0
+                status = cell.get("agent_status_majority") or "no_data"
+                if n_timeout >= len(raw) and len(raw) > 0:
+                    suffix = "timeout"
+                elif status == "UNKNOWN_ERROR":
+                    suffix = "error"
+                elif status == "mixed":
+                    suffix = "mixed"
+                else:
+                    suffix = "no data"
+                lines.append(
+                    f"| {cond} | {task_id} | {label} | "
+                    f"— ({suffix}) | — | — | — | 0/{len(raw)} |"
+                )
+                continue
+            mean = sum(valid) / len(valid)
+            std = (sum((v - mean) ** 2 for v in valid) / len(valid)) ** 0.5
+            median = statistics.median(valid)
+            lo, hi = min(valid), max(valid)
+            lines.append(
+                f"| {cond} | {task_id} | {label} | "
+                f"{mean:.2f} | {std:.2f} | {median:g} | {lo}–{hi} | "
+                f"{len(valid)}/{len(raw)} |"
+            )
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"[ok] {out_path}")
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("root", type=Path,
@@ -278,12 +165,8 @@ def main(argv: list[str]) -> int:
     cells = json.loads(cells_path.read_text(encoding="utf-8"))
     out_dir = args.out or args.root
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "condition_synthesis.md").write_text(
-        render_condition_synthesis_md(cells), encoding="utf-8"
-    )
-    print(f"[ok] {out_dir}/condition_synthesis.md")
-    render_step_bar_chart(cells, out_dir / "figures" / "step_counts.png")
     render_step_box_plot(cells, out_dir / "figures" / "step_box.png")
+    render_step_table(cells, out_dir / "step_table.md")
     return 0
 
 

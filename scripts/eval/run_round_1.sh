@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Round 1 measurement — 3 tasks × V0/V1 × 3 trials = 18 runs.
+# Round 1 measurement — 3 tasks × baseline/KG × 3 trials = 18 runs.
+#
+# Variant identifiers in output paths: v0=baseline, v1=KG.
 #
 # Tasks (active task_cards/<COND>_<task_id>.md):
-#   H2  102 (NAV) — pilot 1 trial showed V1=15 vs V0=29; stabilize with 3 trials.
+#   H2  102 (NAV) — pilot 1 trial showed KG=15 vs baseline=29; stabilize with 3 trials.
 #   L1  418 (MUT) — newly selected after task 411 L1 hypothesis was refuted.
-#   Null1 44 (NAV) — smoke 1 trial each showed V0=V1=2 step; active control.
+#   Null1 44 (NAV) — smoke 1 trial each showed baseline=KG=2 step; active control.
 #
-# Per round_protocol.md:
-#   - V1−tc not measured.
+# Notes:
 #   - All trial outcomes reported regardless of result.
 #   - NAV+RET back-to-back; MUT env restart between every trial AND variant boundary.
 set -u

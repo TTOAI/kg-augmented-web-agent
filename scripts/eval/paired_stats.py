@@ -16,7 +16,7 @@
       --variant treatment=output/<treat>/analysis \\
       --output output/analysis/paired_stats.md
 
-  # 3 variants (07 §5 ablation)
+  # 3 variants
   python scripts/paired_stats.py \\
       --variant baseline=output/baseline_n3/analysis \\
       --variant info_ignored=output/kg_info_ignored_n3/analysis \\
@@ -384,7 +384,7 @@ def render_report(
             )
         lines.append("")
 
-    # Per-type subset analysis (H1_per_type — docs/06 §4-4)
+    # Per-type subset analysis (H1_per_type)
     lines += [
         "## H1_per_type — per task_type 분할 분석",
         "",

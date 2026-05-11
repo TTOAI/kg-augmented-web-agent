@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Round 2 measurement — 4 tasks × V0/V1 × 3 trials = 24 runs.
+# Round 2 measurement — 4 tasks × baseline/KG × 3 trials = 24 runs.
+#
+# Variant identifiers in output paths: v0=baseline, v1=KG.
 #
 # Tasks (active task_cards/<COND>_<task_id>.md):
 #   H1  309 (RET) — single URL template, RET task-type breadth for H archetype.
@@ -7,8 +9,7 @@
 #   L2  568 (MUT) — non-ARIA modal contribution loss; different L type than 411/418.
 #   Null2 664 (MUT) — text-content-dominated; Null breadth into MUT task-type.
 #
-# Per round_protocol.md:
-#   - V1−tc not measured.
+# Notes:
 #   - All trial outcomes reported.
 #   - NAV+RET back-to-back; MUT env restart between every trial.
 set -u
