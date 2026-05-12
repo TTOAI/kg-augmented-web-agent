@@ -116,9 +116,8 @@ def _fmt_bindings(bindings: dict[str, str]) -> str:
     return f"Bindings extracted from task: {pairs}"
 
 
-#  F3: parametric filter params. Value가 entity/label/user/milestone 같은
-# task-dependent 변수면 `<param>` placeholder를 함께 표시해 agent가 task 값으로 치환할 수
-# 있음을 명시한다. param name → placeholder name 매핑 (site-agnostic naming 기반).
+# Parametric filter params: value가 entity/label/user/milestone 같은 task-dependent
+# 변수면 `<param>` placeholder를 함께 표시해 agent가 task 값으로 치환할 수 있도록 한다.
 _PARAMETRIC_PARAM_PLACEHOLDERS: dict[str, str] = {
     "label_name[]": "<label>",
     "label_name": "<label>",
@@ -166,7 +165,6 @@ def _render_filter_templates(
     if not filter_templates:
         return ""
     shown = list(filter_templates)[:limit]
-    #  preamble (header/body/emphasis)은 site prompts.yaml에서 로드
     from site_adaptive_webagent.runtime.prompts import default_prompt_library
 
     lines: list[str] = list(default_prompt_library().render_filter_template_preamble())
@@ -213,10 +211,9 @@ def _render_class_actions(
             label = a["label"]
             target = a.get("target_class")
             href = a.get("sample_href")
-            # Extract just the path + query for readability.
             href_tail = ""
             if href:
-                # Strip protocol/host for brevity.
+                # path + query만 추출 (protocol/host 제거).
                 from urllib.parse import urlparse
 
                 parsed = urlparse(href)
@@ -275,8 +272,8 @@ def _render_class_actions(
             lines.append("")
         lines.append(modal_section)
 
-    # MUTATE form shortcut (off by default — agent treated form URLs
-    # inconsistently in prior experiments; enable with KG_FORM_SHORTCUT=1).
+    # MUTATE form shortcut: off by default — agent의 form URL 해석이 불안정한
+    # 환경에서 noise가 됨. 명시적으로 KG_FORM_SHORTCUT=1로 enable.
     if _os.getenv("KG_FORM_SHORTCUT", "0") == "1":
         form_section = _render_form_shortcuts(actions.get("forms") or [])
         if form_section:
@@ -714,9 +711,8 @@ def generate_hint(
     )
 
     def _join(base: str) -> str:
-        # exact·stay_and_explore와 동일하게 cascade fallback 경로에서도 filter_section
-        # (cross-class URL recipe shortcut)을 유지한다. F2 path-rewrite의 가치는
-        # 정확히 이 fallback 경로에서 가장 크다.
+        # cascade fallback 경로에서도 filter_section(cross-class URL recipe
+        # shortcut) 유지 — fallback은 cross-class shortcut이 가장 가치 있는 경로.
         parts = [base]
         if actions_section:
             parts.append(actions_section)
