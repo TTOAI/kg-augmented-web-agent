@@ -355,7 +355,7 @@ class ToolDefinitionTests(unittest.TestCase):
                 self.assertNotIn("answer", rs["input_schema"]["properties"])
 
     def test_report_failure_schema(self) -> None:
-        """Phase 3.I 이후: status enum 제거, reason만 required. benchmark-agnostic."""
+        """status enum 없이 reason만 required. benchmark-agnostic."""
         from site_adaptive_webagent.runtime.tools import _report_failure_tool
         tool = _report_failure_tool()
         self.assertEqual(tool["name"], "report_failure")
@@ -365,7 +365,7 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(set(tool["input_schema"]["required"]), {"reason"})
 
     def test_scaffold_includes_goto_tool(self) -> None:
-        """Phase 3.F β 이후 baseline은 goto tool을 포함한다 — KG filter URL 템플릿
+        """baseline은 goto tool을 포함한다 — KG filter URL 템플릿
         hint를 agent가 직접 실행(`goto(url)`)할 경로가 필요."""
         from site_adaptive_webagent.runtime.tools import tools_for_goal
         for is_last in (False, True):

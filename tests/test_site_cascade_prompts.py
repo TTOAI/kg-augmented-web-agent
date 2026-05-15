@@ -1,7 +1,7 @@
-"""Tests for Tier 2 externalization: cascade.yaml + prompts.yaml.
+"""Tests for cascade.yaml + prompts.yaml externalization.
 
-Phase 3.H Tier 2: DEFAULT_GITLAB_CONFIG와 _MUTATE_FORM_CHECKLIST를 YAML로 이관했다.
-이 테스트는 이관된 값이 pre-migration 하드코드 값과 동등함을 확인한다.
+cascade.yaml / prompts.yaml에 저장된 값(DEFAULT_GITLAB_CONFIG,
+_MUTATE_FORM_CHECKLIST 대응분)이 기준 하드코드 값과 동등함을 확인한다.
 """
 from __future__ import annotations
 

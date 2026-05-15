@@ -1,4 +1,4 @@
-"""Multi-site validation for path_finder (Phase 3.H Tier 3c).
+"""Multi-site validation for path_finder.
 
 CDIP positioning claim: "protocol은 site-agnostic, 구현은 GitLab 구체화".
 이 테스트는 **runtime path_finder**가 GitLab 이외의 (합성) site taxonomy에

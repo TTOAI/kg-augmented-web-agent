@@ -148,7 +148,7 @@ FORM_EXTRACT_JS = r"""
 }
 """
 
-#  F1: role=tab 요소의 href가 '#' 또는 null일 때 Playwright 클릭으로 URL
+# role=tab 요소의 href가 '#' 또는 null일 때 Playwright 클릭으로 URL
 # 변화를 관측해 실제 쿼리 파라미터 포함 URL을 캡처한다. ARIA 계약상 role="tab"은
 # 읽기 전용 view switch이므로 side effect 없음 (state 변경 없는 filter URL 요청).
 # Click 후 `goto(original)`로 복원.

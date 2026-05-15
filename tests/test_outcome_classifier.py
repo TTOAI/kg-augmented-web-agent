@@ -1,6 +1,6 @@
 """Tests for benchmark-side outcome classifier.
 
-Phase 3.I: classifier가 agent의 **neutral verdict** (AgentRunResult)를 받아
+classifier가 agent의 **neutral verdict** (AgentRunResult)를 받아
 WebArena-Verified status enum (WebArenaRunResult)으로 매핑한다.
 
 Hard-rule 경로:

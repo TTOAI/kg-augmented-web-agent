@@ -288,7 +288,7 @@ class UrlnormEdgeCaseTests(unittest.TestCase):
 
 
 class ExtractPathSlotsTests(unittest.TestCase):
-    """Phase 2C C2: URL에서 path slot 추출."""
+    """URL에서 path slot 추출."""
 
     def setUp(self) -> None:
         self.config = _gitlab_config()

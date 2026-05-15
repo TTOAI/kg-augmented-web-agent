@@ -1,7 +1,7 @@
 """Tests for site config extensions (entities.yaml, crawl.yaml).
 
-Phase 3.H Tier 1: 기존 Python 상수를 YAML로 이관했다. 이 테스트는 YAML에 저장된
-값이 이관 전 상수 값과 정확히 일치하는지 확인 (byte-identical 기대).
+이 테스트는 YAML에 저장된 값이 기준 상수 값과 정확히 일치하는지
+확인한다 (byte-identical 기대).
 """
 from __future__ import annotations
 

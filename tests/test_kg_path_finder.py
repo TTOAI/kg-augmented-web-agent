@@ -13,7 +13,7 @@ from site_adaptive_webagent.kg.runtime.path_finder import (
     find_path,
 )
 
-# Phase 3.H Tier 2: DEFAULT_GITLAB_CONFIG 제거 — cascade.yaml에서 로드해 test에서 사용
+# DEFAULT_GITLAB_CONFIG 제거 — cascade.yaml에서 로드해 test에서 사용
 _gitlab_cascade = load_site_cascade("gitlab")
 GITLAB_CASCADE = CascadeConfig(
     scope_entries=dict(_gitlab_cascade.scope_entries),
