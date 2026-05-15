@@ -83,13 +83,13 @@ class KGSession:
     def infer_target_for_sub_goal(
         self, sub_goal: str, task: str
     ) -> SubGoalKGContext:
-        # V1-tc ablation gate: target classifier 비활성. page-surface 힌트만 노출되도록
+        # env gate로 target classifier 비활성. page-surface 힌트만 노출되도록
         # target_class=None을 반환. caller(executor)는 target=None을 stay_and_explore
         # path로 처리해 현재 클래스의 액션·필터 카탈로그만 hint에 담는다.
         if os.getenv("KG_DISABLE_TARGET_INFERRER", "").strip().lower() in (
             "1", "true", "yes", "on"
         ):
-            logger.info("[KG] target inferrer disabled (V1-tc ablation)")
+            logger.info("[KG] target inferrer disabled")
             return SubGoalKGContext(target_class=None)
         try:
             result: InferResult = _infer_target(
@@ -171,17 +171,15 @@ class KGSession:
     def get_filter_templates(self, class_name: str) -> list:
         """Return FilterTemplate list for class_name.
 
-        class 자신에 관측된 filter template이 없어도, 같은 **family / list-type
-        siblings**에서 템플릿을 수집해 cross-class generalization hint를 제공한다.
-        예: project/issue_list에 직접 관측된 filter가 없어도 project/merge_request_list,
-        dashboard/issue_list의 state=opened, label_name[]=, assignee_username= 같은
-        패턴을 볼 수 있어 agent가 pattern을 추론 가능.
+        class 자신에 관측된 filter template이 없어도, 같은 family / list-type
+        siblings에서 템플릿을 수집해 cross-class generalization hint를 제공한다.
+        sibling list class들에서 관측된 query 패턴을 보여주면 agent가 현재
+        class의 filter를 추론할 수 있다.
 
-         F2: cross-class로 가져온 template의 `path_template`을 **current class의
-        url_template**으로 rewrite한다. 원본 sibling의 path (예: `/-/merge_requests`)을
-        그대로 보여주면 agent가 현재 endpoint (`/-/issues`)에 외삽하기 어렵다. Rewrite
-        후에는 `state=opened` 같은 query가 `/-/issues?state=opened` 형태로 agent에게
-        직접 제시되어 goto 경로가 분명해진다.
+        cross-class로 가져온 template의 `path_template`은 current class의
+        url_template으로 rewrite한다. 원본 sibling의 path를 그대로 보여주면
+        agent가 현재 endpoint에 외삽하기 어렵기 때문. rewrite 후에는 query가
+        현재 endpoint 기준 형태로 제시되어 goto 경로가 분명해진다.
         """
         if not class_name:
             return []
@@ -230,8 +228,8 @@ class KGSession:
         # 3. cross-scope siblings with same base name (예: project/issue_list
         #    → dashboard/issue_list)
         if len(parts) >= 2:
-            # 사이트별 variant_segments는 cascade_config에서 로드 (Tier 3b 사이트 무관
-            # refactor). 비어 있으면 path_finder 모듈 상수로 fallback.
+            # 사이트별 variant_segments는 cascade_config에서 로드. 비어 있으면
+            # path_finder 모듈 상수로 fallback.
             from site_adaptive_webagent.kg.runtime.path_finder import (
                 VARIANT_SEGMENTS as _DEFAULT_VARIANT_SEGMENTS,
             )
@@ -337,9 +335,8 @@ def build_kg_session(
             "[KG] LLM client unavailable (missing API key); KG disabled."
         )
         return None
-    #  -3b: cascade config를 site_name 기반으로 외부 YAML에서 로드.
-    # 이전엔 path_finder의 DEFAULT_GITLAB_CONFIG를 직접 주입했음. 에서
-    # variant_segments / family_type_suffixes도 함께 로드.
+    # cascade config를 site_name 기반으로 외부 YAML(config/sites/<site>/
+    # cascade.yaml)에서 로드. variant_segments / family_type_suffixes 포함.
     site_cascade = load_site_cascade(site_name)
     cascade_cfg = CascadeConfig(
         scope_entries=dict(site_cascade.scope_entries),

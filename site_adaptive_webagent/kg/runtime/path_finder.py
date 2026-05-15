@@ -43,8 +43,8 @@ _TRUST_ORDER = {"high": 0, "medium": 1, "low": 2, None: 3, "unknown": 3}
 class CascadeConfig:
     """Site-configurable cascade parameters.
 
-     -3b: 이전 DEFAULT_GITLAB_CONFIG를 config/sites/<site>/cascade.yaml
-    로 이관. `build_kg_session()`에서 로드 후 KGSession.cascade_config로 주입.
+    config/sites/<site>/cascade.yaml에서 로드되어 `build_kg_session()`을
+    거쳐 KGSession.cascade_config로 주입된다.
 
     - scope_entries: {scope: entry_class} cascade stage 3 target
     - hub: cascade stage 4 fallback
@@ -90,15 +90,15 @@ def extract_family(
 ) -> str:
     """Return family key. Classes in same family share this key.
 
-     variant_segments / family_type_suffixes를 CascadeConfig에서
-    우선 로드. Config가 없거나 해당 필드가 비어 있으면 모듈-수준 fallback 사용
+    variant_segments / family_type_suffixes를 CascadeConfig에서 우선 로드.
+    Config가 없거나 해당 필드가 비어 있으면 모듈-수준 fallback 사용
     (GitLab-flavored default).
 
-    Examples (GitLab default fallback):
-      project/issue_list        -> project/issue
-      project/issue_new_form    -> project/issue
-      project/merge_request_*   -> project/merge_request
-      dashboard/project_list/yours -> dashboard/project_list
+    Examples:
+      scope/thing_list            -> scope/thing
+      scope/thing_new_form        -> scope/thing
+      scope/other_*               -> scope/other
+      scope/thing_list/<variant>  -> scope/thing_list
     """
     variants = (
         config.variant_segments
