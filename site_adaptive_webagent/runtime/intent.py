@@ -23,10 +23,9 @@ def analyze_intent(intent: str, llm: Any = None) -> IntentPlan:
     LLM이 제공되면 LLM으로 task_type을 분류한다. LLM이 없으면 NAVIGATE 기본값을 사용한다.
     target_phrase / target_terms는 LLM 기반 sub-goal planner가 직접 사용하므로 빈 값을 둔다.
 
-    참고: 이전 버전은 intent 안에 http(s) URL이 있으면 NAVIGATE로 강제 분류하는 shortcut을
-    가지고 있었다. 하지만 MUTATE 태스크(예: "set homepage URL to https://...")가 URL을
-    **데이터로** 담는 경우를 NAVIGATE로 오분류하는 치명적 실험 결함을 유발했다.
-    → shortcut 제거. 모든 intent를 LLM에 맡긴다.
+    불변식: intent에 http(s) URL이 있어도 NAVIGATE로 강제 분류하지 않는다.
+    URL을 **데이터로** 담는 MUTATE 태스크(예: URL을 설정값으로 받는 경우)를
+    NAVIGATE로 오분류하면 치명적 실험 결함이 되므로, 모든 intent를 LLM 분류에 맡긴다.
     """
     explicit_url = extract_explicit_url(intent)
 

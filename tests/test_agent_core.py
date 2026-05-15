@@ -20,8 +20,7 @@ class AnalyzeIntentTests(unittest.TestCase):
 
     def test_url_in_intent_does_not_force_navigate(self) -> None:
         """intent에 URL이 있어도 LLM 분류 결과를 따르고 NAVIGATE로 강제하지 않는다.
-        (이전 버전의 URL-shortcut이 'set homepage URL to https://...' 같은 MUTATE task를
-        NAVIGATE로 오분류하던 실험 결함을 방지.)"""
+        (URL을 데이터로 담는 MUTATE task를 NAVIGATE로 오분류하는 실험 결함 방지.)"""
         from .fixtures import FakeLLMClient
         llm = FakeLLMClient('{"task_type": "MUTATE"}')
         plan = analyze_intent(
