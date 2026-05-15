@@ -34,8 +34,6 @@ class SiteKGStore:
     def __init__(self, kg: SiteKG) -> None:
         self.kg = kg
 
-    # ------ 조회 ------
-
     def get_state_pattern(self, pattern_id: str) -> StatePattern | None:
         return self.kg.state_patterns.get(pattern_id)
 
@@ -51,8 +49,6 @@ class SiteKGStore:
 
     def leads_to_edges_from(self, state_pattern_id: str) -> list[LeadsToEdge]:
         return [e for e in self.kg.leads_to_edges if e.from_state_pattern_id == state_pattern_id]
-
-    # ------ 수정 ------
 
     def add_state_pattern(self, pattern: StatePattern) -> None:
         if pattern.id in self.kg.state_patterns:
@@ -74,8 +70,6 @@ class SiteKGStore:
 
     def add_leads_to_edge(self, edge: LeadsToEdge) -> None:
         self.kg.leads_to_edges.append(edge)
-
-    # ------ Merge ------
 
     def merge(self, other: SiteKG) -> None:
         """다른 SiteKG를 현재 KG에 in-place 병합.
@@ -122,8 +116,6 @@ class SiteKGStore:
 
         self.kg.source_mix = compute_source_mix(self.kg)
 
-    # ------ Validation ------
-
     def validate(self) -> list[str]:
         """참조 무결성 체크. 문제 목록 반환 (빈 리스트면 OK).
 
@@ -153,8 +145,6 @@ class SiteKGStore:
                         f"InfoType {it.name!r}.realizes: unknown state_pattern={r.state_pattern_id!r}"
                     )
         return issues
-
-    # ------ Serialization ------
 
     def to_json(self) -> dict[str, Any]:
         """SiteKG를 JSON-호환 dict로 직렬화.
@@ -205,10 +195,6 @@ class SiteKGStore:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         return cls.from_json(data)
 
-
-# ---------------------------------------------------------------------------
-# Helpers: dataclass ↔ dict (slots=True 호환)
-# ---------------------------------------------------------------------------
 
 def _dc_to_dict(obj: Any) -> Any:
     """slots=True dataclass를 포함해 nested dict 변환."""
@@ -295,10 +281,6 @@ def _leads_to_from_dict(d: dict[str, Any]) -> LeadsToEdge:
         source=_coerce_source(d.get("source", "manual")),
     )
 
-
-# ---------------------------------------------------------------------------
-# Merge helpers
-# ---------------------------------------------------------------------------
 
 def _source_rank(source: str) -> int:
     return _SOURCE_PRIORITY.get(source, 0)

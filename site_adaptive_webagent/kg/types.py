@@ -1,9 +1,9 @@
 """KG 스키마 dataclass.
 
-02_open_questions.md 쟁점 #3의 minimum viable schema 결정을 Python 타입으로 옮김.
+Minimum viable schema를 Python 타입으로 표현한다.
 
-M1: urlnorm 의존분 (SiteConfig / IdentityParam / StatePattern)
-M2: 완전한 KG container (InfoType / Action / RealizesEdge / LeadsToEdge / SiteKG)
+- urlnorm 의존분: SiteConfig / IdentityParam / StatePattern
+- KG container: InfoType / Action / RealizesEdge / LeadsToEdge / SiteKG
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class IdentityParam:
     name: str  # e.g., "state", "label_name[]", "assignee_username"
     type: ParamType = "string"
     values: list[str] | None = None  # type=enum일 때만
-    default: Any = None  # 값 미지정 시 암묵 값 (e.g., GitLab의 state default="opened")
+    default: Any = None  # 값 미지정 시 암묵 값 (사이트별 param의 기본값)
     default_trust: TrustLevel = "declared"
     required: bool = False
 
@@ -46,7 +46,7 @@ class IdentityParam:
 class StatePattern:
     """사이트 상태의 formal 표현 (URL-based).
 
-    url_template: path slot을 포함 (예: "/{project_path}/-/issues")
+    url_template: path slot을 포함 (예: "/{container}/{resource}")
     path_params: slot 이름 → 메타 (e.g., {"project_path": {"type": "path_segments"}})
     """
 
@@ -97,10 +97,6 @@ class SiteConfig:
     emit_include_default_values: bool = True
     emit_multi_value_sorted: bool = True
 
-
-# ---------------------------------------------------------------------------
-# M2: KG container types
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class RealizesEdge:

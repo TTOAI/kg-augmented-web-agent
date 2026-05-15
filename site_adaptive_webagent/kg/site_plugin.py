@@ -1,8 +1,8 @@
 """Site-pluggable URL template derivation.
 
- Stage A의 `_derive_from_single()` 알고리즘은 이전까지 GitLab URL
-스키마(`/-/`, `/tree/`, `/blob/` 등)에 커플링되어 있었다. Cross-site 실증 (다른
-benchmark 사이트의 KG 구축)을 위해 **site-pluggable interface**로 전환한다.
+URL template 도출에서 site-specific 부분을 generic 알고리즘 밖 plugin으로
+분리한다. Cross-site KG 구축 시 generic skeleton은 그대로 두고 사이트별
+plugin만 추가하면 되도록 하는 것이 목적이다.
 
 Protocol 레벨 skeleton:
   - URL path를 segment list로 쪼갠다 (site-agnostic)
@@ -98,7 +98,7 @@ class SitePlugin(Protocol):
         """
         ...
 
-    # Scope taxonomy for class_descriptions structured fields ( .
+    # Scope taxonomy for class_descriptions structured fields.
     # Maps the class-name prefix (the part before '/') to a scope kind that
     # task_inferrer uses for disambiguation. Values loaded per plugin from
     # `config/sites/<site>/class_taxonomy.yaml`.
@@ -121,10 +121,6 @@ class SitePlugin(Protocol):
     # `goto(?param=value)` recipe.
     filter_category_params: dict[str, str]
 
-
-# ---------------------------------------------------------------------------
-# Common segment classifiers (shared across plugins)
-# ---------------------------------------------------------------------------
 
 _NUMERIC_RE = re.compile(r"^\d+$")
 _SHA_RE = re.compile(r"^[0-9a-f]{8,40}$")
@@ -152,15 +148,9 @@ def classify_common_segment(
     return None, None
 
 
-# ---------------------------------------------------------------------------
-# GitLab plugin — moved verbatim from scripts/validation/stage_a_extract_rules.py
-# ---------------------------------------------------------------------------
-
-
 class GitLabSitePlugin:
     """GitLab URL scheme plugin.
 
-    Preserves exact behavior of the earlier`_derive_from_single()` function.
     Prefix patterns:
       - /-/ide/project/{namespace}/{project}/...  (Web IDE)
       - /users/{username}/...
@@ -276,15 +266,10 @@ class GitLabSitePlugin:
         return "/" + "/".join(template_segs), params
 
 
-# ---------------------------------------------------------------------------
-# Reddit plugin (Postmill URL scheme — WebArena-Verified reddit container)
-# ---------------------------------------------------------------------------
-
-
 class RedditSitePlugin:
-    """Postmill (WebArena reddit) URL scheme plugin.
+    """Postmill URL scheme plugin.
 
-    URL patterns (observed from WebArena reddit tasks):
+    URL patterns:
       - /                                      (home)
       - /forums                                (forum list)
       - /f/{forum}                             (forum page)
@@ -380,11 +365,6 @@ class RedditSitePlugin:
         return "/" + "/".join(template_segs), params
 
 
-# ---------------------------------------------------------------------------
-# Default / fallback plugin — site-agnostic minimal
-# ---------------------------------------------------------------------------
-
-
 class DefaultSitePlugin:
     """Fallback plugin when site-specific plugin unavailable.
 
@@ -428,10 +408,6 @@ class DefaultSitePlugin:
                 template_segs.append(seg)
         return "/" + "/".join(template_segs), params
 
-
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
 
 _REGISTRY: dict[str, SitePlugin] = {
     "gitlab": GitLabSitePlugin(),
