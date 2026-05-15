@@ -1,18 +1,15 @@
 """Site-specific config extensions beyond SiteConfig.
 
 SiteConfig (kg/types.py) covers URL normalization rules (decorative params,
-identity tokens, path aliases). This module adds *entity lists* and *crawl
-configuration* — values that were previously hardcoded as Python constants
-in `scripts/validation/` but belong to per-site configuration.
-
- scope: value migration only. API 패턴은 `load_site_config`
-와 동일하게 site directory 경로 받기 + YAML 로드.
+identity tokens, path aliases). This module adds per-site *entity lists* and
+*crawl configuration*, loaded from YAML the same way as `load_site_config`
+(site directory 경로 받기 + YAML 로드).
 
 File layout (per site):
   config/sites/<site>/
-    ├── site_config.yaml      (existing — URL normalization)
-    ├── entities.yaml         (NEW — namespaces, usernames, action_keywords, sample_values)
-    └── crawl.yaml            (NEW — base_url, forbidden_patterns, seeds, etc.)
+    ├── site_config.yaml      (URL normalization)
+    ├── entities.yaml         (namespaces, usernames, action_keywords, sample_values)
+    └── crawl.yaml            (base_url, forbidden_patterns, seeds, etc.)
 """
 from __future__ import annotations
 
@@ -52,10 +49,9 @@ class SiteEntities:
 class SiteCascadeEntries:
     """Per-site cascade routing entries (used by path_finder fallback stages).
 
-     -3b: path_finder가 소비하는 site-specific config.
-    - scope_entries / hub (): cascade fallback stage targets
-    - variant_segments / family_type_suffixes (): class name 파싱 상수
-      이전엔 path_finder.py 모듈 수준에 하드코드되어 있던 GitLab naming 관례.
+    - scope_entries / hub: cascade fallback stage targets
+    - variant_segments / family_type_suffixes: class name 파싱 상수
+      (GitLab naming 관례 기반의 site-specific 값).
     """
 
     scope_entries: dict[str, str]

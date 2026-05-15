@@ -1,6 +1,6 @@
 """Load and format per-class descriptions for target_class inference prompt.
 
-Descriptions are pre-built by `scripts/kg_solution/build_class_descriptions.py`
+Descriptions are pre-built by `scripts/kg/build/class_catalog.py`
 into `output/validation/kg_solution/class_descriptions.json` and loaded once
 per `run_agent()` invocation.
 """
@@ -32,8 +32,8 @@ class FilterOption:
 class FilterControl:
     """An in-page dropdown/menu with enumerated options.
 
-    Example: {label: "Label", param: "label_name[]",
-              options: [{name: "bug"}, {name: "feature"}, ...]}
+    Example: {label: "<category>", param: "<query_param>",
+              options: [{name: "<opt1>"}, {name: "<opt2>"}, ...]}
     """
     label: str
     param: str
@@ -46,8 +46,8 @@ class FilterCategory:
     """A filter category captured via recursive expansion of a filtered-search
     input (3-level: category → operator → value).
 
-    name: category label (e.g. "Label", "Assignee", "Milestone")
-    param: URL query param for `goto(?param=value)` (e.g. "label_name[]")
+    name: category label (e.g. "<category>")
+    param: URL query param for `goto(?param=value)` (e.g. "<query_param>")
     operators: list of operator labels (e.g. ["=\\nis", "!=\\nis not"])
     example_values: sample values observed during existence-proof click; NOT a
         complete inventory. Agent is expected to supply the actual value from
@@ -126,7 +126,7 @@ class ClassCatalog:
 
         Structured fields (scope/role/triggers/not_for) help the LLM
         disambiguate between sibling classes whose URL or name alone is
-        ambiguous (e.g., dashboard/issue_list vs project/issue_list).
+        ambiguous (e.g., two sibling list classes under different scopes).
         Falls back to single-line format for classes without structured data.
         """
         blocks: list[str] = []

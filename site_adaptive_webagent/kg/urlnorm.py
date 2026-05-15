@@ -17,10 +17,6 @@ from urllib.parse import parse_qsl, quote, unquote, urlparse, urlunparse
 from .types import IdentityParam, SiteConfig, StatePattern
 
 
-# ---------------------------------------------------------------------------
-# 내부 구조
-# ---------------------------------------------------------------------------
-
 @dataclass(slots=True)
 class NormalizedURL:
     """정규화 결과. path + query (identity만) + 제거된 decorative param 집합을 보유."""
@@ -29,10 +25,6 @@ class NormalizedURL:
     query_pairs: list[tuple[str, str]]  # identity param만 (multi-value는 여러 튜플)
     stripped_decorative: list[tuple[str, str]]  # 제거된 decorative param (정보 보존)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _resolve_identity_token(value: str, runtime_context: dict | None) -> str:
     """{{path.to.key}} 형식을 runtime_context dict에서 치환.
@@ -98,10 +90,6 @@ def _normalize_query_value(value: str, site_config: SiteConfig) -> str:
         return value.lower()
     return value
 
-
-# ---------------------------------------------------------------------------
-# Primitive 1: normalize_url
-# ---------------------------------------------------------------------------
 
 def normalize_url(
     url: str,
@@ -194,10 +182,6 @@ def _sort_multi_values(pairs: list[tuple[str, str]], site_config: SiteConfig) ->
     return result
 
 
-# ---------------------------------------------------------------------------
-# Primitive 2: match_pattern
-# ---------------------------------------------------------------------------
-
 def match_pattern(
     url: str,
     pattern: StatePattern,
@@ -263,7 +247,7 @@ def extract_path_slots_from_url(
     미제공 slot의 fallback 값으로 재사용 가능.
 
     Returns:
-        매칭 성공 시 {"namespace": "<ns>", "project_path": "<proj>", ...}
+        매칭 성공 시 {"<slot1>": "<value1>", "<slot2>": "<value2>", ...}
         매칭 실패 시 None
     """
     ok, bindings = match_pattern(url, pattern, site_config, runtime_context)
@@ -308,10 +292,6 @@ def _match_path_template(path: str, pattern: StatePattern) -> tuple[bool, dict[s
     bindings = {name: value for name, value in zip(slot_names, m.groups(), strict=False)}
     return True, bindings
 
-
-# ---------------------------------------------------------------------------
-# Primitive 3: emit_url
-# ---------------------------------------------------------------------------
 
 def emit_url(
     pattern: StatePattern,
