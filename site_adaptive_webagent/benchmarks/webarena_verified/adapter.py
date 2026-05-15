@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
 from site_adaptive_webagent.agent.core import run_agent
-from site_adaptive_webagent.agent.types import AgentRunResult
 
 from .outcome_classifier import classify_outcome
 from .types import WebArenaRunResult
@@ -273,9 +272,8 @@ async def open_start_pages(context: BrowserContext, start_urls: list[str]) -> li
 def write_agent_response(task_output_dir: Path, result: WebArenaRunResult) -> Path:
     """최종 agent response를 benchmark 기대 형식으로 저장한다.
 
-     이후: 입력 타입은 `WebArenaRunResult` (benchmark-specific 결과).
-    Agent runtime의 neutral `AgentRunResult`는 `classify_outcome`으로 이쪽으로 변환된
-    뒤 여기로 들어온다.
+    입력 타입은 `WebArenaRunResult` (benchmark-specific 결과). Agent runtime의
+    neutral `AgentRunResult`는 `classify_outcome`으로 이쪽으로 변환된 뒤 들어온다.
     """
     output_path = task_output_dir / "agent_response.json"
     payload = {
@@ -612,7 +610,6 @@ class WebArenaVerifiedAdapter:
                 if browser is not None:
                     await browser.close()
 
-        # agent_response 입력
         task_type_input = input(">>> Task type (NAVIGATE/RETRIEVE/MUTATE) [NAVIGATE]: ").strip().upper()
         task_type = task_type_input if task_type_input in ("NAVIGATE", "RETRIEVE", "MUTATE") else "NAVIGATE"
         retrieved_data = None
