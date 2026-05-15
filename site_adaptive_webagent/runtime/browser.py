@@ -29,7 +29,7 @@ _SELECT_SELECTORS = ("select",)
 async def observe_page(page: Any) -> PageObservation:
     """현재 보이는 페이지 상태를 간결하게 수집한다."""
     # URL은 원본 그대로 (.lower() 등 정규화하지 않음) — case-sensitive path·query
-    # 보존. _sub_goal_start_url 비교에도 원본 기반이 안전 (Y-code-4 fix).
+    # 보존. _sub_goal_start_url 비교에도 원본 기반이 안전.
     url = (getattr(page, "url", "") or "").strip()
     (
         title, headings, text_lines, ax_links, dropdown_options, buttons,
@@ -52,7 +52,7 @@ async def observe_page(page: Any) -> PageObservation:
     all_text = text_lines + readonly_values
     # Checkbox / radio 상태를 inputs에 prepend — agent가 form 제출 전 확인 가능하게.
     # 기본 checkbox/radio selector로는 toggle 상태를 누락해서 qualifier 필드
-    # (예: 폼의 "empty" / "private" 선택지)가 form 필드로 매핑 안 되고 default로 submit되는 문제를 방지.
+    # (예: 폼의 non-default 선택지)가 form 필드로 매핑 안 되고 default로 submit되는 문제를 방지.
     all_inputs = toggle_states + inputs
     # Latent nav에서 visible link 중복 제거 — observation 표면에 이미 있는 것은 불필요
     visible_link_texts = {l.split(" → ")[0].strip() for l in links if " → " in l}
@@ -228,7 +228,7 @@ async def extract_toggle_states(page: Any) -> list[str]:
       "<radio_group_name>: <option1> | <option2 selected> ✓ | <option3>"
 
     이 신호 없이는 agent가 intent의 non-default 수식어 (site별 어휘)를 form 필드와
-    매핑 못함 — default submit이 고질적 실패 원인 ( P1.1 진단).
+    매핑 못함 — default submit이 고질적 실패 원인.
     """
     try:
         results: list[str] = await page.evaluate(
@@ -272,7 +272,7 @@ async def extract_toggle_states(page: Any) -> list[str]:
 
 
 async def extract_readonly_values(page: Any) -> list[str]:
-    """보이는 readonly input의 value를 수집한다 (예: clone URL)."""
+    """보이는 readonly input의 value를 수집한다."""
     try:
         results: list[str] = await page.evaluate(
             """() => {

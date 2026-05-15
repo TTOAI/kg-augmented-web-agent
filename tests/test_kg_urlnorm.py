@@ -313,7 +313,7 @@ class ExtractPathSlotsTests(unittest.TestCase):
         self.assertIsNone(slots)
 
     def test_extract_path_slots_preserves_case(self) -> None:
-        """URL 원본 case 보존 (Y-code-4 호환 — slug는 case-sensitive)."""
+        """URL 원본 case 보존 — slug는 case-sensitive."""
         slots = extract_path_slots_from_url(
             "/ByteBlaze/Cloud-To-Butt/-/issues",
             self.pattern, self.config,

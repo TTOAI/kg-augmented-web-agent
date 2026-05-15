@@ -9,10 +9,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-# ---------------------------------------------------------------------------
-# Response types (provider-agnostic)
-# ---------------------------------------------------------------------------
-
 @dataclass(slots=True)
 class ToolCall:
     """LLM이 반환한 단일 tool 호출."""
@@ -28,10 +24,6 @@ class LLMToolResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
     raw_content: list[Any] = field(default_factory=list)
 
-
-# ---------------------------------------------------------------------------
-# Tool definitions (Anthropic format)
-# ---------------------------------------------------------------------------
 
 # Generic optional memo field — accumulated into task_notes and reviewed before done
 _MEMO_FIELD = {
@@ -296,7 +288,7 @@ def _report_success_tool(*, is_last_goal: bool, task_type: str) -> dict:
 def _report_failure_tool() -> dict:
     """Terminal tool for a non-success task outcome.
 
-     refactor: benchmark-specific status enum 제거. Agent는 "task를
+    Benchmark-specific status enum은 들고 있지 않는다. Agent는 "task를
     완수할 수 없다"는 판단만 보고하고, 그것을 NOT_FOUND_ERROR / PERMISSION_DENIED /
     UNKNOWN_ERROR 등 benchmark-specific status로 분류하는 것은 benchmark adapter의
     `outcome_classifier` 몫. 이 분리로 agent runtime이 특정 벤치마크에 결합되지
@@ -330,10 +322,6 @@ def _report_failure_tool() -> dict:
         },
     }
 
-
-# ---------------------------------------------------------------------------
-# Tool set composition
-# ---------------------------------------------------------------------------
 
 def replan_tool() -> dict:
     """replan용 tool 정의. LLM이 새로운 sub-goal 목록을 반환한다."""
@@ -387,10 +375,6 @@ def tools_for_goal(*, is_last_goal: bool, task_type: str) -> list[dict]:
         _report_failure_tool(),
     ]
 
-
-# ---------------------------------------------------------------------------
-# Message format helpers
-# ---------------------------------------------------------------------------
 
 def format_assistant_tool_use(response: LLMToolResponse) -> dict:
     """LLMToolResponse를 대화 히스토리용 assistant 메시지로 포맷한다.
