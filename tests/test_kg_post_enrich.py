@@ -245,10 +245,10 @@ class EnrichIntegrationTests(unittest.TestCase):
         # category
         self.assertEqual(it.category, "project")
         # summary counts
-        self.assertGreater(summary["D2_path_params"], 0)
-        self.assertGreater(summary["D3_query_params"], 0)
-        self.assertGreater(summary["D1_binding_map"], 0)
-        self.assertGreater(summary["D6_category"], 0)
+        self.assertGreater(summary["path_params"], 0)
+        self.assertGreater(summary["query_params"], 0)
+        self.assertGreater(summary["binding_map"], 0)
+        self.assertGreater(summary["category"], 0)
 
 
 class BackfillFromFormActionsTests(unittest.TestCase):

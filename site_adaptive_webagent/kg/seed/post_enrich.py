@@ -1,14 +1,15 @@
-"""Post-derivation enrichment — LLM 재호출 없이 구조 결함을 자동 채움.
+"""Post-derivation enrichment — LLM 재호출 없이 schema gap을 자동 채움.
 
-Smoke 분석에서 발견된 결함(0-entries fields, fallback-only schema)을 post-processing
-코드로 보강한다. crawl + LLM derivation 결과를 받아, schema가 요구하는 필드를
-name·regex 기반 heuristic으로 채운다.
+crawl + LLM derivation 결과를 받아, schema가 요구하지만 derivation이 비워둔
+필드를 name·regex 기반 heuristic으로 보강한다.
 
-결함 매핑:
-- D1 (binding_map 공백): auto_fill_binding_map
-- D2 (path_params 공백): auto_fill_path_params
-- D3 (identity_query_params 부족): auto_fill_query_params
-- D6 (InfoType category 없음): assign_infotype_category
+보강 항목:
+- binding_map: auto_fill_binding_map
+- path_params type: auto_fill_path_params
+- identity_query_params: auto_fill_query_params / backfill_query_params_from_form_actions
+- InfoType.optional_bindings: backfill_optional_bindings
+- InfoType category: assign_infotype_category
+- unused form action prune + action description 보강
 
 원칙:
 - LLM 재호출 없음 (비용·결정성 유지)
@@ -29,10 +30,6 @@ logger = logging.getLogger("kg.enrich")
 # URL template에서 {slot} 추출
 _SLOT_RE = re.compile(r"\{([^}]+)\}")
 
-
-# ---------------------------------------------------------------------------
-# D1. binding_map auto-fill
-# ---------------------------------------------------------------------------
 
 def auto_fill_binding_map(kg: SiteKG) -> int:
     """InfoType.required/optional bindings를 realize edge가 가리키는 StatePattern의
@@ -68,7 +65,7 @@ def auto_fill_binding_map(kg: SiteKG) -> int:
             if auto_map:
                 edge.binding_map = auto_map
                 modified += 1
-    logger.info("[enrich] D1 binding_map auto-filled: %d edges", modified)
+    logger.info("[enrich] binding_map auto-filled: %d edges", modified)
     return modified
 
 
@@ -83,10 +80,6 @@ def _match_binding_to_slot(binding: str, slots: set[str]) -> str | None:
         return binding[:-2]
     return None
 
-
-# ---------------------------------------------------------------------------
-# D2. path_params type auto-infer
-# ---------------------------------------------------------------------------
 
 def auto_fill_path_params(kg: SiteKG) -> int:
     """StatePattern의 url_template에서 {slot}을 추출해 path_params를 채움.
@@ -115,13 +108,9 @@ def auto_fill_path_params(kg: SiteKG) -> int:
             changed = True
         if changed:
             modified += 1
-    logger.info("[enrich] D2 path_params auto-filled: %d state_patterns", modified)
+    logger.info("[enrich] path_params auto-filled: %d state_patterns", modified)
     return modified
 
-
-# ---------------------------------------------------------------------------
-# D3. identity_query_params auto-infer
-# ---------------------------------------------------------------------------
 
 _ENUM_HINTS = {"state", "scope", "sort", "order", "direction", "status", "visibility"}
 
@@ -172,7 +161,7 @@ def auto_fill_query_params(kg: SiteKG) -> int:
                 added = True
             if added:
                 modified += 1
-    logger.info("[enrich] D3 identity_query_params auto-filled: %d (infotype, state) pairs", modified)
+    logger.info("[enrich] identity_query_params auto-filled: %d (infotype, state) pairs", modified)
     return modified
 
 
@@ -188,10 +177,6 @@ def _infer_param_type(name: str) -> str:
         return "int"
     return "string"
 
-
-# ---------------------------------------------------------------------------
-# D6. InfoType category auto-assign
-# ---------------------------------------------------------------------------
 
 def assign_infotype_category(kg: SiteKG, min_cluster_size: int = 2) -> int:
     """InfoType 이름의 prefix로 category 자동 부여.
@@ -221,14 +206,10 @@ def assign_infotype_category(kg: SiteKG, min_cluster_size: int = 2) -> int:
         prefix = it.name.split("_", 1)[0]
         it.category = categories.get(prefix, "misc")
         modified += 1
-    logger.info("[enrich] D6 categories auto-assigned: %d InfoTypes (explicit categories=%d)",
+    logger.info("[enrich] categories auto-assigned: %d InfoTypes (explicit categories=%d)",
                 modified, len(categories))
     return modified
 
-
-# ---------------------------------------------------------------------------
-# D3 근원: form action → StatePattern query params 역투영
-# ---------------------------------------------------------------------------
 
 _FORM_ACTION_RE = re.compile(r"^crawl:form:(?P<slug>[^:]+):(?P<input>.+)$")
 
@@ -264,7 +245,7 @@ def backfill_query_params_from_form_actions(kg: SiteKG) -> int:
         state_to_inputs[le.to_state_pattern_id].add(input_name)
 
     if not state_to_inputs:
-        logger.info("[enrich] D3' form→query backfill: no form edges found")
+        logger.info("[enrich] form→query backfill: no form edges found")
         return 0
 
     # 2. 직접 매핑: form edge의 from state에 query param 추가
@@ -304,7 +285,7 @@ def backfill_query_params_from_form_actions(kg: SiteKG) -> int:
                     modified += 1
 
     logger.info(
-        "[enrich] D3' form→query backfill: %d StatePatterns enriched "
+        "[enrich] form→query backfill: %d StatePatterns enriched "
         "(%d distinct form states)",
         modified, len(state_to_inputs),
     )
@@ -345,10 +326,6 @@ def _add_inputs_as_query_params(sp: StatePattern, input_names) -> bool:
     return added
 
 
-# ---------------------------------------------------------------------------
-# D3 근원 (2): InfoType.optional_bindings ← StatePattern.identity_query_params
-# ---------------------------------------------------------------------------
-
 def backfill_optional_bindings(kg: SiteKG) -> int:
     """각 InfoType의 realize target StatePattern이 가진 query params 이름을
     해당 InfoType의 optional_bindings에 backfill한다 (중복·required 제외).
@@ -377,15 +354,11 @@ def backfill_optional_bindings(kg: SiteKG) -> int:
             it.optional_bindings = new_opt
             modified += 1
     logger.info(
-        "[enrich] D3' InfoType.optional_bindings backfilled: %d InfoTypes",
+        "[enrich] InfoType.optional_bindings backfilled: %d InfoTypes",
         modified,
     )
     return modified
 
-
-# ---------------------------------------------------------------------------
-# D7 근원: unused form action pruning + description auto-fill
-# ---------------------------------------------------------------------------
 
 def prune_unused_form_actions(kg: SiteKG) -> int:
     """LeadsToEdge에 한 번도 참조되지 않는 `crawl:form:*` action을 catalog에서 제거.
@@ -402,7 +375,7 @@ def prune_unused_form_actions(kg: SiteKG) -> int:
         if name.startswith("crawl:form:") and name not in used_names:
             del kg.actions[name]
             removed += 1
-    logger.info("[enrich] D7 unused form actions pruned: %d", removed)
+    logger.info("[enrich] unused form actions pruned: %d", removed)
     return removed
 
 
@@ -441,10 +414,6 @@ def auto_fill_action_descriptions(kg: SiteKG) -> int:
     return modified
 
 
-# ---------------------------------------------------------------------------
-# 통합 entrypoint
-# ---------------------------------------------------------------------------
-
 def enrich(kg: SiteKG) -> dict[str, int]:
     """모든 enrichment helper를 순서대로 적용.
 
@@ -453,13 +422,13 @@ def enrich(kg: SiteKG) -> dict[str, int]:
     뒤에서 앞 단계의 산출을 활용.
     """
     summary = {
-        "D2_path_params": auto_fill_path_params(kg),
-        "D3_form_backfill": backfill_query_params_from_form_actions(kg),
-        "D3_query_params": auto_fill_query_params(kg),
-        "D3_optional_backfill": backfill_optional_bindings(kg),
-        "D1_binding_map": auto_fill_binding_map(kg),
-        "D6_category": assign_infotype_category(kg),
-        "D7_prune_form_actions": prune_unused_form_actions(kg),
+        "path_params": auto_fill_path_params(kg),
+        "form_backfill": backfill_query_params_from_form_actions(kg),
+        "query_params": auto_fill_query_params(kg),
+        "optional_backfill": backfill_optional_bindings(kg),
+        "binding_map": auto_fill_binding_map(kg),
+        "category": assign_infotype_category(kg),
+        "prune_form_actions": prune_unused_form_actions(kg),
         "action_descriptions": auto_fill_action_descriptions(kg),
     }
     logger.info("[enrich] summary: %s", summary)
