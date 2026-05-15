@@ -37,7 +37,7 @@ from site_adaptive_webagent.runtime.llm import LLMClient
 
 from .types import WebArenaRunResult, WebArenaStatus
 
-logger = logging.getLogger("webarena_verified")
+logger = logging.getLogger("agent_runtime")
 
 _VALID_STATUSES: frozenset[str] = frozenset({
     "SUCCESS",

@@ -24,6 +24,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from site_adaptive_webagent.benchmarks.webarena_verified.types import TASK_LOG_FILENAME
+
 
 # Log line patterns
 _RE_KG_SESSION = re.compile(r"\[KG\] session loaded:\s*(.*)$")
@@ -203,7 +205,7 @@ def extract_signals(trial_dir: Path) -> TrialSignals:
     sig = TrialSignals(trial_dir=str(trial_dir))
     sig.task_id = _infer_task_id(trial_dir)
     sig.variant = _infer_variant_from_path(trial_dir)
-    parse_log(trial_dir / "webarena_verified.log", sig)
+    parse_log(trial_dir / TASK_LOG_FILENAME, sig)
     parse_agent_response(trial_dir, sig)
     parse_eval_result(trial_dir, sig)
     return sig

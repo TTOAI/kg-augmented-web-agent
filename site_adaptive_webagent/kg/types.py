@@ -34,7 +34,7 @@ class IdentityParam:
     URL param 중 state 식별에 관여하는 항목만 이 목록에 포함된다 (decorative는 별도 제외).
     """
 
-    name: str  # e.g., "state", "label_name[]", "assignee_username"
+    name: str
     type: ParamType = "string"
     values: list[str] | None = None  # type=enum일 때만
     default: Any = None  # 값 미지정 시 암묵 값 (사이트별 param의 기본값)
@@ -83,7 +83,7 @@ class SiteConfig:
     decorative_params: list[str] = field(default_factory=list)
 
     # --- 3. Multi-value array params ---
-    multi_value_suffix_pattern: str | None = r"\[\]$"  # e.g., "label_name[]"
+    multi_value_suffix_pattern: str | None = r"\[\]$"  # 끝이 []인 param (multi-value array)
     multi_value_explicit: list[str] = field(default_factory=list)
 
     # --- 4. Identity tokens (런타임 치환) ---
@@ -103,7 +103,6 @@ class RealizesEdge:
     """InfoType → StatePattern 매핑. 1:N 허용 (condition으로 구분).
 
     binding_map: InfoType의 binding 이름을 StatePattern의 binding 이름으로 매핑.
-    (예: InfoType의 'label_name' → StatePattern의 'label_name[]')
     """
 
     infotype: str  # InfoType.name (flat list용 key)
@@ -152,8 +151,8 @@ class LeadsToEdge:
     """StatePattern --Action--> StatePattern 전이.
 
     from_bindings / to_bindings는 해당 state에서 유지·전달되는 binding 이름 목록.
-    to_bindings의 "label_name[]<-label" 표기는 action의 label 파라미터를
-    target state의 label_name[] 슬롯에 매핑함을 의미 (선택적 해석).
+    to_bindings의 "X<-Y" 표기는 action의 Y 파라미터를 target state의
+    X 슬롯에 매핑함을 의미 (선택적 해석).
     """
 
     from_state_pattern_id: str

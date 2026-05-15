@@ -19,7 +19,7 @@ from site_adaptive_webagent.runtime.llm import LLMClient
 
 from .class_descriptions import ClassCatalog
 
-logger = logging.getLogger("webarena_verified")
+logger = logging.getLogger("agent_runtime")
 
 SYSTEM_PROMPT = (
     "You are a web navigation planner. You are given a task and the current "

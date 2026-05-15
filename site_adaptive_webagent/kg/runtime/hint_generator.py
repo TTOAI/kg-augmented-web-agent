@@ -18,7 +18,7 @@ from site_adaptive_webagent.runtime.llm import LLMClient
 
 from .path_finder import PathResult, PathStep
 
-logger = logging.getLogger("webarena_verified")
+logger = logging.getLogger("agent_runtime")
 
 _HINT_HEADER = "[KG navigation hint — advisory]"
 

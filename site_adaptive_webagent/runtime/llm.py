@@ -17,7 +17,7 @@ from typing import Any, Callable, Protocol, runtime_checkable
 
 from .tools import LLMToolResponse, ToolCall
 
-logger = logging.getLogger("webarena_verified")
+logger = logging.getLogger("agent_runtime")
 
 
 def _retry_transient(fn: Callable, *, max_attempts: int = 3, base_delay: float = 1.0,
@@ -414,7 +414,7 @@ def classify_task_type(intent: str, llm: LLMClient) -> str:
         return task_type
     # Fallback path (malformed response / missing key) — log so misclassification rate is monitorable.
     import logging
-    logging.getLogger("webarena_verified").warning(
+    logging.getLogger("agent_runtime").warning(
         "[classify_task_type] malformed response (raw=%r, parsed_keys=%s) → fallback NAVIGATE",
         raw, list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__,
     )

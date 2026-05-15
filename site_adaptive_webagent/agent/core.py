@@ -14,7 +14,7 @@ from site_adaptive_webagent.runtime.llm import make_llm_client
 
 load_dotenv()  # .env 파일에서 LLM_PROVIDER / API 키를 로드한다
 
-logger = logging.getLogger("webarena_verified")
+logger = logging.getLogger("agent_runtime")
 
 # analyze_intent를 이 모듈에서도 참조 가능하도록 re-export
 __all__ = ["run_agent", "analyze_intent"]

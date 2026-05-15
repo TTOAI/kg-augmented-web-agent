@@ -33,7 +33,7 @@ from .path_finder import (
 )
 from .task_inferrer import InferResult, infer_target as _infer_target
 
-logger = logging.getLogger("webarena_verified")
+logger = logging.getLogger("agent_runtime")
 
 DEFAULT_RULES_PATH = Path("output/validation/rules/class_rules.json")
 DEFAULT_EDGE_GRAPH_PATH = Path("output/validation/stage_c/edge_graph.json")

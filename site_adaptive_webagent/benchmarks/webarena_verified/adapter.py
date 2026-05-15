@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 from site_adaptive_webagent.agent.core import run_agent
 
 from .outcome_classifier import classify_outcome
-from .types import WebArenaRunResult
+from .types import TASK_LOG_FILENAME, WebArenaRunResult
 
-logger = logging.getLogger("webarena_verified")
+logger = logging.getLogger("agent_runtime")
 
 BENCHMARK_REQUIRED_TASK_KEYS = ("task_id", "intent_template_id", "sites", "start_urls", "intent")
 BENCHMARK_REQUIRED_RESPONSE_KEYS = ("task_type", "status", "retrieved_data", "error_details")
@@ -135,7 +135,7 @@ def backup_output_dir(task_output_dir: Path, task_id: int) -> None:
 
 def setup_task_logging(*, logger: logging.Logger, task_output_dir: Path) -> None:
     """표준 출력과 task별 로그 파일로 로깅을 설정한다."""
-    log_file = task_output_dir / f"{logger.name.lower().replace('-', '_')}.log"
+    log_file = task_output_dir / TASK_LOG_FILENAME
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     formatter = logging.Formatter("[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s", datefmt="%H:%M:%S")

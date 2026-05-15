@@ -14,6 +14,9 @@ from typing import Any, Literal
 
 from site_adaptive_webagent.runtime.types import TaskType
 
+# Per-trial log artifact: written by the adapter, read by the eval pipeline.
+TASK_LOG_FILENAME = "webarena_verified.log"
+
 WebArenaStatus = Literal[
     "SUCCESS",
     "ACTION_NOT_ALLOWED_ERROR",

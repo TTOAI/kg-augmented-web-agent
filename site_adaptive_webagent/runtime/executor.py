@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Any, Optional, TYPE_CHECKING
 
-logger = logging.getLogger("webarena_verified")
+logger = logging.getLogger("agent_runtime")
 
 from .browser import observe_page, try_click_target, try_fill_target, try_search
 from .llm import LLMClient, SubGoal, build_observation_message, build_plan, build_tool_use_system_prompt

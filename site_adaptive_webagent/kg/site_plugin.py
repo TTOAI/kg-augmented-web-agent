@@ -354,8 +354,8 @@ class RedditSitePlugin:
             elif prev == "comment":
                 template_segs.append("{id}")
                 params["id"] = {"type": "segment"}
-            # Slug after numeric id: hold as literal (slug varies but rarely matters
-            # for KG classification); if we want full generalization, use {slug}
+            # Slug after numeric post_id → {slug} (slug varies and rarely
+            # matters for KG classification, so generalize to a slot)
             elif prev and _NUMERIC_RE.match(prev) and seg not in action_keywords and seg != "comment":
                 template_segs.append("{slug}")
                 params["slug"] = {"type": "segment"}
