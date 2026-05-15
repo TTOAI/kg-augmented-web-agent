@@ -30,10 +30,6 @@ CRAWL_TRUST = default_trust_for_source("crawl")  # "verified"
 _CRAWL_PREFIX = "crawl:"
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def extract_url_template(
     urls: list[str],
     site_config: SiteConfig,
@@ -245,10 +241,6 @@ def crawl_results_to_sitekg(
 
     return kg
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _split_segments(path: str) -> list[str]:
     """path를 segment list로 (leading/trailing slash 제거 후)."""

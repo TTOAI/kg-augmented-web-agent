@@ -25,10 +25,6 @@ class DiffEntry:
     detail: str = ""  # url_template / description 등
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def diff_state_patterns(
     manual: SiteKG, crawl: SiteKG, llm: SiteKG,
 ) -> list[DiffEntry]:
@@ -134,10 +130,7 @@ def render_markdown(
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Helpers (key functions: store._merge_edges와 동일하게 유지)
-# ---------------------------------------------------------------------------
-
+# key 함수는 store._merge_edges와 동일하게 유지해야 함
 def _realizes_key(e: RealizesEdge) -> tuple[str, str, str]:
     return (e.infotype, e.state_pattern_id, e.condition)
 

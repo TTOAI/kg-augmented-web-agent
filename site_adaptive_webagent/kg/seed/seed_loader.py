@@ -121,10 +121,6 @@ def _coerce_source(value: Any) -> Source:
     return s  # type: ignore[return-value]
 
 
-# ---------------------------------------------------------------------------
-# Adapter helpers
-# ---------------------------------------------------------------------------
-
 def _adapt_state_pattern(d: dict[str, Any]) -> StatePattern:
     params = [_adapt_identity_param(p) for p in d.get("identity_query_params", []) or []]
     return StatePattern(
