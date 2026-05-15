@@ -24,8 +24,8 @@ from site_adaptive_webagent.kg.urlnorm import normalize_url
 
 import os
 
-#  crawl 상수를 config/sites/<site>/crawl.yaml에서 로드.
-# 기존 하드코드 값(BASE_URL, SEEDS, FORBIDDEN_PATTERNS)은 gitlab crawl.yaml에 이관.
+# crawl 상수는 config/sites/<site>/crawl.yaml에서 로드
+# (BASE_URL, SEEDS, FORBIDDEN_PATTERNS 포함).
 _SITE_NAME = os.getenv("SITE_NAME", "gitlab")
 _SITE_CRAWL = load_site_crawl(_SITE_NAME)
 

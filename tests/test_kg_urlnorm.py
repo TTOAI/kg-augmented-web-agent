@@ -71,7 +71,7 @@ def _issues_filtered_pattern() -> StatePattern:
 # ---------------------------------------------------------------------------
 
 class Normalize8DimensionTests(unittest.TestCase):
-    """02_open_questions.md §3-3의 URL 정규화 8차원 전수 검증."""
+    """URL 정규화 8차원 전수 검증."""
 
     def setUp(self) -> None:
         self.config = _gitlab_config()

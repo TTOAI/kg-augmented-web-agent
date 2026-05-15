@@ -1,6 +1,6 @@
 {
-  "_schema": "docs/kg_design/05_implementation_architecture.md §1 (kg/types.py)",
-  "_note": "manual layer seed — crawl/llm layer는 M4에서 병합 (docs/kg_design/07 §14).",
+  "_schema": "kg/types.py (SiteKG schema)",
+  "_note": "manual layer seed — crawl/llm layer는 병합 단계에서 합쳐짐.",
   "version": 1,
   "site": "gitlab",
   "construction_status": "in_progress",

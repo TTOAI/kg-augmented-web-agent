@@ -38,10 +38,6 @@ from itertools import combinations
 from pathlib import Path
 
 
-# ---------------------------------------------------------------------------
-# Statistical primitives (self-contained)
-# ---------------------------------------------------------------------------
-
 def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """Wilson score 95% CI for binary success rate."""
     if n == 0:
@@ -147,10 +143,6 @@ def wilcoxon_signed_rank(diffs: list[float]) -> tuple[float, float]:
     return (w_plus, min(1.0, p))
 
 
-# ---------------------------------------------------------------------------
-# Data loading
-# ---------------------------------------------------------------------------
-
 def load_paired_csv(path: Path) -> dict[int, dict]:
     """analyze_baseline.py의 paired.csv → {task_id: {majority_success, ...}}."""
     out: dict[int, dict] = {}
@@ -189,10 +181,6 @@ def task_mean_metric(task_rows: list[dict], metric_field: str) -> float | None:
             continue
     return sum(vals) / len(vals) if vals else None
 
-
-# ---------------------------------------------------------------------------
-# Pairwise comparison
-# ---------------------------------------------------------------------------
 
 def compare_binary(
     paired_a: dict[int, dict], paired_b: dict[int, dict],
@@ -288,10 +276,6 @@ def compare_continuous(
         "p_value": p,
     }
 
-
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
 
 def render_report(
     variants: dict[str, tuple[Path, Path]],  # name -> (paired.csv, raw.csv)
@@ -453,10 +437,6 @@ def render_report(
     ]
     return "\n".join(lines)
 
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Paired statistical tests for variant comparison")

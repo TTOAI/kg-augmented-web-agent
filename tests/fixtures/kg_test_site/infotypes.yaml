@@ -1,8 +1,8 @@
 # InfoType 카탈로그
-# 스키마: docs/kg_design/02_open_questions.md §3-4 (InfoType 범위 결정)
+# 스키마: InfoType (kg/types.py) — InfoType 범위
 # granularity: β (도메인 명사구 수준), InfoType ↔ StatePattern 1:N
 #
-# 구축 파이프라인 (3단계 hybrid, docs/kg_design/07 §14):
+# 구축 파이프라인 (3단계 hybrid):
 #   1. Playwright crawl → source=crawl / trust=verified
 #   2. LLM derivation  → source=llm   / trust=inferred
 #   3. Manual verify   → source=manual/ trust=declared

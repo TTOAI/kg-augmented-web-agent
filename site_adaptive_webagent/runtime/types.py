@@ -8,8 +8,8 @@ from typing import Any, Literal
 IntentAction = Literal["goto_url", "inspect_page", "click_target", "search_target", "unsupported"]
 TaskType = Literal["RETRIEVE", "MUTATE", "NAVIGATE"]
 
-# Benchmark-agnostic agent verdict.  refactor: runtime은 benchmark의
-# status enum (NOT_FOUND_ERROR 등)을 말하지 않고, 이 중립 verdict만 배출한다.
+# Benchmark-agnostic agent verdict: runtime은 benchmark의 status enum
+# (NOT_FOUND_ERROR 등)을 말하지 않고 이 중립 verdict만 배출한다.
 # Benchmark adapter가 verdict → benchmark-specific status로 매핑한다.
 #
 # - done_with_answer: agent가 구체적 정답(answer)을 냄 (RETRIEVE 최종 단계)

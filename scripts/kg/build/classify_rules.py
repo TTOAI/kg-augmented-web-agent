@@ -37,25 +37,22 @@ SITE_CONFIG_PATH = Path("config/sites/gitlab/site_config.yaml")
 RULES_OUT = Path("output/validation/rules/class_rules.json")
 REPORT_OUT = Path("docs/validation/stage_a_rules_report.md")
 
-#  site-specific 상수를 config/sites/<site>/*.yaml에서 로드.
-# Site 선택은 `SITE_NAME` env (default "gitlab"). 실행 시 이 값에 대응하는
-# entities.yaml + crawl.yaml을 읽음. 기존 하드코드 값은 gitlab entities.yaml에 이관.
+# site-specific 상수는 config/sites/<site>/*.yaml에서 로드. Site 선택은
+# `SITE_NAME` env (default "gitlab") — 대응하는 entities.yaml + crawl.yaml을 읽음.
 _SITE_NAME = os.getenv("SITE_NAME", "gitlab")
 _SITE_ENTITIES = load_site_entities(_SITE_NAME)
 _SITE_CRAWL = load_site_crawl(_SITE_NAME)
 
 BASE_URL = _SITE_CRAWL.base_url
 
-# 외부화된 entity 집합. 기존 하드코드된 KNOWN_NAMESPACES 등과 동일 값을 가짐
-# (entities.yaml에 이관됨). 다른 site 적용 시 entities.yaml만 교체.
+# entity 집합은 entities.yaml에서 로드. 다른 site 적용 시 entities.yaml만 교체.
 KNOWN_NAMESPACES: set[str] = set(_SITE_ENTITIES.namespaces)
 KNOWN_USERNAMES: set[str] = set(_SITE_ENTITIES.usernames)
 ACTION_KEYWORDS: set[str] = set(_SITE_ENTITIES.action_keywords)
 
-#  Site-pluggable URL template derivation.
-# 이전까지 _derive_from_single에 하드코드된 GitLab URL scheme (`/-/`, `/tree/`, ...)은
-# 이제 `SitePlugin.derive_path_template()`에 위임. SITE_NAME에 대응하는 plugin이
-# 로드되며, 없으면 DefaultSitePlugin (numeric/SHA만 일반화) fallback.
+# URL template 도출의 site-specific 부분은 `SitePlugin.derive_path_template()`에
+# 위임. SITE_NAME에 대응하는 plugin이 로드되며, 없으면 DefaultSitePlugin
+# (numeric/SHA만 일반화) fallback.
 _SITE_PLUGIN = load_site_plugin(_SITE_NAME)
 
 
@@ -68,10 +65,6 @@ def parse_query(url: str) -> dict[str, list[str]]:
     p = urlparse(url)
     return parse_qs(p.query, keep_blank_values=True)
 
-
-# ---------------------------------------------------------------------------
-# Template derivation
-# ---------------------------------------------------------------------------
 
 def derive_templates(paths: list[str]) -> list[tuple[str, dict[str, dict]]]:
     """Derive one or more templates from instance paths.
@@ -195,10 +188,6 @@ def _infer_slot_name(values: set[str], used: set[str], prev_literal: str | None)
     return f"slot_{len(used)}"
 
 
-# ---------------------------------------------------------------------------
-# Specificity + rule ordering
-# ---------------------------------------------------------------------------
-
 def compute_specificity(template: str, path_params: dict) -> int:
     segs = [s for s in template.strip("/").split("/") if s]
     literal_count = sum(1 for s in segs if not s.startswith("{"))
@@ -212,10 +201,6 @@ def lookup_frozen_template(template: str, frozen_kg: dict) -> str | None:
             return sp.get("id")
     return None
 
-
-# ---------------------------------------------------------------------------
-# Query-variant merging (post-hoc)
-# ---------------------------------------------------------------------------
 
 def merge_query_variants(rules: list[dict], annotations_by_class: dict) -> list[dict]:
     """Find rules sharing same url_template → merge as query-variants of a base rule."""
@@ -305,10 +290,6 @@ def detect_variant_query(variants_records: dict[str, list[dict]]) -> dict | None
     return None
 
 
-# ---------------------------------------------------------------------------
-# Classification (reverse application for self-validation)
-# ---------------------------------------------------------------------------
-
 def build_state_pattern(rule: dict) -> StatePattern:
     idparams = []
     if rule.get("variant_queries"):
@@ -340,10 +321,6 @@ def classify_url(url: str, rules: list[dict], site_config) -> str | None:
         return base_class
     return None
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
     annotations = json.loads(ANNOT_PATH.read_text(encoding="utf-8"))

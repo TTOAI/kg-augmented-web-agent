@@ -33,10 +33,6 @@ _TOOL_ACTIONS = "derive_action_renames"
 _REASONING_EFFORT: str | None = "low"
 
 
-# ---------------------------------------------------------------------------
-# Result container
-# ---------------------------------------------------------------------------
-
 @dataclass(slots=True)
 class StatePatternGroup:
     """LLM이 제안한 의미적 StatePattern 그룹.
@@ -77,10 +73,6 @@ class DerivationResult:
     raw_response: str = ""
     prompt: str = ""
 
-
-# ---------------------------------------------------------------------------
-# Main entrypoint
-# ---------------------------------------------------------------------------
 
 def derive_infotypes_and_actions(
     crawl_results: list[CrawlResult],
@@ -126,10 +118,6 @@ def derive_infotypes_and_actions(
                + "\n\n=== CALL 3 (actions) ===\n" + ar_prompt,
     )
 
-
-# ---------------------------------------------------------------------------
-# Multi-call decomposition: Call 1 — state pattern grouping
-# ---------------------------------------------------------------------------
 
 def _build_groups_tool() -> dict[str, Any]:
     return {
@@ -275,10 +263,6 @@ def _derive_state_pattern_groups(
         ))
     return (out, system, args)
 
-
-# ---------------------------------------------------------------------------
-# Multi-call decomposition: Call 2 — InfoType naming + realize
-# ---------------------------------------------------------------------------
 
 def _build_infotypes_tool() -> dict[str, Any]:
     return {
@@ -439,10 +423,6 @@ def _derive_infotypes(
         ))
     return (out, system, args)
 
-
-# ---------------------------------------------------------------------------
-# Multi-call decomposition: Call 3 — action renames
-# ---------------------------------------------------------------------------
 
 def _build_action_renames_tool() -> dict[str, Any]:
     return {
