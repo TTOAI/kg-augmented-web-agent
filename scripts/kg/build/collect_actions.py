@@ -23,8 +23,7 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
-from scripts.kg.utils.classify import load_classifier
-from scripts.kg.build.crawl import BASE_URL, STORAGE_STATE
+from scripts.kg.build.crawl import STORAGE_STATE
 
 POOL_PATHS = [
     Path("output/validation/stage_a_f/classified.json"),

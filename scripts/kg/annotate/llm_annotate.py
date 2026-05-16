@@ -11,7 +11,6 @@ Output: output/validation/V1_pages/all_llm_annotated.json
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv

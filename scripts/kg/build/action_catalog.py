@@ -17,9 +17,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter, defaultdict
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from scripts.kg.utils.classify import load_classifier
 from scripts.kg.build.crawl import BASE_URL, is_forbidden, is_same_host

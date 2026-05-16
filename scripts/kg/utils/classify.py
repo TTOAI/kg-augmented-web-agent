@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from site_adaptive_webagent.kg.seed.manual_config import load_site_config
-from site_adaptive_webagent.kg.types import IdentityParam, SiteConfig, StatePattern
+from site_adaptive_webagent.kg.types import IdentityParam, StatePattern
 from site_adaptive_webagent.kg.urlnorm import match_pattern
 
 DEFAULT_SITE_CONFIG = Path("config/sites/gitlab/site_config.yaml")
