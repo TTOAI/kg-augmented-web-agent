@@ -9,7 +9,6 @@ manual / crawl / derived(llm) SiteKG 간 항목별 비교 결과를 markdown 표
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
 from ..types import LeadsToEdge, RealizesEdge, SiteKG
 

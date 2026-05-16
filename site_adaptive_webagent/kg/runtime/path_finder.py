@@ -7,7 +7,7 @@ edge graph produced by Stage C.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 #  아래 두 상수는 **GitLab-flavored fallback**으로 남아 있다

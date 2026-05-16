@@ -10,9 +10,9 @@ NormalizedURL은 내부 구조체. match/emit의 상호 라운드트립 가능�
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qsl, quote, unquote, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote, urlparse
 
 from .types import IdentityParam, SiteConfig, StatePattern
 

@@ -22,7 +22,6 @@ import argparse
 import json
 import logging
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 from dotenv import load_dotenv

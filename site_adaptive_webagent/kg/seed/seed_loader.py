@@ -7,7 +7,6 @@ realizes_edges/leads_to_edges만 읽는다.
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path

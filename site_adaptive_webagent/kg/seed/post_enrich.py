@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 
 from ..types import IdentityParam, InfoType, SiteKG, StatePattern
 

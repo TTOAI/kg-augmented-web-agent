@@ -16,7 +16,7 @@ import logging
 import re
 
 from ..types import Action, IdentityParam, LeadsToEdge, SiteKG, StatePattern
-from .llm_derivation import DerivationResult, StatePatternGroup
+from .llm_derivation import DerivationResult
 from .post_enrich import enrich as _post_enrich
 
 logger = logging.getLogger("kg.derivation")
