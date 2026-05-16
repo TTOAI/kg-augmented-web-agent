@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 from pathlib import Path
@@ -156,25 +155,6 @@ def setup_task_logging(*, logger: logging.Logger, task_output_dir: Path) -> None
     logger.propagate = False
 
     logger.info("로그 파일 경로: %s", log_file.resolve())
-
-
-def add_runner_arguments(parser: argparse.ArgumentParser) -> None:
-    """WebArena-Verified 러너용 CLI 인자를 추가한다."""
-    parser.add_argument("--tasks-file", required=True, help="task 데이터가 들어 있는 JSON 파일 경로")
-    parser.add_argument("--task-id", type=int, required=True, help="실행할 task ID")
-    parser.add_argument(
-        "--run-root",
-        default="output",
-        help="benchmark 실행 산출물을 저장할 루트 디렉터리",
-    )
-    parser.add_argument("--headed", action="store_true", help="브라우저를 headed 모드로 실행")
-    parser.add_argument("--storage-state-file", type=str, help="미리 계산된 Playwright storage state 파일 경로")
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        help="URL/인증 설정용 환경 config JSON 경로",
-    )
 
 
 def load_agent_input(tasks_file: Path, task_id: int) -> AgentInput:
