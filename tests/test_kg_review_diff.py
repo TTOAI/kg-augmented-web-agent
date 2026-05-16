@@ -5,14 +5,12 @@ import unittest
 
 from site_adaptive_webagent.kg import (
     Action,
-    InfoType,
     LeadsToEdge,
     RealizesEdge,
     SiteKG,
     StatePattern,
 )
 from site_adaptive_webagent.kg.seed.review_diff import (
-    DiffEntry,
     diff_actions,
     diff_leads_to_edges,
     diff_realizes_edges,

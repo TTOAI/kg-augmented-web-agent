@@ -19,13 +19,10 @@ from site_adaptive_webagent.kg.runtime.path_finder import (
 )
 
 
-# ---------------------------------------------------------------------------
 # Fake site: 합성 e-commerce 스타일 taxonomy
 # - scopes: shop, account, admin
 # - family type suffixes: _catalog, _detail, _cart, _review (GitLab과 다름)
 # - variant segments: mine, saved, popular (GitLab과 다름)
-# ---------------------------------------------------------------------------
-
 FAKE_CASCADE = CascadeConfig(
     scope_entries={
         "shop": "shop/home",

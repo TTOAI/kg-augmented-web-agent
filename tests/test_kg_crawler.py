@@ -32,10 +32,6 @@ def _gitlab_like_config() -> SiteConfig:
     )
 
 
-# ---------------------------------------------------------------------------
-# extract_url_template
-# ---------------------------------------------------------------------------
-
 class ExtractUrlTemplateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cfg = _gitlab_like_config()
@@ -80,10 +76,6 @@ class ExtractUrlTemplateTests(unittest.TestCase):
         self.assertEqual(t, "")
         self.assertEqual(params, {})
 
-
-# ---------------------------------------------------------------------------
-# crawl_results_to_sitekg
-# ---------------------------------------------------------------------------
 
 class CrawlResultsToSiteKGTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -218,10 +210,6 @@ class CrawlResultsToSiteKGTests(unittest.TestCase):
         self.assertEqual(len(kg.state_patterns), 0)
 
 
-# ---------------------------------------------------------------------------
-# Merge with manual seed (source priority)
-# ---------------------------------------------------------------------------
-
 class CrawlMergeWithManualTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cfg = _gitlab_like_config()
@@ -246,10 +234,6 @@ class CrawlMergeWithManualTests(unittest.TestCase):
         self.assertGreater(store.kg.source_mix["manual"], 0)
         self.assertGreater(store.kg.source_mix["crawl"], 0)
 
-
-# ---------------------------------------------------------------------------
-# Live crawl (manual only — needs GitLab Docker up)
-# ---------------------------------------------------------------------------
 
 @unittest.skipUnless(
     os.environ.get("RUN_LIVE_CRAWL"),

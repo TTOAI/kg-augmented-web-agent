@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import csv
-import math
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory

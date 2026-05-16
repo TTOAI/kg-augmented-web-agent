@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from site_adaptive_webagent.kg.runtime.class_descriptions import (
     ClassCatalog,

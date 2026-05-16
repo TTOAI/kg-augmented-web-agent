@@ -127,10 +127,6 @@ def _empty_call_responses() -> list[str]:
     ]
 
 
-# ---------------------------------------------------------------------------
-# derive_infotypes_and_actions
-# ---------------------------------------------------------------------------
-
 class DeriveInfoTypesAndActionsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.results, self.crawl_kg = _sample_crawl_kg()
@@ -211,10 +207,6 @@ class DeriveInfoTypesAndActionsTests(unittest.TestCase):
         self.assertEqual(result.infotypes[0].realizes, [])
 
 
-# ---------------------------------------------------------------------------
-# derivation_to_sitekg
-# ---------------------------------------------------------------------------
-
 class DerivationToSiteKGTests(unittest.TestCase):
     def setUp(self) -> None:
         self.results, self.crawl_kg = _sample_crawl_kg()
@@ -275,10 +267,6 @@ class DerivationToSiteKGTests(unittest.TestCase):
         derived = derivation_to_sitekg(broken, self.crawl_kg)
         self.assertNotIn("do_x", derived.actions)
 
-
-# ---------------------------------------------------------------------------
-# Merge: manual + crawl + llm
-# ---------------------------------------------------------------------------
 
 class MergeManualCrawlLlmTests(unittest.TestCase):
     def test_three_layer_merge_yields_all_sources_in_mix(self) -> None:

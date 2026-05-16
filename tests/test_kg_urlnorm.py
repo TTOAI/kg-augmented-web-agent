@@ -66,10 +66,6 @@ def _issues_filtered_pattern() -> StatePattern:
     )
 
 
-# ---------------------------------------------------------------------------
-# 1. 정규화 8차원
-# ---------------------------------------------------------------------------
-
 class Normalize8DimensionTests(unittest.TestCase):
     """URL 정규화 8차원 전수 검증."""
 
@@ -162,10 +158,6 @@ class Normalize8DimensionTests(unittest.TestCase):
         self.assertTrue(ok2)
 
 
-# ---------------------------------------------------------------------------
-# 2. Project issues filtered — match·emit end-to-end roundtrip
-# ---------------------------------------------------------------------------
-
 class ProjectIssuesFilteredRoundTripTests(unittest.TestCase):
     """Filtered project issues URL이 match·emit에 안정적으로 round-trip 처리되는지."""
 
@@ -222,10 +214,6 @@ class ProjectIssuesFilteredRoundTripTests(unittest.TestCase):
         self.assertTrue(okA and okB)
         self.assertEqual(bA, bB)
 
-
-# ---------------------------------------------------------------------------
-# 3. 예외·edge case
-# ---------------------------------------------------------------------------
 
 class UrlnormEdgeCaseTests(unittest.TestCase):
     def setUp(self) -> None:

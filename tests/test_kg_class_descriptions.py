@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 
 from site_adaptive_webagent.kg.runtime.class_descriptions import (
-    ClassCatalog,
     load_class_catalog,
 )
 

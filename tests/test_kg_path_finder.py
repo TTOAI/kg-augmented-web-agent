@@ -8,7 +8,6 @@ from pathlib import Path
 from site_adaptive_webagent.kg.site_extras import load_site_cascade
 from site_adaptive_webagent.kg.runtime.path_finder import (
     CascadeConfig,
-    PathResult,
     extract_family,
     find_path,
 )

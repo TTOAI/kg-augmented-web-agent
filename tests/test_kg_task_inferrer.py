@@ -9,7 +9,6 @@ from site_adaptive_webagent.kg.runtime.class_descriptions import (
     ClassDescription,
 )
 from site_adaptive_webagent.kg.runtime.task_inferrer import (
-    InferResult,
     _consensus,
     _extract_json,
     _merge_bindings,

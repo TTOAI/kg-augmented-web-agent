@@ -12,10 +12,6 @@ from site_adaptive_webagent.runtime.types import PageObservation
 from .fixtures import FakeLLMClient, make_fake_page
 
 
-# ---------------------------------------------------------------------------
-# Parser tests
-# ---------------------------------------------------------------------------
-
 class ParseLlmActionTests(unittest.TestCase):
     def test_valid_json_returns_dict(self) -> None:
         response = '{"action": "report_success", "answer": "42", "answer_label": "count"}'
@@ -38,10 +34,6 @@ class ParseLlmActionTests(unittest.TestCase):
         result = parse_llm_action("   ")
         self.assertEqual(result["action"], "parse_error")
 
-
-# ---------------------------------------------------------------------------
-# Executor + LLM integration tests
-# ---------------------------------------------------------------------------
 
 def _empty_observation(url: str = "https://example.com", title: str = "Home") -> PageObservation:
     return PageObservation(
@@ -210,10 +202,6 @@ class LLMExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.verdict, "stuck")
 
 
-# ---------------------------------------------------------------------------
-# classify_task_type tests
-# ---------------------------------------------------------------------------
-
 class ClassifyTaskTypeTests(unittest.TestCase):
     def test_navigate_intent(self) -> None:
         llm = FakeLLMClient('{"task_type": "NAVIGATE"}')
@@ -256,10 +244,6 @@ class ClassifyTaskTypeTests(unittest.TestCase):
         plan = analyze_intent("Go to my todos page")
         self.assertEqual(plan.task_type, "NAVIGATE")
 
-
-# ---------------------------------------------------------------------------
-# Tool Use tests (v5)
-# ---------------------------------------------------------------------------
 
 class BuildPlanNormalizationTests(unittest.TestCase):
     """build_plan이 sub-goal type을 정규화하는지 검증 — hard rule이 'navigation' 정확 매칭에 의존하므로

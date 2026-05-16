@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import unittest
-from typing import Any
 
 from site_adaptive_webagent.runtime.browser import extract_ax_links, extract_texts, observe_page, try_click_target
-from site_adaptive_webagent.runtime.intent import LINK_SELECTORS, BUTTON_SELECTORS
+from site_adaptive_webagent.runtime.intent import LINK_SELECTORS
 
 from .fixtures import FakePage, make_fake_page
 
