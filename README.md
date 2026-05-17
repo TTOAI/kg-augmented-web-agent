@@ -1,188 +1,99 @@
-# Site-Adaptive Web Agent
+# KG-Augmented Web Agent
 
-사이트별 지식 그래프(site-specific KG)를 planning substrate로 사용하는 KG-augmented web agent. KG는 대상 사이트 자체로부터 site-agnostic discovery protocol을 통해 빌드된다.
+사이트별 지식 그래프(site-specific knowledge graph, KG)를 planning substrate로 사용하는 웹 에이전트. KG는 대상 사이트 자체로부터 discovery protocol로 오프라인 빌드되고, 런타임에는 advisory hint로만 주입된다.
 
-## Overview
+## 문제
 
-웹 에이전트는 매 step마다 "어디로 갈지", "어떤 filter가 있는지", "URL을 어떻게 만들지"를 결정해야 한다. 이 프로젝트는 LLM 일반 추론에만 맡기지 않고, 사이트의 구조 정보를 KG로 정리해 runtime hint로 주입하는 접근을 구현·실험한다.
+웹 에이전트는 매 step마다 "어디로 갈지", "어떤 필터가 있는지", "URL을 어떻게 만들지"를 결정해야 한다. 이를 LLM의 일반 추론에만 맡기면 같은 task에서도 행동이 흔들리고(궤적 분산), 사이트 구조를 매번 탐색으로 재발견하느라 step이 길어진다.
 
-핵심 구성 요소:
+질문: **사이트 구조를 KG로 미리 정리해 runtime hint로 주입하면, 에이전트의 행동이 더 안정되는가?**
 
-- **Agent loop** (ReAct + tool-use): `analyze_intent()` → `build_plan()` → sub-goal loop with tool-use LLM → `_verify_done()`. 구현은 `site_adaptive_webagent/agent/`, `site_adaptive_webagent/runtime/`.
-- **KG runtime**: sub-goal target page class를 LLM self-consistency로 추론 → BFS 6-stage cascade로 path 산출 → advisory hint를 LLM에 전달. 구현은 `site_adaptive_webagent/kg/runtime/`.
-- **KG seed builder** (Stage A/B/C): URL 분류 규칙 → action catalog + filter category → class-to-class edge graph. 구현은 `site_adaptive_webagent/kg/seed/`, `scripts/kg/`.
-- **Benchmark adapter**: WebArena-Verified GitLab 사이트에 대한 Playwright 기반 측정 어댑터. 구현은 `site_adaptive_webagent/benchmarks/webarena_verified/`.
+## 접근
 
-## KG 설계 원칙: 구조는 KG, 구체값은 에이전트
+사이트의 구조 정보를 오프라인에서 KG로 빌드하고, 실행 중 advisory hint로 주입한다.
 
-KG는 사이트의 **구조 정보**(어떤 페이지·경로·필터 카테고리·컨트롤이 존재하는지)까지만 노출하고, **구체값**(필터 라벨 값·URL 쿼리 파라미터 값·자유 텍스트 콘텐츠)은 LLM 에이전트가 페이지를 직접 보고 수집한다.
+- **구조는 KG, 구체값은 에이전트.** KG는 *어떤 page class·경로·필터 카테고리·컨트롤이 존재하는지*(구조적 방향)까지만 노출한다. *필터에 넣을 값·URL 쿼리 값·자유 텍스트*(구체값)는 에이전트가 페이지를 직접 보고 수집한다.
+  - 근거 ① **데이터 노후화 회피**: KG에 구체값을 박으면 UI 변경 때마다 KG를 갱신해야 한다.
+  - 근거 ② **직접 관측이 더 안전**: LLM이 실시간으로 직접 수집해 행동하는 것이, KG로 수동 주입받는 것보다 정보의 안전성·신뢰성이 높다.
+- **KG는 advisory·additive.** 힌트 문자열만 주입하고 실행 루프는 KG 유무에 불변하다. KG를 끄면 baseline과 완전히 동일한 코드 경로를 탄다 — 단일 env 스위치로 baseline ↔ KG를 비교하는 깨끗한 ablation이 가능하다.
 
-이 분리에는 두 가지 근거가 있다.
+## 설계 핵심
 
-1. **데이터 노후화 회피**: KG가 구체값을 박으면 사이트 UI가 바뀔 때마다 KG를 갱신해야 한다.
-2. **LLM의 직접 관측이 더 안전**: LLM이 자신의 판단에 따라 구체값을 실시간으로 직접 수집하여 행동하는 것이, KG로 수동적으로 주입받는 것보다 워크플로우에 더 합리적이며 정보의 안전성과 신뢰성이 더 높다.
+| 결정 | 내용 |
+|---|---|
+| **Benchmark Adapter 격리** | 벤치마크 결합을 단일 계층(`benchmarks/`)에 가둔다. 에이전트·런타임은 벤치마크를 모르고 파일 계약으로만 소통 → 에이전트 이식성. |
+| **중립 판정 ↔ 상태 분리** | 에이전트는 벤치마크 무관한 중립 판정(verdict)만 배출. `classify_outcome`만 WebArena status로 번역 — 유일한 결합 지점. 관심사 분리를 코드로 강제. |
+| **에이전트 신뢰성 엔진** | 2중 루프(orchestration/ReAct) + 점진 복구 ladder(retry → replan → deep rollback) + 검증 게이트 + 독립 2차원 예산 가드. |
+| **의도적 최소 검증** | `_verify_done`은 단일 hard-rule(이동 안 한 navigation만 reject). 정답 검증은 evaluator에 위임 — LLM self-judge는 ablation 교란·자기 환각 rubber-stamp 위험. |
+| **KG 빌드/런타임 분리** | 오프라인이 `output/validation/*` 생산, 런타임은 읽기만, 측정이 baseline/KG로 반복. |
 
-## Requirements
+구조 상세는 [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## 결과
+
+WebArena-Verified GitLab에서 7개 condition(H1–H3 hypothesis, L1–L2 low-confidence, Null1–Null2 control), baseline(v0) vs KG(v1), 각 3 trial로 측정했다.
+
+![per-task step distribution](docs/assets/step_box.png)
+
+| Cond | Task | V0 step | V1 step | 판정 |
+|------|-----:|--------:|--------:|------|
+| H1 | 309 | 19 | 21 | refuted |
+| H2 | 102 | 15 | 9 | confirmed |
+| H3 | 156 | 4 | 4 | partial |
+| L1 | 418 | 9 | 11 | needs_review |
+| L2 | 568 | timeout | timeout | parity_review |
+| Null1 | 44 | 2 | 2 | confirmed_parity |
+| Null2 | 664 | 14 | 14 | confirmed_parity |
+
+**정직한 해석**:
+
+- median step 효과는 **혼재**한다 — KG가 줄인 경우(H2)도, 늘린 경우(H1)도 있다. "KG가 일관되게 step을 줄인다"는 결론은 **나오지 않았다**.
+- 다만 step **분포**(박스플롯)에서 KG는 baseline의 큰 분산을 좁히는 경향을 보인다(H1·Null2: baseline 넓은 분산 → KG 좁은 분산). 단 L1처럼 역행하는 cell도 있어 일관 효과로 주장하지 않는다.
+- Null control 2개가 모두 parity(KG를 켜도 무관한 task에서 변화 없음) → ablation 위생은 확인된다.
+
+automated triage 수준이며 cell별 수동 narrative는 미완이다. 상세 수치는 [`docs/assets/results_condition_synthesis.md`](docs/assets/results_condition_synthesis.md).
+
+## 한계 / 향후
+
+- 단일 사이트(GitLab)·단일 모델(`gpt-5.4-mini`). cross-site·cross-model 일반화는 향후 과제.
+- KG seed는 hybrid(crawl + LLM + manual)로 빌드된다. 사이트별 시딩 비용을 줄이는 자동 구축이 다음 방향.
+- 표본이 작아(condition당 3 trial) 통계 검정력이 제한적이다. 본 측정은 효과 *방향* 탐색이며 확정적 효과 크기 주장이 아니다.
+
+## Quick Start
 
 ```bash
-uv pip install -e .
-uv pip install playwright
-playwright install chromium
-```
-
-## LLM 설정
-
-```bash
-cp .env.example .env
-```
-
-`.env` 예시:
-
-```bash
-LLM_PROVIDER=openai          # 또는 anthropic
-OPENAI_API_KEY=sk-...
-# ANTHROPIC_API_KEY=sk-ant-...
-# OPENAI_MODEL=gpt-4o
-# ANTHROPIC_MODEL=claude-sonnet-4-6
-# LLM_TEMPERATURE=0          # 결정론적 실행 원하면 0
-```
-
-API 키가 없으면 LLM 없이 규칙 기반으로 폴백된다.
-
-## Usage
-
-### 환경 준비
-
-```bash
+uv pip install -e . && uv pip install playwright && playwright install chromium
+cp .env.example .env                                   # LLM 키 설정
 cp config/webarena_verified.example.json config/webarena_verified.json
-# config 안의 URL/포트/계정을 로컬 환경에 맞게 수정
 
 webarena-verified env start --site gitlab --port 8023 --env-ctrl-port 8024
+webarena-verified agent-input-get --task-ids 44 \
+  --config config/webarena_verified.json --output output/tasks.demo.json
+.venv/bin/python run_webarena_verified.py --tasks-file output/tasks.demo.json \
+  --task-id 44 --config config/webarena_verified.json --run-root output --headed
 ```
 
-### Task 입력 export
-
-```bash
-webarena-verified agent-input-get \
-  --task-ids 44 \
-  --config config/webarena_verified.json \
-  --output output/tasks.demo.json
-```
-
-### Agent 실행
-
-```bash
-.venv/bin/python run_webarena_verified.py \
-  --tasks-file output/tasks.demo.json \
-  --task-id 44 \
-  --config config/webarena_verified.json \
-  --run-root output \
-  --headed
-```
-
-옵션:
-- `--headed` — 브라우저를 띄워서 행동 관찰
-- `--run-root` — task별 산출물 저장 위치
-
-### 평가
-
-```bash
-webarena-verified eval-tasks \
-  --task-ids 44 \
-  --output-dir output \
-  --config config/webarena_verified.json
-```
-
-### 환경 리셋 (MUTATE task 후)
-
-MUTATE task는 사이트 상태를 변경하므로 재실험 전 초기 상태로 리셋해야 정확한 측정이 된다.
-
-```bash
-webarena-verified env stop --site gitlab
-webarena-verified env start --site gitlab
-```
-
-## Building the KG
-
-GitLab 기준:
-
-```bash
-# 1. 환경 띄우고 인증 갱신
-webarena-verified env start --site gitlab --port 8023 --env-ctrl-port 8024
-python -m scripts.kg.utils.refresh_auth
-
-# 2. Stage A — URL 수집 + 분류 규칙 산출
-python -m scripts.kg.build.crawl
-python -m scripts.kg.build.classify_rules
-
-# 3. Stage B — action catalog + filter category 추출
-python -m scripts.kg.build.collect_actions
-python -m scripts.kg.build.action_catalog
-
-# 4. Stage C — class-to-class edge graph 빌드
-python -m scripts.kg.build.edge_graph
-python scripts/kg/build/class_catalog.py
-```
-
-산출 위치: `output/validation/` (사이트 공통 path).
-Runtime은 `output/validation/kg_solution/class_descriptions.json`을 읽는다.
-
-## Evaluation
-
-`scripts/eval/`에 측정·분석 도구가 있다:
-
-```bash
-# 사전 정의된 condition set으로 측정
-bash scripts/eval/run_round_1.sh
-bash scripts/eval/run_round_2.sh
-
-# raw log → trial signal 추출
-.venv/bin/python -m scripts.eval.extract_signals \
-  output/<run>/v0/*/trial_*/ output/<run>/v1/*/trial_*/
-
-# trial → cell aggregate
-.venv/bin/python -m scripts.eval.aggregate_cells output/<run>/
-
-# step distribution box plot + per-task statistics table
-.venv/bin/python -m scripts.eval.render_figures output/<run>
-```
-
-산출물: `output/<run>/figures/step_box.png`, `output/<run>/step_table.md`.
-
-Task 선정 / metric / exclusion 정책은 `docs/evaluation/`에 정리.
+설치·실행·KG 빌드·측정 전체 절차는 [docs/usage.md](docs/usage.md).
 
 ## Repository structure
 
 ```
-site_adaptive_webagent/    # agent + KG runtime + KG seed
-├── agent/                 # high-level agent entrypoint
-├── runtime/               # ReAct + tool-use loop, browser primitives, LLM client
+site_adaptive_webagent/
+├── agent/                 # run_agent entrypoint (composition root)
+├── runtime/               # ReAct + tool-use 실행 엔진, browser primitive, LLM client
 ├── kg/
 │   ├── seed/              # Stage A/B/C seed builder
-│   ├── runtime/           # task inferrer, path finder, hint generator
-│   └── ...
+│   └── runtime/           # task inferrer, path finder, hint generator
 └── benchmarks/
     └── webarena_verified/ # benchmark adapter
 
-config/sites/<site>/       # site-specific KG seed + cascade config
+config/sites/<site>/       # 사이트별 KG seed + cascade config
 scripts/kg/                # KG seed build pipeline (Stage A/B/C)
 scripts/eval/              # measurement + analysis pipeline
-tests/
 docs/
-├── method/                # KG construction protocol
-├── evaluation/            # task selection, metrics, exclusions, round protocol
-└── validation/            # KG seed validation reports
-run_webarena_verified.py   # benchmark entry point
+├── usage.md               # 실행 매뉴얼
+├── method/                # KG 구축 프로토콜
+├── evaluation/            # 측정 실험 설계 (task 선정/metric/exclusion)
+└── validation/            # KG seed 검증 보고서
+ARCHITECTURE.md            # 시스템 구조
 ```
-
-## Output 구조
-
-각 task 실행은 다음을 산출한다:
-
-```
-output/<task_id>/
-├── agent_response.json    # task_type, status, retrieved_data
-└── network.har            # raw network capture
-```
-
-같은 task를 다시 실행하면 기존 디렉토리는 `<task_id>_bkp_N`으로 백업된다.

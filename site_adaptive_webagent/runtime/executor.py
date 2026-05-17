@@ -53,12 +53,10 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-# Per-task caps — wall-time 예측성 확보. env vars로 override.
-_MAX_RETRIES_PER_GOAL = _env_int("MAX_RETRIES_PER_GOAL", 2)
-_MAX_REPLANS_PER_TASK = _env_int("MAX_REPLANS_PER_TASK", 1)
+_MAX_RETRIES_PER_GOAL = _env_int("MAX_RETRIES_PER_GOAL", 2)        # sub-goal당 재시도
+_MAX_REPLANS_PER_TASK = _env_int("MAX_REPLANS_PER_TASK", 1)        # task당 replan
 
-# tool call 재시도로 인한 LLM 호출 누적까지 cap. 200 calls × ~3s ≈ 10분.
-_MAX_LLM_CALLS_PER_TASK = _env_int("LLM_CALL_LIMIT_PER_TASK", 200)
+_MAX_LLM_CALLS_PER_TASK = _env_int("LLM_CALL_LIMIT_PER_TASK", 200) # task당 LLM 호출
 
 
 class _LLMCallLimitExceeded(Exception):
