@@ -3,15 +3,20 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from .intent import (
-    BUTTON_SELECTORS,
-    HEADING_SELECTORS,
-    LINK_SELECTORS,
-    SEARCH_INPUT_SELECTORS,
-    TEXT_BLOCK_SELECTORS,
-    normalize_text,
-)
+from .intent import normalize_text
 from .types import PageObservation
+
+# 페이지 관측/상호작용용 DOM selector (observe_page · try_* 가 사용)
+SEARCH_INPUT_SELECTORS = (
+    "input[placeholder*='search' i]",
+    "input[name*='search' i]",
+    "input[aria-label*='search' i]",
+    "input[type='search']",
+)
+HEADING_SELECTORS = ("h1", "h2", "[role='heading']")
+TEXT_BLOCK_SELECTORS = ("main", "article", "body")
+LINK_SELECTORS = ("a",)
+BUTTON_SELECTORS = ("button", "[role='button']")
 
 # 입력 필드 관찰용 selector
 _INPUT_SELECTORS = (

@@ -39,7 +39,7 @@ class AgentInput(TypedDict):
 
 
 def ensure_mapping_keys(payload: dict[str, Any], required_keys: tuple[str, ...], *, context: str) -> None:
-    """dict에 필요한 키가 모두 있는지 검증"""
+    """dict에 필요한 키가 모두 있는지 검증한다."""
     missing = [key for key in required_keys if key not in payload]
     if missing:
         missing_text = ", ".join(missing)
@@ -66,7 +66,7 @@ def validate_task_payload(payload: Any) -> AgentInput:
 
 
 def validate_exported_tasks_file(tasks_file: Path) -> list[AgentInput]:
-    """export된 tasks 파일이 어댑터 기대와 맞는지 검증"""
+    """export된 tasks 파일이 어댑터 기대와 맞는지 검증한다."""
     if not tasks_file.exists():
         raise FileNotFoundError(f"tasks 파일을 찾을 수 없습니다: {tasks_file}")
 
@@ -133,7 +133,7 @@ def backup_output_dir(task_output_dir: Path, task_id: int) -> None:
 
 
 def setup_task_logging(*, logger: logging.Logger, task_output_dir: Path) -> None:
-    """표준 출력과 task별 로그 파일로 로깅 설정"""
+    """표준 출력과 task별 로그 파일로 로깅을 설정한다."""
     log_file = task_output_dir / TASK_LOG_FILENAME
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -168,7 +168,7 @@ def load_agent_input(tasks_file: Path, task_id: int) -> AgentInput:
 
 
 async def setup_storage_state(config_path: Path | None, task_output_dir: Path, agent_input: AgentInput) -> Path | None:
-    """config 기반 로그인이 켜져 있을 때 사이트별 인증 산출물 준비"""
+    """config 기반 로그인이 켜져 있을 때 사이트별 인증 산출물을 준비한다."""
     if config_path is None:
         return None
 
@@ -467,7 +467,7 @@ class WebArenaVerifiedAdapter:
         headed: bool,
         storage_state_file: Path | None,
     ) -> int:
-        """WebArena-Verified task 하나를 실행하고 벤치마크 호환 산출물을 저장"""
+        """WebArena-Verified task 하나를 실행하고 벤치마크 호환 산출물을 저장한다."""
         from playwright.async_api import async_playwright
 
         task_output_dir = run_root / str(task_id)
@@ -505,10 +505,10 @@ class WebArenaVerifiedAdapter:
                     pages=pages,
                     task_output_dir=task_output_dir,
                 )
-                # Benchmark-side outcome classifier: map agent's neutral verdict to
-                # WebArena-Verified's status enum. Hard-rules cover stuck /
-                # done_no_answer; LLM is invoked for done_with_answer (RETRIEVE) and
-                # abandoned to classify semantic failure modes.
+                # benchmark 측 outcome classifier
+                # 에이전트의 중립 판정(verdict)을 WebArena-Verified status enum으로 매핑
+                # stuck / done_no_answer는 hard-rule로 처리
+                # done_with_answer(RETRIEVE)와 abandoned는 LLM으로 의미적 실패 모드를 분류
                 try:
                     from site_adaptive_webagent.runtime.llm import make_llm_client
                     classifier_llm = make_llm_client()

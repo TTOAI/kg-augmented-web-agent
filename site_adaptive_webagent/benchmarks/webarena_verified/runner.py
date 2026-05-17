@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """WebArena-Verified 어댑터 러너용 CLI 파서 생성"""
+    """WebArena-Verified 어댑터 러너용 CLI 파서를 생성한다."""
     parser = argparse.ArgumentParser(
         description="WebArena-Verified 어댑터를 통해 task 하나를 실행한다",
     )

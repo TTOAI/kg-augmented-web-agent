@@ -283,7 +283,7 @@ class OpenAILLMClient:
 
 
 def _to_openai_messages(msg: dict) -> list[dict]:
-    """Anthropic content-block 메시지를 OpenAI 형식 메시지 리스트로 변환한다."""
+    """Anthropic content-block 메시지를 OpenAI 형식 메시지 리스트로 변환"""
     role = msg.get("role", "user")
     content = msg.get("content")
 
@@ -349,13 +349,12 @@ def _read_temperature_env() -> float | None:
 def make_llm_client() -> LLMClient | None:
     """LLM_PROVIDER 환경변수로 구현체를 선택한다.
 
-    API 키가 없으면 None을 반환한다 (rule-based 폴백으로 동작).
+    API 키가 없으면 None을 반환 (rule-based 폴백으로 동작)
 
     환경 변수:
         LLM_PROVIDER: 'anthropic'(기본) 또는 'openai'
         ANTHROPIC_MODEL / OPENAI_MODEL: 모델 이름
-        LLM_TEMPERATURE: 숫자 (예 '0')를 넣으면 모든 호출에 temperature 고정.
-            비워두면 provider 기본값 (보통 1.0) — **실험 재현성이 필요하면 '0'으로 설정**.
+        LLM_TEMPERATURE: 비워두면 provider 기본값
     """
     provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
     temperature = _read_temperature_env()

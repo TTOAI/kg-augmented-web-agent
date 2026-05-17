@@ -29,7 +29,7 @@ async def run_agent(
     pages: list[Any],
     task_output_dir: Path,
 ) -> AgentRunResult:
-    """웹 에이전트 런타임의 메인 엔트리포인트. 주어진 task를 실행하고 결과를 반환"""
+    """웹 에이전트 런타임의 메인 엔트리포인트. 주어진 task를 실행하고 결과를 반환한다."""
     del context, task_id, task_output_dir, sites, start_urls
 
     if not pages:
@@ -49,9 +49,9 @@ async def run_agent(
     except ValueError:
         max_steps = 50
 
-    # KG session 로드 (실패 시 None → baseline 동작).
-    # env `KG_ENABLED=0`으로 완전 비활성화 가능 (ablation baseline 재측정용).
-    # site_name은 `SITE_NAME` env로 전파 (default gitlab) — cross-site 실행 시 필수.
+    # KG session 로드 (실패 시 None → baseline 동작)
+    # env `KG_ENABLED=0`으로 완전 비활성화 가능
+    # `SITE_NAME`은 cross-site 실행 시 필수
     kg_session = None
     if os.getenv("KG_ENABLED", "1") != "0":
         kg_session = build_kg_session(
