@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import unittest
 
-from site_adaptive_webagent.kg.site_extras import (
+from kg_augmented_webagent.kg.site_extras import (
     SiteCascadeEntries,
     load_site_cascade,
 )
-from site_adaptive_webagent.runtime.prompts import (
+from kg_augmented_webagent.runtime.prompts import (
     load_prompt_library,
 )
 
@@ -118,7 +118,7 @@ class GotoToolUsesLibrary(unittest.TestCase):
     """_goto_tool이 library에서 description 로드하는지 확인."""
 
     def test_goto_description_is_non_empty(self) -> None:
-        from site_adaptive_webagent.runtime.tools import _goto_tool
+        from kg_augmented_webagent.runtime.tools import _goto_tool
         tool = _goto_tool()
         self.assertEqual(tool["name"], "goto")
         self.assertTrue(tool["description"])

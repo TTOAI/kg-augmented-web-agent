@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page, Playwright
 
-from site_adaptive_webagent.agent.core import run_agent
+from kg_augmented_webagent.agent.core import run_agent
 
 from .outcome_classifier import classify_outcome
 from .types import TASK_LOG_FILENAME, WebArenaRunResult
@@ -510,7 +510,7 @@ class WebArenaVerifiedAdapter:
                 # stuck / done_no_answer는 hard-rule로 처리
                 # done_with_answer(RETRIEVE)와 abandoned는 LLM으로 의미적 실패 모드를 분류
                 try:
-                    from site_adaptive_webagent.runtime.llm import make_llm_client
+                    from kg_augmented_webagent.runtime.llm import make_llm_client
                     classifier_llm = make_llm_client()
                 except Exception as exc:
                     logger.warning("[classify_outcome] could not build LLM client: %s", exc)

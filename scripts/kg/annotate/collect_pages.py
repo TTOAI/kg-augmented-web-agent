@@ -13,7 +13,7 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
-from site_adaptive_webagent.kg.site_extras import load_site_crawl
+from kg_augmented_webagent.kg.site_extras import load_site_crawl
 
 _SITE = os.getenv("SITE_NAME", "gitlab")
 BASE_URL = load_site_crawl(_SITE).base_url

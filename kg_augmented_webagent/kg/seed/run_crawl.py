@@ -1,7 +1,7 @@
 """Crawler CLI: site config 기준 base_url을 읽어 crawl 수행 후 SiteKG 산출.
 
 실행 예 (GitLab Docker가 떠 있고 storage_state가 준비된 상태):
-  python -m site_adaptive_webagent.kg.seed.run_crawl \\
+  python -m kg_augmented_webagent.kg.seed.run_crawl \\
       --site gitlab \\
       --config config/webarena_verified.json \\
       --storage-state output/<task>/.storage_state.json \\

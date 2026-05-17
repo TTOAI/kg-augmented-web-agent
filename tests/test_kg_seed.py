@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from site_adaptive_webagent.kg.seed import (
+from kg_augmented_webagent.kg.seed import (
     load_infotypes,
     load_kg_seed,
     load_site_config,
@@ -187,7 +187,7 @@ class LoadSiteKGFromDirTests(unittest.TestCase):
         현 skeleton 범위에서 issue가 0건이 아닐 수 있음을 인정하고, 주요
         state_pattern (project_issues_filtered 등)이 올바르게 로드됐는지만 검증.
         """
-        from site_adaptive_webagent.kg.store import SiteKGStore
+        from kg_augmented_webagent.kg.store import SiteKGStore
         _, kg = load_site_kg_from_dir(FIXTURE_KG_DIR)
         store = SiteKGStore(kg)
         # validate()는 issue 목록 반환 — 현 skeleton 상태에서는 일부 unknown이 있을 수 있음

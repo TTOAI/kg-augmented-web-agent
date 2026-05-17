@@ -27,7 +27,7 @@ M4 단계에서 1·2 layer가 이 디렉토리의 seed와 병합돼 포괄 catal
 ## 로딩 순서
 
 ```python
-from site_adaptive_webagent.kg.seed import load_site_kg_from_dir
+from kg_augmented_webagent.kg.seed import load_site_kg_from_dir
 
 site_config, kg = load_site_kg_from_dir("config/sites/gitlab")
 # kg.build_timestamp, kg.builder_version, kg.source_mix 가 자동 세팅됨
@@ -46,7 +46,7 @@ site_config, kg = load_site_kg_from_dir("config/sites/gitlab")
 
 ## Merge 정책
 
-crawl 결과를 seed에 병합할 때는 `SiteKGStore.merge(other_kg)` 사용. 동일 key에서 source 우선순위(crawl > manual > llm)로 교체되고, 나머지는 기존 값 유지. 구현: `site_adaptive_webagent/kg/store.py`.
+crawl 결과를 seed에 병합할 때는 `SiteKGStore.merge(other_kg)` 사용. 동일 key에서 source 우선순위(crawl > manual > llm)로 교체되고, 나머지는 기존 값 유지. 구현: `kg_augmented_webagent/kg/store.py`.
 
 ## 업데이트 정책
 

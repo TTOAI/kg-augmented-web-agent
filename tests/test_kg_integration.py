@@ -5,15 +5,15 @@ import unittest
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from site_adaptive_webagent.kg.runtime.class_descriptions import (
+from kg_augmented_webagent.kg.runtime.class_descriptions import (
     ClassCatalog,
     ClassDescription,
 )
-from site_adaptive_webagent.kg.runtime.integration import (
+from kg_augmented_webagent.kg.runtime.integration import (
     KGSession,
     SubGoalKGContext,
 )
-from site_adaptive_webagent.kg.runtime.path_finder import (
+from kg_augmented_webagent.kg.runtime.path_finder import (
     CascadeConfig,
     PathResult,
     PathStep,
@@ -189,7 +189,7 @@ class BuildObservationMessageHintInjectionTests(unittest.TestCase):
         return o
 
     def test_hint_included_when_provided(self):
-        from site_adaptive_webagent.runtime.llm import build_observation_message
+        from kg_augmented_webagent.runtime.llm import build_observation_message
         msg = build_observation_message(
             task="task",
             observation=self._obs(),
@@ -199,14 +199,14 @@ class BuildObservationMessageHintInjectionTests(unittest.TestCase):
         self.assertIn("Some advice", msg)
 
     def test_hint_omitted_when_none(self):
-        from site_adaptive_webagent.runtime.llm import build_observation_message
+        from kg_augmented_webagent.runtime.llm import build_observation_message
         msg = build_observation_message(
             task="task", observation=self._obs(), kg_hint=None
         )
         self.assertNotIn("[KG", msg)
 
     def test_mutate_checklist_injected_when_form_present(self):
-        from site_adaptive_webagent.runtime.llm import build_observation_message
+        from kg_augmented_webagent.runtime.llm import build_observation_message
         msg = build_observation_message(
             task="Create new project",
             observation=self._obs(inputs=["project-name"]),
@@ -216,7 +216,7 @@ class BuildObservationMessageHintInjectionTests(unittest.TestCase):
         self.assertIn("empty", msg.lower())
 
     def test_mutate_checklist_skipped_when_no_form(self):
-        from site_adaptive_webagent.runtime.llm import build_observation_message
+        from kg_augmented_webagent.runtime.llm import build_observation_message
         msg = build_observation_message(
             task="Create new project",
             observation=self._obs(inputs=[]),
@@ -225,7 +225,7 @@ class BuildObservationMessageHintInjectionTests(unittest.TestCase):
         self.assertNotIn("Form submission checklist", msg)
 
     def test_checklist_not_injected_for_navigate(self):
-        from site_adaptive_webagent.runtime.llm import build_observation_message
+        from kg_augmented_webagent.runtime.llm import build_observation_message
         msg = build_observation_message(
             task="Navigate to page",
             observation=self._obs(inputs=["search"]),
@@ -270,7 +270,7 @@ class GetClassActionsTests(unittest.TestCase):
 
 class GenerateHintForwardsActionsTests(unittest.TestCase):
     def test_generate_hint_includes_action_section(self):
-        from site_adaptive_webagent.kg.runtime.path_finder import (
+        from kg_augmented_webagent.kg.runtime.path_finder import (
             PathResult,
             PathStep,
         )

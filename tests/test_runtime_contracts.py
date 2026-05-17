@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import fields
 import unittest
 
-from site_adaptive_webagent.runtime.types import (
+from kg_augmented_webagent.runtime.types import (
     BrowserSession,
     ExecutionOutcome,
     IntentPlan,

@@ -13,7 +13,7 @@ config/sites/<site>/frozen_kg/<ISO_timestamp>.meta.json
 
 ```bash
 # 1. Playwright BFS crawl → verified layer StatePattern/Action/LeadsTo
-python -m site_adaptive_webagent.kg.seed.run_crawl \
+python -m kg_augmented_webagent.kg.seed.run_crawl \
     --site gitlab \
     --config config/webarena_verified.json \
     --storage-state output/<task>/.storage_state.json \
@@ -22,18 +22,18 @@ python -m site_adaptive_webagent.kg.seed.run_crawl \
 
 # 2. LLM derivation → inferred layer (group/classify/rename, 3-call decomposition)
 OPENAI_MODEL=<snapshot_id> LLM_TEMPERATURE=0 \
-python -m site_adaptive_webagent.kg.seed.run_derivation \
+python -m kg_augmented_webagent.kg.seed.run_derivation \
     --site gitlab \
     --crawl-dir output/crawl/<ts>/ \
     --output output/derivation/$(date +%Y%m%d_%H%M%S)/
 
 # 3. (선택) Manual seed와 crawl/derivation 사이 diff review
-python -m site_adaptive_webagent.kg.seed.run_review_diff \
+python -m kg_augmented_webagent.kg.seed.run_review_diff \
     --site gitlab \
     --derivation-dir output/derivation/<ts>/
 
 # 4. Immutable freeze (seed + crawl + derivation + post_enrich 통합)
-python -m site_adaptive_webagent.kg.seed.run_freeze \
+python -m kg_augmented_webagent.kg.seed.run_freeze \
     --site gitlab \
     --crawl-dir output/crawl/<ts>/ \
     --derivation-dir output/derivation/<ts>/ \

@@ -23,11 +23,11 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from site_adaptive_webagent.kg.seed.manual_config import load_site_config
-from site_adaptive_webagent.kg.site_extras import load_site_crawl, load_site_entities
-from site_adaptive_webagent.kg.site_plugin import load_site_plugin
-from site_adaptive_webagent.kg.types import IdentityParam, StatePattern
-from site_adaptive_webagent.kg.urlnorm import match_pattern
+from kg_augmented_webagent.kg.seed.manual_config import load_site_config
+from kg_augmented_webagent.kg.site_extras import load_site_crawl, load_site_entities
+from kg_augmented_webagent.kg.site_plugin import load_site_plugin
+from kg_augmented_webagent.kg.types import IdentityParam, StatePattern
+from kg_augmented_webagent.kg.urlnorm import match_pattern
 
 import os
 

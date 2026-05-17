@@ -14,7 +14,7 @@ import re
 from collections import Counter
 from typing import Optional
 
-from site_adaptive_webagent.runtime.llm import LLMClient
+from kg_augmented_webagent.runtime.llm import LLMClient
 
 from .path_finder import PathResult, PathStep
 
@@ -165,7 +165,7 @@ def _render_filter_templates(
     if not filter_templates:
         return ""
     shown = list(filter_templates)[:limit]
-    from site_adaptive_webagent.runtime.prompts import default_prompt_library
+    from kg_augmented_webagent.runtime.prompts import default_prompt_library
 
     lines: list[str] = list(default_prompt_library().render_filter_template_preamble())
     for ft in shown:

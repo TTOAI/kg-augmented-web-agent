@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from site_adaptive_webagent.kg.site_extras import (
+from kg_augmented_webagent.kg.site_extras import (
     load_site_crawl,
     load_site_entities,
 )

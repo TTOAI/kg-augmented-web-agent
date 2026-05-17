@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from site_adaptive_webagent.runtime.llm import make_llm_client
+from kg_augmented_webagent.runtime.llm import make_llm_client
 
 INPUT_DIR = Path("output/validation/V1_pages/pages")
 OUTPUT_PATH = Path("output/validation/V1_pages/all_llm_annotated.json")

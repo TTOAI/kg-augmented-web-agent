@@ -6,11 +6,11 @@ from typing import Any
 from dotenv import load_dotenv
 
 from .types import AgentRunResult
-from site_adaptive_webagent.kg.runtime.integration import build_kg_session
-from site_adaptive_webagent.runtime.browser import observe_page
-from site_adaptive_webagent.runtime.executor import execute_with_llm
-from site_adaptive_webagent.runtime.intent import analyze_intent
-from site_adaptive_webagent.runtime.llm import make_llm_client
+from kg_augmented_webagent.kg.runtime.integration import build_kg_session
+from kg_augmented_webagent.runtime.browser import observe_page
+from kg_augmented_webagent.runtime.executor import execute_with_llm
+from kg_augmented_webagent.runtime.intent import analyze_intent
+from kg_augmented_webagent.runtime.llm import make_llm_client
 
 load_dotenv()
 

@@ -1,7 +1,7 @@
 """Freeze CLI: manual seed (수동 검증 후) + crawl + derived를 단일 immutable snapshot으로 통합.
 
 실행 예 (crawl + derivation 산출물이 있고 수동 seed 편집을 마친 후):
-  python -m site_adaptive_webagent.kg.seed.run_freeze \\
+  python -m kg_augmented_webagent.kg.seed.run_freeze \\
       --site gitlab \\
       --crawl-dir output/crawl/<ts>/ \\
       --derivation-dir output/derivation/<ts>/ \\

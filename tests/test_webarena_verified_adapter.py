@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from site_adaptive_webagent.benchmarks.webarena_verified.adapter import (
+from kg_augmented_webagent.benchmarks.webarena_verified.adapter import (
     load_agent_input,
     validate_agent_response_file,
     validate_exported_tasks_file,

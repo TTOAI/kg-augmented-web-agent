@@ -4,10 +4,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from site_adaptive_webagent.runtime.executor import execute_with_llm
-from site_adaptive_webagent.runtime.intent import analyze_intent
-from site_adaptive_webagent.runtime.llm import classify_task_type, parse_llm_action
-from site_adaptive_webagent.runtime.types import PageObservation
+from kg_augmented_webagent.runtime.executor import execute_with_llm
+from kg_augmented_webagent.runtime.intent import analyze_intent
+from kg_augmented_webagent.runtime.llm import classify_task_type, parse_llm_action
+from kg_augmented_webagent.runtime.types import PageObservation
 
 from .fixtures import FakeLLMClient, make_fake_page
 
@@ -259,7 +259,7 @@ class BuildPlanNormalizationTests(unittest.TestCase):
         )
 
     def test_navigation_type_preserved(self) -> None:
-        from site_adaptive_webagent.runtime.llm import build_plan
+        from kg_augmented_webagent.runtime.llm import build_plan
         llm = self._make_llm(
             '{"sub_goals": [{"goal": "Go to project", "type": "navigation"}]}'
         )
@@ -267,7 +267,7 @@ class BuildPlanNormalizationTests(unittest.TestCase):
         self.assertEqual(plan[0].goal_type, "navigation")
 
     def test_action_type_preserved(self) -> None:
-        from site_adaptive_webagent.runtime.llm import build_plan
+        from kg_augmented_webagent.runtime.llm import build_plan
         llm = self._make_llm(
             '{"sub_goals": [{"goal": "Apply filter", "type": "action"}]}'
         )
@@ -276,7 +276,7 @@ class BuildPlanNormalizationTests(unittest.TestCase):
 
     def test_unknown_type_normalized_to_action(self) -> None:
         """legacy 'cognition' 또는 오타 type은 'action'으로 강등된다 (hard rule 우회 방지)."""
-        from site_adaptive_webagent.runtime.llm import build_plan
+        from kg_augmented_webagent.runtime.llm import build_plan
         for bad_type in ("cognition", "Navigate", "navigate_to", ""):
             llm = self._make_llm(
                 f'{{"sub_goals": [{{"goal": "x", "type": "{bad_type}"}}]}}'
@@ -286,7 +286,7 @@ class BuildPlanNormalizationTests(unittest.TestCase):
                              f"bad_type={bad_type!r} should normalize to 'action'")
 
     def test_empty_goal_string_filtered(self) -> None:
-        from site_adaptive_webagent.runtime.llm import build_plan
+        from kg_augmented_webagent.runtime.llm import build_plan
         llm = self._make_llm(
             '{"sub_goals": [{"goal": "", "type": "action"}, {"goal": "real goal", "type": "action"}]}'
         )
@@ -305,7 +305,7 @@ class ToolDefinitionTests(unittest.TestCase):
     """
 
     def test_intermediate_goal_includes_both_terminals(self) -> None:
-        from site_adaptive_webagent.runtime.tools import tools_for_goal
+        from kg_augmented_webagent.runtime.tools import tools_for_goal
         tools = tools_for_goal(is_last_goal=False, task_type="RETRIEVE")
         names = {t["name"] for t in tools}
         self.assertIn("click", names)
@@ -317,7 +317,7 @@ class ToolDefinitionTests(unittest.TestCase):
 
     def test_last_retrieve_requires_answer_in_report_success(self) -> None:
         """RETRIEVE 최종 sub-goal의 report_success schema는 answer 필수."""
-        from site_adaptive_webagent.runtime.tools import tools_for_goal
+        from kg_augmented_webagent.runtime.tools import tools_for_goal
         tools = tools_for_goal(is_last_goal=True, task_type="RETRIEVE")
         names_to_tool = {t["name"]: t for t in tools}
         self.assertIn("report_success", names_to_tool)
@@ -328,7 +328,7 @@ class ToolDefinitionTests(unittest.TestCase):
 
     def test_non_retrieve_final_report_success_no_answer(self) -> None:
         """NAVIGATE/MUTATE 최종 sub-goal의 report_success는 answer 없음."""
-        from site_adaptive_webagent.runtime.tools import tools_for_goal
+        from kg_augmented_webagent.runtime.tools import tools_for_goal
         for task_type in ("NAVIGATE", "MUTATE"):
             with self.subTest(task_type=task_type):
                 tools = tools_for_goal(is_last_goal=True, task_type=task_type)
@@ -340,7 +340,7 @@ class ToolDefinitionTests(unittest.TestCase):
 
     def test_report_failure_schema(self) -> None:
         """status enum 없이 reason만 required. benchmark-agnostic."""
-        from site_adaptive_webagent.runtime.tools import _report_failure_tool
+        from kg_augmented_webagent.runtime.tools import _report_failure_tool
         tool = _report_failure_tool()
         self.assertEqual(tool["name"], "report_failure")
         props = tool["input_schema"]["properties"]
@@ -351,7 +351,7 @@ class ToolDefinitionTests(unittest.TestCase):
     def test_scaffold_includes_goto_tool(self) -> None:
         """baseline은 goto tool을 포함한다 — KG filter URL 템플릿
         hint를 agent가 직접 실행(`goto(url)`)할 경로가 필요."""
-        from site_adaptive_webagent.runtime.tools import tools_for_goal
+        from kg_augmented_webagent.runtime.tools import tools_for_goal
         for is_last in (False, True):
             for task_type in ("RETRIEVE", "NAVIGATE", "MUTATE"):
                 tools = tools_for_goal(is_last_goal=is_last, task_type=task_type)
@@ -360,7 +360,7 @@ class ToolDefinitionTests(unittest.TestCase):
 
     def test_action_tools_have_optional_memo_field(self) -> None:
         """5 action tools (click/fill/search/goback/observe)에 memo field가 있다."""
-        from site_adaptive_webagent.runtime.tools import (
+        from kg_augmented_webagent.runtime.tools import (
             _click_tool, _fill_tool, _search_tool, _goback_tool, _observe_tool,
         )
         for tool_fn in (_click_tool, _fill_tool, _search_tool, _goback_tool, _observe_tool):
@@ -374,7 +374,7 @@ class ToolDefinitionTests(unittest.TestCase):
 
     def test_cognitive_tools_do_not_have_memo_field(self) -> None:
         """remember / recall / report_success / report_failure는 자체 메커니즘이 있어 memo가 없다."""
-        from site_adaptive_webagent.runtime.tools import (
+        from kg_augmented_webagent.runtime.tools import (
             _recall_tool, _remember_tool, _report_failure_tool, _report_success_tool,
         )
         tool_specs: list[dict] = [
@@ -393,7 +393,7 @@ class VerifyDoneTests(unittest.IsolatedAsyncioTestCase):
     """_verify_done이 task_notes를 활용해 done을 거부할 수 있는지 검증."""
 
     def test_verify_done_accepts_when_no_notes(self) -> None:
-        from site_adaptive_webagent.runtime.executor import _verify_done
+        from kg_augmented_webagent.runtime.executor import _verify_done
         llm = FakeLLMClient('{"achieved": true}')
         obs = PageObservation(
             url="https://example.com/done",
@@ -411,7 +411,7 @@ class VerifyDoneTests(unittest.IsolatedAsyncioTestCase):
     def test_verify_done_standard_react_no_llm_call(self) -> None:
         """표준 ReAct 전환 (2026-04-17): _verify_done은 LLM 재호출 없이 agent의 done 선언을
         그대로 수용. hard rule 위반이 없으면 True. LLM call은 0회."""
-        from site_adaptive_webagent.runtime.executor import _verify_done
+        from kg_augmented_webagent.runtime.executor import _verify_done
         llm = FakeLLMClient('{"achieved": true}')
         obs = PageObservation(
             url="https://example.com/projects/empathy-prompts",
@@ -430,7 +430,7 @@ class VerifyDoneTests(unittest.IsolatedAsyncioTestCase):
 
     def test_verify_done_hard_rule_final_navigation_requires_url_change(self) -> None:
         """Hard rule: 마지막 navigation sub-goal인데 URL 변경 없으면 reject."""
-        from site_adaptive_webagent.runtime.executor import _verify_done
+        from kg_augmented_webagent.runtime.executor import _verify_done
         obs = PageObservation(
             url="https://example.com/start",
             title="Start", headings=[], text_lines=[], links=[], buttons=[],
@@ -454,20 +454,20 @@ class ReadTemperatureEnvTests(unittest.TestCase):
 
     def test_unset_returns_none(self) -> None:
         import os
-        from site_adaptive_webagent.runtime.llm import _read_temperature_env
+        from kg_augmented_webagent.runtime.llm import _read_temperature_env
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("LLM_TEMPERATURE", None)
             self.assertIsNone(_read_temperature_env())
 
     def test_empty_string_returns_none(self) -> None:
         import os
-        from site_adaptive_webagent.runtime.llm import _read_temperature_env
+        from kg_augmented_webagent.runtime.llm import _read_temperature_env
         with patch.dict(os.environ, {"LLM_TEMPERATURE": "  "}):
             self.assertIsNone(_read_temperature_env())
 
     def test_valid_number_parsed(self) -> None:
         import os
-        from site_adaptive_webagent.runtime.llm import _read_temperature_env
+        from kg_augmented_webagent.runtime.llm import _read_temperature_env
         with patch.dict(os.environ, {"LLM_TEMPERATURE": "0"}):
             self.assertEqual(_read_temperature_env(), 0.0)
         with patch.dict(os.environ, {"LLM_TEMPERATURE": "0.7"}):
@@ -475,7 +475,7 @@ class ReadTemperatureEnvTests(unittest.TestCase):
 
     def test_invalid_string_returns_none(self) -> None:
         import os
-        from site_adaptive_webagent.runtime.llm import _read_temperature_env
+        from kg_augmented_webagent.runtime.llm import _read_temperature_env
         with patch.dict(os.environ, {"LLM_TEMPERATURE": "hot"}):
             self.assertIsNone(_read_temperature_env())
 
@@ -484,7 +484,7 @@ class TaskNotesAccumulationTests(unittest.TestCase):
     """_append_task_note: 중복 제거 + 상한 유지."""
 
     def test_dedup(self) -> None:
-        from site_adaptive_webagent.runtime.executor import _append_task_note
+        from kg_augmented_webagent.runtime.executor import _append_task_note
         notes: list[str] = []
         _append_task_note(notes, "fact A")
         _append_task_note(notes, "fact A")  # 중복
@@ -492,25 +492,25 @@ class TaskNotesAccumulationTests(unittest.TestCase):
         self.assertEqual(notes, ["fact A", "fact B"])
 
     def test_strip_whitespace(self) -> None:
-        from site_adaptive_webagent.runtime.executor import _append_task_note
+        from kg_augmented_webagent.runtime.executor import _append_task_note
         notes: list[str] = []
         _append_task_note(notes, "  fact  ")
         self.assertEqual(notes, ["fact"])
 
     def test_empty_skipped(self) -> None:
-        from site_adaptive_webagent.runtime.executor import _append_task_note
+        from kg_augmented_webagent.runtime.executor import _append_task_note
         notes: list[str] = []
         _append_task_note(notes, "")
         _append_task_note(notes, "   ")
         self.assertEqual(notes, [])
 
     def test_none_notes_no_crash(self) -> None:
-        from site_adaptive_webagent.runtime.executor import _append_task_note
+        from kg_augmented_webagent.runtime.executor import _append_task_note
         _append_task_note(None, "anything")  # no-op, no crash
 
     def test_cap_keeps_latest(self) -> None:
         """상한 초과 시 가장 오래된 항목부터 drop."""
-        from site_adaptive_webagent.runtime.executor import _TASK_NOTES_MAX, _append_task_note
+        from kg_augmented_webagent.runtime.executor import _TASK_NOTES_MAX, _append_task_note
         notes: list[str] = []
         for i in range(_TASK_NOTES_MAX + 5):
             _append_task_note(notes, f"fact {i}")
@@ -523,7 +523,7 @@ class FormatAssistantToolUseTests(unittest.TestCase):
     """format_assistant_tool_use 방어: 여러 tool_calls 시 첫 번째만 포함해 pair 무결성 유지."""
 
     def test_single_tool_use_preserved(self) -> None:
-        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
+        from kg_augmented_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
         r = LLMToolResponse(
             thought="reasoning",
             tool_calls=[ToolCall(id="a", name="click", arguments={"target": "x"})],
@@ -536,7 +536,7 @@ class FormatAssistantToolUseTests(unittest.TestCase):
     def test_multiple_tool_uses_reduced_to_first(self) -> None:
         """LLM이 한 턴에 여러 tool_use를 반환해도 첫 번째만 메시지에 포함된다.
         (orphaned tool_use → tool_result 매칭 실패로 Anthropic API가 에러를 내는 위험 차단.)"""
-        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
+        from kg_augmented_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
         r = LLMToolResponse(
             thought="reasoning",
             tool_calls=[
@@ -552,7 +552,7 @@ class FormatAssistantToolUseTests(unittest.TestCase):
         self.assertEqual(tool_uses[0]["name"], "click")
 
     def test_no_tool_calls_produces_text_only(self) -> None:
-        from site_adaptive_webagent.runtime.tools import LLMToolResponse, format_assistant_tool_use
+        from kg_augmented_webagent.runtime.tools import LLMToolResponse, format_assistant_tool_use
         r = LLMToolResponse(thought="just thinking", tool_calls=[])
         msg = format_assistant_tool_use(r)
         tool_uses = [b for b in msg["content"] if isinstance(b, dict) and b.get("type") == "tool_use"]
@@ -563,7 +563,7 @@ class ToolUseMessageTests(unittest.TestCase):
     """Tool Use 메시지 포맷 헬퍼 테스트."""
 
     def test_format_assistant_tool_use(self) -> None:
-        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
+        from kg_augmented_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
         response = LLMToolResponse(
             thought="I should click Issues",
             tool_calls=[ToolCall(id="tc_1", name="click", arguments={"target": "Issues"})],
@@ -576,14 +576,14 @@ class ToolUseMessageTests(unittest.TestCase):
         self.assertEqual(msg["content"][1]["name"], "click")
 
     def test_format_tool_result(self) -> None:
-        from site_adaptive_webagent.runtime.tools import format_tool_result
+        from kg_augmented_webagent.runtime.tools import format_tool_result
         msg = format_tool_result("tc_1", "click 'Issues': navigated to /issues")
         self.assertEqual(msg["role"], "user")
         self.assertEqual(msg["content"][0]["type"], "tool_result")
         self.assertEqual(msg["content"][0]["tool_use_id"], "tc_1")
 
     def test_format_assistant_without_thought(self) -> None:
-        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
+        from kg_augmented_webagent.runtime.tools import LLMToolResponse, ToolCall, format_assistant_tool_use
         response = LLMToolResponse(
             thought=None,
             tool_calls=[ToolCall(id="tc_2", name="report_success", arguments={})],
@@ -597,7 +597,7 @@ class FakeLLMClientToolUseTests(unittest.TestCase):
     """FakeLLMClient.complete_with_tools() 테스트."""
 
     def test_parses_action_as_tool_name(self) -> None:
-        from site_adaptive_webagent.runtime.tools import LLMToolResponse
+        from kg_augmented_webagent.runtime.tools import LLMToolResponse
         llm = FakeLLMClient('{"action": "click", "target": "Issues", "url": "/issues"}')
         response = llm.complete_with_tools(system="test", messages=[], tools=[])
         self.assertIsInstance(response, LLMToolResponse)
@@ -628,7 +628,7 @@ class ToolUseSystemPromptTests(unittest.TestCase):
     """build_tool_use_system_prompt() 테스트."""
 
     def test_contains_strategy_not_actions(self) -> None:
-        from site_adaptive_webagent.runtime.llm import build_tool_use_system_prompt
+        from kg_augmented_webagent.runtime.llm import build_tool_use_system_prompt
         prompt = build_tool_use_system_prompt()
         self.assertIn("## Strategy", prompt)
         self.assertNotIn("## Actions", prompt)
@@ -636,7 +636,7 @@ class ToolUseSystemPromptTests(unittest.TestCase):
 
     def test_does_not_inject_kb(self) -> None:
         """lab 005 baseline은 system prompt에 Site Knowledge 섹션을 박지 않는다."""
-        from site_adaptive_webagent.runtime.llm import build_tool_use_system_prompt
+        from kg_augmented_webagent.runtime.llm import build_tool_use_system_prompt
         prompt = build_tool_use_system_prompt()
         self.assertNotIn("## Site Knowledge", prompt)
         self.assertNotIn("Page:", prompt)
@@ -647,7 +647,7 @@ class ObservationMessageTests(unittest.TestCase):
     """build_observation_message() 테스트."""
 
     def test_contains_structured_sections(self) -> None:
-        from site_adaptive_webagent.runtime.llm import SubGoal, build_observation_message
+        from kg_augmented_webagent.runtime.llm import SubGoal, build_observation_message
         obs = PageObservation(
             url="https://example.com/issues?label=bug",
             title="Issues", headings=["Issues"], text_lines=["Bug #1"],
@@ -668,7 +668,7 @@ class ObservationMessageTests(unittest.TestCase):
         self.assertIn("## Interactive Elements", msg)
 
     def test_no_action_feedback_omits_section(self) -> None:
-        from site_adaptive_webagent.runtime.llm import build_observation_message
+        from kg_augmented_webagent.runtime.llm import build_observation_message
         obs = PageObservation(
             url="https://example.com", title="Home",
             headings=[], text_lines=[], links=[], buttons=[],

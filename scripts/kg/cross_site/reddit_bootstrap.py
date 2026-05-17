@@ -28,9 +28,9 @@ from dotenv import load_dotenv
 load_dotenv()
 os.environ["OPENAI_MODEL"] = "gpt-5.4"  # full = no suffix variant
 
-from site_adaptive_webagent.kg.site_extras import load_site_entities
-from site_adaptive_webagent.kg.site_plugin import load_site_plugin
-from site_adaptive_webagent.runtime.llm import make_llm_client
+from kg_augmented_webagent.kg.site_extras import load_site_entities
+from kg_augmented_webagent.kg.site_plugin import load_site_plugin
+from kg_augmented_webagent.runtime.llm import make_llm_client
 from scripts.kg.utils.classify import load_classifier
 
 REDDIT_SITE = "reddit"

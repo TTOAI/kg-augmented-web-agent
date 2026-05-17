@@ -78,7 +78,7 @@ webarena-verified agent-input-get --task-ids 44 \
 ## Repository structure
 
 ```
-site_adaptive_webagent/
+kg_augmented_webagent/
 ├── agent/                 # run_agent entrypoint (composition root)
 ├── runtime/               # ReAct + tool-use 실행 엔진, browser primitive, LLM client
 ├── kg/

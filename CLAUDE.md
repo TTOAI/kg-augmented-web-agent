@@ -65,7 +65,7 @@ webarena-verified eval-tasks \
 - `baseline/clean`: V2.5 baseline (pinned for measurement)
 - `feature/kg-v2`: baseline + KG module (current branch)
 
-The KG module is implemented under `site_adaptive_webagent/kg/` alongside the untouched baseline. KG construction protocol and seed validation reports live in `docs/method/` and `docs/validation/`.
+The KG module is implemented under `kg_augmented_webagent/kg/` alongside the untouched baseline. KG construction protocol and seed validation reports live in `docs/method/` and `docs/validation/`.
 
 ## Architecture
 
@@ -83,12 +83,12 @@ webarena-verified CLI → run_webarena_verified.py
                     agent_response.json
 ```
 
-### Agent layer (`site_adaptive_webagent/agent/`)
+### Agent layer (`kg_augmented_webagent/agent/`)
 
 - `core.py` — `run_agent()` entrypoint: `analyze_intent()` → `build_plan()` → sub-goal loop with tool-use LLM → `_verify_done()`.
 - `types.py` — `AgentRunResult`: the benchmark-agnostic neutral verdict (`task_type`, `verdict`, `answer`, `reason`). NOT the benchmark contract — `classify_outcome` maps it to `WebArenaRunResult`, which is what gets written as `agent_response.json`.
 
-### Runtime layer (`site_adaptive_webagent/runtime/`)
+### Runtime layer (`kg_augmented_webagent/runtime/`)
 
 - `types.py` — `IntentPlan`, `PageObservation`, `ExecutionOutcome`, `BrowserSession` dataclasses + `TaskType`/`AgentVerdict`/`IntentAction` literals.
 - `browser.py` — Playwright observation helpers (`observe_page`, `try_click_target`, `try_fill_target`, `try_search`).
@@ -105,7 +105,7 @@ webarena-verified CLI → run_webarena_verified.py
 
 Each task run produces `output/<task_id>/agent_response.json` (task_type, status, retrieved_data, error_details) and `output/<task_id>/network.har`. Re-running backs up the existing directory to `<task_id>_bkp_N`.
 
-## KG layer (`site_adaptive_webagent/kg/`)
+## KG layer (`kg_augmented_webagent/kg/`)
 
 - `kg/seed/` — Stage A/B/C seed builder (URL classification rules → action catalog + filter category → class-to-class edge graph). Build pipeline: `scripts/kg/`.
 - `kg/runtime/` — `task_inferrer` (sub-goal target class via LLM self-consistency), `path_finder` (BFS cascade), `hint_generator` (advisory hint). `build_kg_session()` in `integration.py` assembles these into a `KGSession`.

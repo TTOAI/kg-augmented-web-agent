@@ -4,7 +4,7 @@
   export LLM_PROVIDER=openai
   export OPENAI_MODEL=gpt-5.4-full
   export LLM_TEMPERATURE=0
-  python -m site_adaptive_webagent.kg.seed.run_derivation \\
+  python -m kg_augmented_webagent.kg.seed.run_derivation \\
       --crawl-dir output/crawl/<ts>/ \\
       --site gitlab \\
       --output output/derivation/<ts>/
@@ -26,7 +26,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from site_adaptive_webagent.runtime.llm import make_llm_client
+from kg_augmented_webagent.runtime.llm import make_llm_client
 
 load_dotenv()  # .env의 LLM_PROVIDER / OPENAI_MODEL / OPENAI_API_KEY / LLM_TEMPERATURE 로드
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from site_adaptive_webagent.runtime.browser import (
+from kg_augmented_webagent.runtime.browser import (
     LINK_SELECTORS,
     extract_ax_links,
     extract_texts,

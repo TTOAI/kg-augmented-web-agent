@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import unittest
 
-from site_adaptive_webagent.kg import (
+from kg_augmented_webagent.kg import (
     IdentityParam,
     InfoType,
     RealizesEdge,
     SiteKG,
     StatePattern,
 )
-from site_adaptive_webagent.kg.seed.post_enrich import (
+from kg_augmented_webagent.kg.seed.post_enrich import (
     assign_infotype_category,
     auto_fill_binding_map,
     auto_fill_path_params,
@@ -253,8 +253,8 @@ class EnrichIntegrationTests(unittest.TestCase):
 
 class BackfillFromFormActionsTests(unittest.TestCase):
     def test_form_edge_from_state_gets_query_params(self) -> None:
-        from site_adaptive_webagent.kg.types import Action as _Action, LeadsToEdge as _LTE
-        from site_adaptive_webagent.kg.seed.post_enrich import (
+        from kg_augmented_webagent.kg.types import Action as _Action, LeadsToEdge as _LTE
+        from kg_augmented_webagent.kg.seed.post_enrich import (
             backfill_query_params_from_form_actions,
         )
         kg = SiteKG(site="x")
@@ -281,8 +281,8 @@ class BackfillFromFormActionsTests(unittest.TestCase):
         self.assertIn("search", sem_names)
 
     def test_skip_button_like_inputs(self) -> None:
-        from site_adaptive_webagent.kg.types import Action as _Action, LeadsToEdge as _LTE
-        from site_adaptive_webagent.kg.seed.post_enrich import (
+        from kg_augmented_webagent.kg.types import Action as _Action, LeadsToEdge as _LTE
+        from kg_augmented_webagent.kg.seed.post_enrich import (
             backfill_query_params_from_form_actions,
         )
         kg = SiteKG(site="x")
@@ -300,8 +300,8 @@ class BackfillFromFormActionsTests(unittest.TestCase):
 
     def test_cross_target_form_edge_adds_to_target_state(self) -> None:
         """cross-target (from != to) form edge는 query param을 to state에 박아야 함."""
-        from site_adaptive_webagent.kg.types import Action as _Action, LeadsToEdge as _LTE
-        from site_adaptive_webagent.kg.seed.post_enrich import (
+        from kg_augmented_webagent.kg.types import Action as _Action, LeadsToEdge as _LTE
+        from kg_augmented_webagent.kg.seed.post_enrich import (
             backfill_query_params_from_form_actions,
         )
         kg = SiteKG(site="x")
@@ -327,7 +327,7 @@ class BackfillFromFormActionsTests(unittest.TestCase):
 
 class BackfillOptionalBindingsTests(unittest.TestCase):
     def test_query_params_become_optional_bindings(self) -> None:
-        from site_adaptive_webagent.kg.seed.post_enrich import backfill_optional_bindings
+        from kg_augmented_webagent.kg.seed.post_enrich import backfill_optional_bindings
         kg = SiteKG(site="x")
         kg.state_patterns["sp"] = StatePattern(
             id="sp", url_template="/search",
@@ -345,7 +345,7 @@ class BackfillOptionalBindingsTests(unittest.TestCase):
         self.assertEqual(set(it.optional_bindings), {"scope", "search_query"})
 
     def test_required_bindings_not_duplicated(self) -> None:
-        from site_adaptive_webagent.kg.seed.post_enrich import backfill_optional_bindings
+        from kg_augmented_webagent.kg.seed.post_enrich import backfill_optional_bindings
         kg = SiteKG(site="x")
         kg.state_patterns["sp"] = StatePattern(
             id="sp", url_template="/{project_path}/x",
@@ -363,8 +363,8 @@ class BackfillOptionalBindingsTests(unittest.TestCase):
 
 class PruneUnusedFormActionsTests(unittest.TestCase):
     def test_unused_form_actions_pruned(self) -> None:
-        from site_adaptive_webagent.kg.types import Action as _Action, LeadsToEdge as _LTE
-        from site_adaptive_webagent.kg.seed.post_enrich import prune_unused_form_actions
+        from kg_augmented_webagent.kg.types import Action as _Action, LeadsToEdge as _LTE
+        from kg_augmented_webagent.kg.seed.post_enrich import prune_unused_form_actions
         kg = SiteKG(site="x")
         kg.actions["crawl:form:x:search"] = _Action(name="crawl:form:x:search")
         kg.actions["crawl:form:y:submit"] = _Action(name="crawl:form:y:submit")
@@ -389,16 +389,16 @@ class PruneUnusedFormActionsTests(unittest.TestCase):
 
 class ActionDescriptionAutoFillTests(unittest.TestCase):
     def test_nav_description(self) -> None:
-        from site_adaptive_webagent.kg.types import Action as _Action
-        from site_adaptive_webagent.kg.seed.post_enrich import auto_fill_action_descriptions
+        from kg_augmented_webagent.kg.types import Action as _Action
+        from kg_augmented_webagent.kg.seed.post_enrich import auto_fill_action_descriptions
         kg = SiteKG(site="x")
         kg.actions["crawl:nav"] = _Action(name="crawl:nav")
         auto_fill_action_descriptions(kg)
         self.assertIn("navigation", kg.actions["crawl:nav"].description)
 
     def test_form_description(self) -> None:
-        from site_adaptive_webagent.kg.types import Action as _Action
-        from site_adaptive_webagent.kg.seed.post_enrich import auto_fill_action_descriptions
+        from kg_augmented_webagent.kg.types import Action as _Action
+        from kg_augmented_webagent.kg.seed.post_enrich import auto_fill_action_descriptions
         kg = SiteKG(site="x")
         kg.actions["crawl:form:explore_projects:name"] = _Action(
             name="crawl:form:explore_projects:name",

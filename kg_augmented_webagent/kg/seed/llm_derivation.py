@@ -18,7 +18,7 @@ from ..types import Action, InfoType, RealizesEdge, SiteKG
 from .playwright_crawler import CrawlResult
 
 if TYPE_CHECKING:
-    from site_adaptive_webagent.runtime.llm import LLMClient
+    from kg_augmented_webagent.runtime.llm import LLMClient
 
 logger = logging.getLogger("kg.derivation")
 

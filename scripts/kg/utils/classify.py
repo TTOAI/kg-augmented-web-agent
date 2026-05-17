@@ -16,9 +16,9 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from site_adaptive_webagent.kg.seed.manual_config import load_site_config
-from site_adaptive_webagent.kg.types import IdentityParam, StatePattern
-from site_adaptive_webagent.kg.urlnorm import match_pattern
+from kg_augmented_webagent.kg.seed.manual_config import load_site_config
+from kg_augmented_webagent.kg.types import IdentityParam, StatePattern
+from kg_augmented_webagent.kg.urlnorm import match_pattern
 
 DEFAULT_SITE_CONFIG = Path("config/sites/gitlab/site_config.yaml")
 DEFAULT_RULES_PATH = Path("output/validation/rules/class_rules.json")
@@ -86,7 +86,7 @@ def classify_template(
     import os
     import re
 
-    from site_adaptive_webagent.kg.site_extras import load_site_crawl, load_site_entities
+    from kg_augmented_webagent.kg.site_extras import load_site_crawl, load_site_entities
 
     site_name = os.getenv("SITE_NAME", "gitlab")
     entities = load_site_entities(site_name)

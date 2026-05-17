@@ -146,7 +146,7 @@ verify_unmatched_stable(fresh, rules)
 | 요소 | 종류 | 현재 위치 | 추후 site 이식 시 |
 |---|---|---|---|
 | BFS 알고리즘 | **generic** | `scripts/validation/stage_a_f_crawl.py` | 재사용 |
-| URL 정규화 | **generic** | `site_adaptive_webagent/kg/urlnorm.py` (단 site_config.yaml 필요) | config 교체 |
+| URL 정규화 | **generic** | `kg_augmented_webagent/kg/urlnorm.py` (단 site_config.yaml 필요) | config 교체 |
 | Clustering 알고리즘 (placeholder 치환) | **generic** | `stage_a_f_cluster.py` | 재사용 |
 | Rule 도출 알고리즘 skeleton (template inference, specificity) | **generic** | `stage_a_extract_rules.py` | 재사용 |
 | URL scheme 휴리스틱 (`_derive_from_single`) | **GitLab realization** | `stage_a_extract_rules.py::_derive_from_single()` | **site-specific 함수 교체 필요** (예: GitHub의 다른 path 구조) — 다른 site 이식 시 이 함수를 override |

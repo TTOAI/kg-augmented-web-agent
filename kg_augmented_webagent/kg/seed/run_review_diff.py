@@ -1,7 +1,7 @@
 """Review diff CLI: manual seed + crawl + derived(llm) 3-source SiteKG diff를 markdown으로.
 
 실행 예:
-  python -m site_adaptive_webagent.kg.seed.run_review_diff \\
+  python -m kg_augmented_webagent.kg.seed.run_review_diff \\
       --site gitlab \\
       --crawl-dir output/crawl/<ts>/ \\
       --derivation-dir output/derivation/<ts>/ \\

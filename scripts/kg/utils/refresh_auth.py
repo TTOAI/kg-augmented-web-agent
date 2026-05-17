@@ -3,7 +3,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from site_adaptive_webagent.benchmarks.webarena_verified.adapter import ui_login
+from kg_augmented_webagent.benchmarks.webarena_verified.adapter import ui_login
 
 
 async def main():

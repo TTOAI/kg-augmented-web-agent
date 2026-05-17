@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from site_adaptive_webagent.kg import (
+from kg_augmented_webagent.kg import (
     Action,
     IdentityParam,
     InfoType,
@@ -15,8 +15,8 @@ from site_adaptive_webagent.kg import (
     SiteKG,
     StatePattern,
 )
-from site_adaptive_webagent.kg.seed import compute_source_mix
-from site_adaptive_webagent.kg.store import SiteKGStore
+from kg_augmented_webagent.kg.seed import compute_source_mix
+from kg_augmented_webagent.kg.store import SiteKGStore
 
 
 def _make_minimal_kg() -> SiteKG:

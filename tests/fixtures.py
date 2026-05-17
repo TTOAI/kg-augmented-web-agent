@@ -25,7 +25,7 @@ class FakeLLMClient:
         self, *, system: str, messages: list[dict], tools: list[dict],
         max_tokens: int = 1024, reasoning_effort: str | None = None,
     ) -> "LLMToolResponse":
-        from site_adaptive_webagent.runtime.tools import LLMToolResponse, ToolCall
+        from kg_augmented_webagent.runtime.tools import LLMToolResponse, ToolCall
 
         self.calls.append({
             "system": system, "messages": list(messages), "tools": tools,

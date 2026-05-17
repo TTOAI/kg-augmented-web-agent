@@ -7,19 +7,19 @@ from __future__ import annotations
 import os
 import unittest
 
-from site_adaptive_webagent.kg import (
+from kg_augmented_webagent.kg import (
     SiteConfig,
     SiteKG,
     StatePattern,
 )
-from site_adaptive_webagent.kg.seed import (
+from kg_augmented_webagent.kg.seed import (
     CrawlResult,
     FormElementMeta,
     crawl_results_to_sitekg,
     crawl_site,
     extract_url_template,
 )
-from site_adaptive_webagent.kg.store import SiteKGStore
+from kg_augmented_webagent.kg.store import SiteKGStore
 
 
 def _gitlab_like_config() -> SiteConfig:

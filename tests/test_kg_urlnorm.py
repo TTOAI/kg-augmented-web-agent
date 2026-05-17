@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from site_adaptive_webagent.kg import (
+from kg_augmented_webagent.kg import (
     IdentityParam,
     SiteConfig,
     StatePattern,
@@ -11,7 +11,7 @@ from site_adaptive_webagent.kg import (
     match_pattern,
     normalize_url,
 )
-from site_adaptive_webagent.kg.urlnorm import extract_path_slots_from_url
+from kg_augmented_webagent.kg.urlnorm import extract_path_slots_from_url
 
 
 def _gitlab_config() -> SiteConfig:

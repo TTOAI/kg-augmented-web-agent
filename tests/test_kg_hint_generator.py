@@ -4,12 +4,12 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 
-from site_adaptive_webagent.kg.runtime.hint_generator import (
+from kg_augmented_webagent.kg.runtime.hint_generator import (
     _fmt_action_labels,
     _normalize_label,
     generate_hint,
 )
-from site_adaptive_webagent.kg.runtime.path_finder import PathResult, PathStep
+from kg_augmented_webagent.kg.runtime.path_finder import PathResult, PathStep
 
 
 @dataclass
@@ -195,14 +195,14 @@ class RenderClassActionsTests(unittest.TestCase):
         }
 
     def test_empty_input_returns_empty(self):
-        from site_adaptive_webagent.kg.runtime.hint_generator import (
+        from kg_augmented_webagent.kg.runtime.hint_generator import (
             _render_class_actions,
         )
         self.assertEqual(_render_class_actions(None), "")
         self.assertEqual(_render_class_actions({}), "")
 
     def test_renders_nav_and_internal(self):
-        from site_adaptive_webagent.kg.runtime.hint_generator import (
+        from kg_augmented_webagent.kg.runtime.hint_generator import (
             _render_class_actions,
         )
         out = _render_class_actions(self._catalog())
@@ -213,7 +213,7 @@ class RenderClassActionsTests(unittest.TestCase):
         self.assertIn("button", out)
 
     def test_excludes_labels_already_in_path(self):
-        from site_adaptive_webagent.kg.runtime.hint_generator import (
+        from kg_augmented_webagent.kg.runtime.hint_generator import (
             _render_class_actions,
         )
         out = _render_class_actions(
@@ -224,7 +224,7 @@ class RenderClassActionsTests(unittest.TestCase):
         self.assertIn("Starred", out)  # other labels still rendered
 
     def test_limits_respected(self):
-        from site_adaptive_webagent.kg.runtime.hint_generator import (
+        from kg_augmented_webagent.kg.runtime.hint_generator import (
             _render_class_actions,
         )
         out = _render_class_actions(
@@ -264,7 +264,7 @@ class ActionsInjectedIntoHintTests(unittest.TestCase):
         self.assertIn("Last created", hint)
 
     def test_stay_template_includes_actions(self):
-        from site_adaptive_webagent.kg.runtime.path_finder import PathResult
+        from kg_augmented_webagent.kg.runtime.path_finder import PathResult
         result = PathResult(
             strategy="stay_and_explore",
             actual_target="A",

@@ -15,7 +15,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 
-from site_adaptive_webagent.runtime.llm import LLMClient
+from kg_augmented_webagent.runtime.llm import LLMClient
 
 from .class_descriptions import ClassCatalog
 

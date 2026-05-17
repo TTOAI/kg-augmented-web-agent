@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from site_adaptive_webagent.runtime.types import AgentVerdict, TaskType
+from kg_augmented_webagent.runtime.types import AgentVerdict, TaskType
 
 RetrievedItem = str | int | float | bool | dict[str, Any] | None
 

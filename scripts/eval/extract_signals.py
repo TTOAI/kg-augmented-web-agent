@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from site_adaptive_webagent.benchmarks.webarena_verified.types import TASK_LOG_FILENAME
+from kg_augmented_webagent.benchmarks.webarena_verified.types import TASK_LOG_FILENAME
 
 
 # Log line patterns

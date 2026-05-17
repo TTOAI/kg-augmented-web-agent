@@ -5,8 +5,8 @@ import json
 import unittest
 from pathlib import Path
 
-from site_adaptive_webagent.kg.site_extras import load_site_cascade
-from site_adaptive_webagent.kg.runtime.path_finder import (
+from kg_augmented_webagent.kg.site_extras import load_site_cascade
+from kg_augmented_webagent.kg.runtime.path_finder import (
     CascadeConfig,
     extract_family,
     find_path,

@@ -31,8 +31,8 @@ import json
 import logging
 from typing import Optional
 
-from site_adaptive_webagent.agent.types import AgentRunResult
-from site_adaptive_webagent.runtime.llm import LLMClient
+from kg_augmented_webagent.agent.types import AgentRunResult
+from kg_augmented_webagent.runtime.llm import LLMClient
 
 from .types import WebArenaRunResult, WebArenaStatus
 

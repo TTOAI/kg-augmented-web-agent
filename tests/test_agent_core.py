@@ -4,8 +4,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-from site_adaptive_webagent.runtime.intent import analyze_intent
-from site_adaptive_webagent.agent.core import run_agent
+from kg_augmented_webagent.runtime.intent import analyze_intent
+from kg_augmented_webagent.agent.core import run_agent
 
 from .fixtures import make_fake_page
 
@@ -33,7 +33,7 @@ class AnalyzeIntentTests(unittest.TestCase):
 
     def test_url_extraction_still_exposed(self) -> None:
         """extract_explicit_url은 URL 추출 유틸로 유지된다 (분류 결정에는 안 씀)."""
-        from site_adaptive_webagent.runtime.intent import extract_explicit_url
+        from kg_augmented_webagent.runtime.intent import extract_explicit_url
         self.assertEqual(
             extract_explicit_url("Visit https://example.com."),
             "https://example.com",

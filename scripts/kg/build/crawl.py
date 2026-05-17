@@ -18,9 +18,9 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 
 from scripts.kg.utils.classify import load_classifier
-from site_adaptive_webagent.kg.seed.manual_config import load_site_config
-from site_adaptive_webagent.kg.site_extras import load_site_crawl
-from site_adaptive_webagent.kg.urlnorm import normalize_url
+from kg_augmented_webagent.kg.seed.manual_config import load_site_config
+from kg_augmented_webagent.kg.site_extras import load_site_crawl
+from kg_augmented_webagent.kg.urlnorm import normalize_url
 
 import os
 

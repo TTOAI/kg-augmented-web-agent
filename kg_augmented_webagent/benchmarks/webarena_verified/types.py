@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from site_adaptive_webagent.runtime.types import TaskType
+from kg_augmented_webagent.runtime.types import TaskType
 
 # Per-trial log artifact: written by the adapter, read by the eval pipeline.
 TASK_LOG_FILENAME = "webarena_verified.log"

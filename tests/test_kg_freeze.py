@@ -10,8 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from site_adaptive_webagent.kg.seed.run_freeze import freeze
-from site_adaptive_webagent.kg.store import SiteKGStore
+from kg_augmented_webagent.kg.seed.run_freeze import freeze
+from kg_augmented_webagent.kg.store import SiteKGStore
 
 
 FIXTURE_KG_DIR = Path(__file__).parent / "fixtures" / "kg_test_site"

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import unittest
 
-from site_adaptive_webagent.agent.types import AgentRunResult
-from site_adaptive_webagent.benchmarks.webarena_verified.outcome_classifier import (
+from kg_augmented_webagent.agent.types import AgentRunResult
+from kg_augmented_webagent.benchmarks.webarena_verified.outcome_classifier import (
     classify_outcome,
 )
 

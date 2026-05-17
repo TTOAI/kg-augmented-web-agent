@@ -7,23 +7,23 @@ from __future__ import annotations
 import json
 import unittest
 
-from site_adaptive_webagent.kg import (
+from kg_augmented_webagent.kg import (
     Action,
     SiteKG,
     StatePattern,
 )
-from site_adaptive_webagent.kg.seed.crawl_to_kg import crawl_results_to_sitekg
-from site_adaptive_webagent.kg.seed.derivation_to_kg import derivation_to_sitekg
-from site_adaptive_webagent.kg.seed.llm_derivation import (
+from kg_augmented_webagent.kg.seed.crawl_to_kg import crawl_results_to_sitekg
+from kg_augmented_webagent.kg.seed.derivation_to_kg import derivation_to_sitekg
+from kg_augmented_webagent.kg.seed.llm_derivation import (
     DerivationResult,
     derive_infotypes_and_actions,
 )
-from site_adaptive_webagent.kg.seed.playwright_crawler import (
+from kg_augmented_webagent.kg.seed.playwright_crawler import (
     CrawlResult,
     FormElementMeta,
 )
-from site_adaptive_webagent.kg.store import SiteKGStore
-from site_adaptive_webagent.kg.types import SiteConfig
+from kg_augmented_webagent.kg.store import SiteKGStore
+from kg_augmented_webagent.kg.types import SiteConfig
 
 from .fixtures import FakeLLMClient
 
@@ -233,12 +233,12 @@ class DerivationToSiteKGTests(unittest.TestCase):
             infotypes=self.derivation.infotypes
             + [
                 __import__(
-                    "site_adaptive_webagent.kg.types", fromlist=["InfoType"],
+                    "kg_augmented_webagent.kg.types", fromlist=["InfoType"],
                 ).InfoType(
                     name="orphan",
                     realizes=[
                         __import__(
-                            "site_adaptive_webagent.kg.types", fromlist=["RealizesEdge"],
+                            "kg_augmented_webagent.kg.types", fromlist=["RealizesEdge"],
                         ).RealizesEdge(
                             infotype="orphan",
                             state_pattern_id="missing_id_xyz",
@@ -293,7 +293,7 @@ class StatePatternGroupingTests(unittest.TestCase):
 
     def _make_crawl_kg_with_n_patterns(self, n: int) -> SiteKG:
         kg = SiteKG(site="x")
-        from site_adaptive_webagent.kg import StatePattern as SP
+        from kg_augmented_webagent.kg import StatePattern as SP
         for i in range(n):
             sp_id = f"crawl:proj{i}_issues"
             kg.state_patterns[sp_id] = SP(

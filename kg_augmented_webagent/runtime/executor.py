@@ -12,7 +12,7 @@ from .tools import format_assistant_tool_use, format_tool_result, replan_tool, t
 from .types import ExecutionOutcome, PageObservation
 
 if TYPE_CHECKING:
-    from site_adaptive_webagent.kg.runtime.integration import (
+    from kg_augmented_webagent.kg.runtime.integration import (
         KGSession,
         SubGoalKGContext,
     )
@@ -582,7 +582,7 @@ async def _try_sub_goal(
                 else:
                     # target inferrer 미사용 — current class page-surface 힌트만 합성
                     # (stay_and_explore 전략으로 hint_generator가 액션·필터 섹션만 렌더).
-                    from site_adaptive_webagent.kg.runtime.path_finder import (
+                    from kg_augmented_webagent.kg.runtime.path_finder import (
                         PathResult as _PR,
                     )
                     path_result = _PR(

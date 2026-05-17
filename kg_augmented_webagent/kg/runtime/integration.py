@@ -16,13 +16,13 @@ from typing import Callable, Optional
 
 from scripts.kg.utils.classify import load_classifier
 
-from site_adaptive_webagent.runtime.llm import (
+from kg_augmented_webagent.runtime.llm import (
     AnthropicLLMClient,
     LLMClient,
     OpenAILLMClient,
 )
 
-from site_adaptive_webagent.kg.site_extras import load_site_cascade
+from kg_augmented_webagent.kg.site_extras import load_site_cascade
 
 from .class_descriptions import ClassCatalog, FilterTemplate, load_class_catalog
 from .hint_generator import generate_hint as _generate_hint
@@ -230,7 +230,7 @@ class KGSession:
         if len(parts) >= 2:
             # 사이트별 variant_segments는 cascade_config에서 로드. 비어 있으면
             # path_finder 모듈 상수로 fallback.
-            from site_adaptive_webagent.kg.runtime.path_finder import (
+            from kg_augmented_webagent.kg.runtime.path_finder import (
                 VARIANT_SEGMENTS as _DEFAULT_VARIANT_SEGMENTS,
             )
             variant_segments = (

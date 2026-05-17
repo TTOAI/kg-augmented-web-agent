@@ -2,7 +2,7 @@
 
 Combines class_rules (URL templates) with V1_pages annotations (user_reason)
 to produce a compact `{class: {url_template, description, filter_templates}}`
-mapping consumed by `site_adaptive_webagent/kg_solution/class_descriptions.py`.
+mapping consumed by `kg_augmented_webagent/kg_solution/class_descriptions.py`.
 
 filter_templates:  β에서 추가. Stage B self-edges의 URL 쿼리 파라미터
 패턴을 per-class로 추출해, agent가 Label/status filter 같은 visible UI 상호작용
@@ -25,7 +25,7 @@ from collections import defaultdict
 from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
 
-from site_adaptive_webagent.kg.site_plugin import load_site_plugin
+from kg_augmented_webagent.kg.site_plugin import load_site_plugin
 
 RULES = Path("output/validation/rules/class_rules.json")
 ANNOTATIONS = Path("output/validation/V1_pages/all_annotated.json")

@@ -876,7 +876,7 @@ async def main():
     print(f"Total URLs to visit: {total_urls}")
 
     import os as _os_mod
-    from site_adaptive_webagent.kg.site_plugin import load_site_plugin
+    from kg_augmented_webagent.kg.site_plugin import load_site_plugin
     _plugin = load_site_plugin(_os_mod.getenv("SITE_NAME", "gitlab"))
     filter_category_params = getattr(_plugin, "filter_category_params", {}) or {}
     print(f"[stage_b_collect_actions] filter_category_params: {len(filter_category_params)} entries")
