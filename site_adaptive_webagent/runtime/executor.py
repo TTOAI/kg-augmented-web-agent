@@ -18,8 +18,9 @@ if TYPE_CHECKING:
     )
 
 
-# task_notes 누적 상한. LLM이 매 step memo를 뿌리면 prompt 크기가 쉽게 수십 KB로 부풀어
-# context를 압박한다. 중복 문자열은 drop, 총량이 상한을 넘으면 가장 오래된 항목부터 제거.
+# task_notes 누적 상한.
+# LLM이 매 step memo를 추가하면 prompt 크기가 수십 KB까지 커져 context 한도를 초과할 수 있다.
+# 중복 문자열은 제거하고, 총량이 상한을 넘으면 가장 오래된 항목부터 제거한다.
 _TASK_NOTES_MAX = 50
 
 
@@ -104,8 +105,10 @@ async def execute_with_llm(
 ) -> ExecutionOutcome:
     """Sub-goal별 실행 루프. checkpoint + graduated retry로 태스크를 완수한다.
 
-    kg_session: Optional KG runtime context. 제공되면 sub-goal 시작마다
-    target_class를 추론하고, 매 step 관찰 전에 hint를 생성해 prompt에 주입한다.
+    kg_session:
+    Optional KG runtime context.
+    제공되면 sub-goal 시작마다 target_class를 추론하고,
+    매 step 관찰 전에 hint를 생성해 prompt에 주입한다.
     None이면 baseline 동작.
     """
     t_start = time.time()

@@ -5,6 +5,7 @@ __pycache__/
 
 /output/
 /docs/archive/
+/docs/memo/
 
 /config/webarena_verified.json
 .env
