@@ -1,6 +1,6 @@
 # KG-Augmented Web Agent
 
-사이트별 지식 그래프(site-specific knowledge graph, KG)를 planning substrate로 사용하는 웹 에이전트. KG는 대상 사이트 자체로부터 discovery protocol로 오프라인 빌드되고, 런타임에는 advisory hint로만 주입된다.
+LLM 웹 에이전트에 **사이트 구조 지식을 참고용(advisory) 힌트로 주입**해 행동 안정성을 실험한 프로젝트. 사이트별 지식 그래프(site-specific knowledge graph, KG)를 오프라인에서 만들고, 실행 중에는 에이전트가 강제 없이 참고만 하도록 주입한다.
 
 ## 문제
 
@@ -31,9 +31,13 @@
 
 ## 결과
 
-WebArena-Verified GitLab에서 7개 condition(H1–H3 hypothesis, L1–L2 low-confidence, Null1–Null2 control), baseline(v0) vs KG(v1), 각 3 trial로 측정했다.
+WebArena-Verified GitLab에서 7개 condition, baseline(v0) vs KG(v1), 각 3 trial로 측정했다. condition은 KG가 도울 것으로 본 **가설(H1–H3)**, 확신이 낮은 **저신뢰(L1–L2)**, KG와 무관해야 하는 **대조군(Null1–Null2)** 으로 구성된다. 개별 가설·task 정의는 [`docs/evaluation/`](docs/evaluation/) 참조.
 
+**step 분포 (baseline 회색 vs KG 파랑, 3 trial, raw point overlay)**
 ![per-task step distribution](docs/assets/step_box.png)
+
+**median step (조건 × 변종)**
+![median step counts](docs/assets/step_counts.png)
 
 | Cond | Task | V0 step | V1 step | 판정 |
 |------|-----:|--------:|--------:|------|
@@ -45,13 +49,24 @@ WebArena-Verified GitLab에서 7개 condition(H1–H3 hypothesis, L1–L2 low-co
 | Null1 | 44 | 2 | 2 | confirmed_parity |
 | Null2 | 664 | 14 | 14 | confirmed_parity |
 
+판정 라벨 (automated triage):
+
+- **confirmed** — KG가 step을 줄임 (가설 지지)
+- **refuted** — KG가 step을 줄이지 못함/늘림 (가설 기각)
+- **partial** — 차이가 미미하거나 부분적
+- **needs_review** — 자동 판정 보류, 수동 검토 필요
+- **parity_review** — 데이터 부족(예: 양쪽 timeout)으로 판정 보류
+- **confirmed_parity** — 대조군에서 KG 영향 없음을 확인 (의도된 결과)
+
 **정직한 해석**:
 
 - median step 효과는 **혼재**한다 — KG가 줄인 경우(H2)도, 늘린 경우(H1)도 있다. "KG가 일관되게 step을 줄인다"는 결론은 **나오지 않았다**.
 - 다만 step **분포**(박스플롯)에서 KG는 baseline의 큰 분산을 좁히는 경향을 보인다(H1·Null2: baseline 넓은 분산 → KG 좁은 분산). 단 L1처럼 역행하는 cell도 있어 일관 효과로 주장하지 않는다.
-- Null control 2개가 모두 parity(KG를 켜도 무관한 task에서 변화 없음) → ablation 위생은 확인된다.
+- 대조군(Null1·Null2)이 모두 parity(KG를 켜도 무관한 task에서 변화 없음) → 실험 설계 자체가 의도대로 작동함을 뒷받침한다.
 
 automated triage 수준이며 cell별 수동 narrative는 미완이다. 상세 수치는 [`docs/assets/results_condition_synthesis.md`](docs/assets/results_condition_synthesis.md).
+
+> **이 프로젝트의 산출**은 "KG가 효과 있다"는 입증이 아니라 — (1) 단일 변수만 바꾸는 **재현 가능한 ablation 인프라**(코드 동일, env 스위치만 차이; 통계 검정까지 외부 의존 없이 자체 구현)와, (2) 가설이 깨지는 결과(refuted)까지 그대로 보고하는 **연구 태도**다. 대조군이 의도대로 무효과를 보인 것은 그 인프라가 실제로 작동함을 보인다.
 
 ## 한계 / 향후
 
@@ -60,6 +75,8 @@ automated triage 수준이며 cell별 수동 narrative는 미완이다. 상세 �
 - 표본이 작아(condition당 3 trial) 통계 검정력이 제한적이다. 본 측정은 효과 *방향* 탐색이며 확정적 효과 크기 주장이 아니다.
 
 ## Quick Start
+
+> 전체 재현 절차(요구사항·환경 구성·KG 빌드·측정)는 [docs/usage.md](docs/usage.md). 아래는 흐름 개요다 — `uv`([설치](https://docs.astral.sh/uv/)) 와 WebArena-Verified 환경 구성이 선행되어야 실제 동작한다.
 
 ```bash
 uv pip install -e . && uv pip install playwright && playwright install chromium
@@ -72,8 +89,6 @@ webarena-verified agent-input-get --task-ids 44 \
 .venv/bin/python run_webarena_verified.py --tasks-file output/tasks.demo.json \
   --task-id 44 --config config/webarena_verified.json --run-root output --headed
 ```
-
-설치·실행·KG 빌드·측정 전체 절차는 [docs/usage.md](docs/usage.md).
 
 ## Repository structure
 
@@ -97,3 +112,7 @@ docs/
 └── validation/            # KG seed 검증 보고서
 ARCHITECTURE.md            # 시스템 구조
 ```
+
+## License
+
+[MIT](LICENSE).
