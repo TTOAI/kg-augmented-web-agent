@@ -31,7 +31,7 @@ def analyze_intent(intent: str, llm: Any = None) -> IntentPlan:
 
     if llm is not None:
         from .llm import classify_task_type  # 지연 임포트로 순환 방지
-        task_type: TaskType = classify_task_type(intent, llm)  # type: ignore[assignment]
+        task_type: TaskType = classify_task_type(intent, llm)
     else:
         task_type = "NAVIGATE"
 

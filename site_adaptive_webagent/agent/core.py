@@ -12,15 +12,14 @@ from site_adaptive_webagent.runtime.executor import execute_with_llm
 from site_adaptive_webagent.runtime.intent import analyze_intent
 from site_adaptive_webagent.runtime.llm import make_llm_client
 
-load_dotenv()  # .env 파일에서 LLM_PROVIDER / API 키를 로드한다
+load_dotenv()
 
 logger = logging.getLogger("agent_runtime")
 
-# analyze_intent를 이 모듈에서도 참조 가능하도록 re-export
 __all__ = ["run_agent", "analyze_intent"]
 
 
-async def run_agent(  # noqa: PLR0913
+async def run_agent(
     *,
     intent: str,
     sites: list[str],
@@ -30,7 +29,7 @@ async def run_agent(  # noqa: PLR0913
     pages: list[Any],
     task_output_dir: Path,
 ) -> AgentRunResult:
-    """웹 에이전트 정책을 실행한다."""
+    """웹 에이전트 런타임의 메인 엔트리포인트. 주어진 task를 실행하고 결과를 반환"""
     del context, task_id, task_output_dir, sites, start_urls
 
     if not pages:

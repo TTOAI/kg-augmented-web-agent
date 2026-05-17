@@ -29,7 +29,7 @@ def _done_with_answer(
     answer: str, *, task_type: str = "RETRIEVE", answer_label: str | None = None,
 ) -> AgentRunResult:
     return AgentRunResult(
-        task_type=task_type,  # type: ignore[arg-type]
+        task_type=task_type,
         verdict="done_with_answer",
         answer=answer,
         answer_label=answer_label,
@@ -38,7 +38,7 @@ def _done_with_answer(
 
 def _abandoned(reason: str, *, task_type: str = "RETRIEVE") -> AgentRunResult:
     return AgentRunResult(
-        task_type=task_type,  # type: ignore[arg-type]
+        task_type=task_type,
         verdict="abandoned",
         reason=reason,
     )
@@ -46,7 +46,7 @@ def _abandoned(reason: str, *, task_type: str = "RETRIEVE") -> AgentRunResult:
 
 def _stuck(reason: str, *, task_type: str = "RETRIEVE") -> AgentRunResult:
     return AgentRunResult(
-        task_type=task_type,  # type: ignore[arg-type]
+        task_type=task_type,
         verdict="stuck",
         reason=reason,
     )
@@ -54,7 +54,7 @@ def _stuck(reason: str, *, task_type: str = "RETRIEVE") -> AgentRunResult:
 
 def _done_no_answer(task_type: str = "NAVIGATE") -> AgentRunResult:
     return AgentRunResult(
-        task_type=task_type,  # type: ignore[arg-type]
+        task_type=task_type,
         verdict="done_no_answer",
     )
 
@@ -189,7 +189,7 @@ class LLMBackedMappingTests(unittest.TestCase):
         result = classify_outcome(
             task="t",
             agent_result=_done_with_answer("answer"),
-            llm=_ExplodingLLM(),  # type: ignore[arg-type]
+            llm=_ExplodingLLM(),
         )
         self.assertEqual(result.status, "SUCCESS")
         self.assertEqual(result.retrieved_data, ["answer"])

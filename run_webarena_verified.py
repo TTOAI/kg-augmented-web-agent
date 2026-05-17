@@ -4,7 +4,7 @@ import asyncio
 
 
 def main() -> int:
-    """루트 디렉터리에서 WebArena-Verified 러너를 바로 실행한다."""
+    """루트 디렉터리에서 WebArena-Verified 러너 실행"""
     from site_adaptive_webagent.benchmarks.webarena_verified.runner import main as runner_main
 
     return asyncio.run(runner_main())

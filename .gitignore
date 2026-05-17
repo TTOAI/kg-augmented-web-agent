@@ -3,22 +3,8 @@
 __pycache__/
 *.pyc
 
-.codex/
-.claude/
 /output/
-/output_master_compare/
 /docs/archive/
-/docs/weekly_reports/
-/docs/research_proposal/
-/playwright-report/
-/test-results/
-/config.json
+
 /config/webarena_verified.json
 .env
-
-# 측정 스크립트 및 임시 파일
-/run_*.sh
-/test_deferred_commit.py
-/collect_gitlab_seed.py
-/seeds/.gitlab_auth_state.json
-/seeds/*.bak_*

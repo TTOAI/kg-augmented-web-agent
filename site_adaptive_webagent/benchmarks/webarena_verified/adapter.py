@@ -29,7 +29,7 @@ HEADER_LOGIN_SPECS: dict[str, tuple[str, tuple[str, ...]]] = {
 
 
 class AgentInput(TypedDict):
-    """`webarena-verified agent-input-get`가 export한 task payload."""
+    """'webarena-verified agent-input-get' 명령이 export한 task payload"""
 
     task_id: int
     intent_template_id: int
@@ -39,7 +39,7 @@ class AgentInput(TypedDict):
 
 
 def ensure_mapping_keys(payload: dict[str, Any], required_keys: tuple[str, ...], *, context: str) -> None:
-    """dict에 필요한 키가 모두 있는지 검증한다."""
+    """dict에 필요한 키가 모두 있는지 검증"""
     missing = [key for key in required_keys if key not in payload]
     if missing:
         missing_text = ", ".join(missing)
@@ -47,7 +47,7 @@ def ensure_mapping_keys(payload: dict[str, Any], required_keys: tuple[str, ...],
 
 
 def validate_task_payload(payload: Any) -> AgentInput:
-    """export된 benchmark task payload 하나를 검증한다."""
+    """export된 benchmark task payload 하나를 검증"""
     if not isinstance(payload, dict):
         raise ValueError(f"task 항목은 JSON 객체여야 합니다. 현재 타입: {type(payload).__name__}")
 
@@ -62,11 +62,11 @@ def validate_task_payload(payload: Any) -> AgentInput:
     if not isinstance(payload["intent"], str):
         raise ValueError("task 항목의 'intent' 필드는 문자열이어야 합니다")
 
-    return payload  # type: ignore[return-value]
+    return payload
 
 
 def validate_exported_tasks_file(tasks_file: Path) -> list[AgentInput]:
-    """export된 tasks 파일이 어댑터 기대와 맞는지 검증한다."""
+    """export된 tasks 파일이 어댑터 기대와 맞는지 검증"""
     if not tasks_file.exists():
         raise FileNotFoundError(f"tasks 파일을 찾을 수 없습니다: {tasks_file}")
 
@@ -117,7 +117,7 @@ def validate_run_output(task_output_dir: Path) -> None:
 
 
 def backup_output_dir(task_output_dir: Path, task_id: int) -> None:
-    """기존 task 출력 디렉터리가 있으면 백업한다."""
+    """기존 task 출력 디렉터리가 있으면 백업"""
     if not task_output_dir.exists():
         return
 
@@ -133,7 +133,7 @@ def backup_output_dir(task_output_dir: Path, task_id: int) -> None:
 
 
 def setup_task_logging(*, logger: logging.Logger, task_output_dir: Path) -> None:
-    """표준 출력과 task별 로그 파일로 로깅을 설정한다."""
+    """표준 출력과 task별 로그 파일로 로깅 설정"""
     log_file = task_output_dir / TASK_LOG_FILENAME
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -143,7 +143,6 @@ def setup_task_logging(*, logger: logging.Logger, task_output_dir: Path) -> None
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
 
-    # UTF-8 고정: Korean/intent 내 유니코드가 로그 파일에서 깨지지 않도록.
     file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
@@ -158,7 +157,7 @@ def setup_task_logging(*, logger: logging.Logger, task_output_dir: Path) -> None
 
 
 def load_agent_input(tasks_file: Path, task_id: int) -> AgentInput:
-    """`webarena-verified agent-input-get`가 export한 task 하나를 읽는다."""
+    """'webarena-verified agent-input-get' 명령으로 export한 task 하나를 읽음"""
     tasks_data = validate_exported_tasks_file(tasks_file)
     for task in tasks_data:
         if task["task_id"] == task_id:
@@ -169,7 +168,7 @@ def load_agent_input(tasks_file: Path, task_id: int) -> AgentInput:
 
 
 async def setup_storage_state(config_path: Path | None, task_output_dir: Path, agent_input: AgentInput) -> Path | None:
-    """config 기반 로그인이 켜져 있을 때 인증 산출물을 준비한다."""
+    """config 기반 로그인이 켜져 있을 때 사이트별 인증 산출물 준비"""
     if config_path is None:
         return None
 
@@ -203,7 +202,7 @@ async def init_browser(
     storage_state_file: Path | None,
     headed: bool,
 ) -> tuple[Browser, BrowserContext]:
-    """benchmark 로깅에 맞게 Playwright browser/context를 생성한다."""
+    """benchmark 로깅에 맞게 Playwright browser/context 생성"""
     browser = await playwright.chromium.launch(
         headless=not headed,
         slow_mo=500 if headed else 0,
@@ -239,7 +238,7 @@ async def init_browser(
 
 
 async def open_start_pages(context: BrowserContext, start_urls: list[str]) -> list[Page]:
-    """task의 start URL들을 열고 생성된 페이지 목록을 반환한다."""
+    """task의 start URL들을 열고 생성된 페이지 목록을 반환"""
     pages: list[Page] = []
     for url in start_urls:
         page = await context.new_page()
@@ -454,7 +453,7 @@ SITE_LOGIN_HANDLERS = {
 
 
 class WebArenaVerifiedAdapter:
-    """WebArena-Verified 파일 계약을 처리하는 어댑터."""
+    """WebArena-Verified의 파일 기반 I/O 계약을 처리하는 어댑터"""
 
     name = "webarena_verified"
 
@@ -468,7 +467,7 @@ class WebArenaVerifiedAdapter:
         headed: bool,
         storage_state_file: Path | None,
     ) -> int:
-        """WebArena-Verified task 하나를 실행하고 벤치마크 호환 산출물을 저장한다."""
+        """WebArena-Verified task 하나를 실행하고 벤치마크 호환 산출물을 저장"""
         from playwright.async_api import async_playwright
 
         task_output_dir = run_root / str(task_id)

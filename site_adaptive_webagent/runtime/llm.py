@@ -179,7 +179,7 @@ class OpenAILLMClient:
         all_messages = [{"role": "system", "content": system}, *messages]
         response = _retry_transient(lambda: self._client.chat.completions.create(
             model=self._model,
-            messages=all_messages,  # type: ignore[arg-type]
+            messages=all_messages,
             max_completion_tokens=1024,
             **self._extra_kwargs(),
         ))
@@ -213,8 +213,8 @@ class OpenAILLMClient:
             oai_messages.extend(_to_openai_messages(msg))
         response = _retry_transient(lambda: self._client.chat.completions.create(
             model=self._model,
-            messages=oai_messages,  # type: ignore[arg-type]
-            tools=oai_tools,  # type: ignore[arg-type]
+            messages=oai_messages,
+            tools=oai_tools,
             max_completion_tokens=max_tokens,
             parallel_tool_calls=False,
             **self._extra_kwargs(),

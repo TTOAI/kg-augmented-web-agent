@@ -119,7 +119,7 @@ def _classify_retrieve_answer_with_llm(
     if status_raw not in ("SUCCESS", "NOT_FOUND_ERROR"):
         logger.warning("[classify_outcome] invalid retrieve-answer status=%r", status_raw)
         return "SUCCESS", _split_comma(answer), None
-    status: WebArenaStatus = status_raw  # type: ignore[assignment]
+    status: WebArenaStatus = status_raw
     retrieved = parsed.get("retrieved_data")
     if retrieved is not None and not isinstance(retrieved, list):
         retrieved = [retrieved] if isinstance(retrieved, (str, int, float, bool)) else None
@@ -172,7 +172,7 @@ def _classify_abandoned_with_llm(
     if status_raw not in _ERROR_STATUSES:
         logger.warning("[classify_outcome] invalid abandoned status=%r", status_raw)
         return "UNKNOWN_ERROR", reason[:200] if reason else None
-    status: WebArenaStatus = status_raw  # type: ignore[assignment]
+    status: WebArenaStatus = status_raw
     error_details = parsed.get("error_details")
     if error_details is not None:
         error_details = str(error_details)[:200]

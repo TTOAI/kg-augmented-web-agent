@@ -117,7 +117,7 @@ def _coerce_source(value: Any) -> Source:
     s = str(value) if value is not None else "manual"
     if s not in ("crawl", "llm", "manual"):
         return "manual"
-    return s  # type: ignore[return-value]
+    return s
 
 
 def _adapt_state_pattern(d: dict[str, Any]) -> StatePattern:
