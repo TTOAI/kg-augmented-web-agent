@@ -1,6 +1,6 @@
 # KG-Augmented Web Agent
 
-LLM 웹 에이전트에 **사이트 구조 지식을 참고용(advisory) 힌트로 주입**해 행동 안정성을 실험한 프로젝트. 사이트별 지식 그래프(site-specific knowledge graph, KG)를 오프라인에서 만들고, 실행 중에는 에이전트가 강제 없이 참고만 하도록 주입한다.
+LLM 웹 에이전트에 **사이트 구조 지식을 참고용 힌트로 주입**하고 그 효과를 측정한 프로젝트. 사이트별 지식 그래프(site-specific knowledge graph, KG)를 오프라인에서 만들고, 실행 중에는 에이전트가 강제 없이 참고만 하도록 주입한다.
 
 ## 문제
 
