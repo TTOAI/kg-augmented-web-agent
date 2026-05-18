@@ -17,6 +17,20 @@ LLM 웹 에이전트에 **사이트 구조 지식을 참고용(advisory) 힌트�
   - 근거 ② **직접 관측이 더 안전**: LLM이 실시간으로 직접 수집해 행동하는 것이, KG로 수동 주입받는 것보다 정보의 안전성·신뢰성이 높다.
 - **KG는 advisory·additive.** 힌트 문자열만 주입하고 실행 루프는 KG 유무에 불변하다. KG를 끄면 baseline과 완전히 동일한 코드 경로를 탄다 — 단일 env 스위치로 baseline ↔ KG를 비교하는 깨끗한 ablation이 가능하다.
 
+KG가 인코딩하는 구조 — page class(StatePattern) 노드와 class 간 전이(LeadsToEdge), class가 보유한 Action이 InfoType를 실현(RealizesEdge)한다. 구체값이 아니라 이 골격만 런타임 힌트로 노출된다.
+
+```mermaid
+flowchart LR
+  SP["StatePattern (page class: url·scope·role)"]
+  AC["Action (클릭/입력 가능 컨트롤)"]
+  IT["InfoType (획득 가능 정보)"]
+  SP -- "LeadsToEdge (class → class 전이)" --> SP
+  SP -- "보유" --> AC
+  AC -- "RealizesEdge (action → info 실현)" --> IT
+  IP["IdentityParam"] -. "URL 식별 파라미터" .-> SP
+  SC["SiteConfig"] -. "사이트 메타" .-> SP
+```
+
 ## 설계 핵심
 
 | 결정 | 내용 |
@@ -26,6 +40,32 @@ LLM 웹 에이전트에 **사이트 구조 지식을 참고용(advisory) 힌트�
 | **에이전트 신뢰성 엔진** | 2중 루프(orchestration/ReAct) + 점진 복구 ladder(retry → replan → deep rollback) + 검증 게이트 + 독립 2차원 예산 가드. |
 | **의도적 최소 검증** | `_verify_done`은 단일 hard-rule(이동 안 한 navigation만 reject). 정답 검증은 evaluator에 위임 — LLM self-judge는 ablation 교란·자기 환각 rubber-stamp 위험. |
 | **KG 빌드/런타임 분리** | 오프라인이 `output/validation/*` 생산, 런타임은 읽기만, 측정이 baseline/KG로 반복. |
+
+에이전트 계층 구조 (고수준) — 벤치마크 결합은 `benchmarks/` 한 곳, 에이전트·런타임은 벤치마크 무관, KG는 optional advisory.
+
+```mermaid
+flowchart TB
+  TASKS["tasks JSON"]
+  RESP["agent_response.json + network.har"]
+  subgraph BM["benchmarks/ — 벤치마크 결합 (유일한 결합 지점)"]
+    AD["adapter.py: 인증 · 브라우저/HAR · IO fail-fast 검증"]
+    OC["classify_outcome: 중립 verdict → WebArena status"]
+  end
+  subgraph AG["agent/ — composition root"]
+    CO["run_agent: analyze_intent · build_plan · _verify_done"]
+  end
+  subgraph RT["runtime/ — 실행 엔진"]
+    EX["execute_with_llm: 2중 루프 · 복구 ladder · 검증 게이트 · 예산 가드"]
+    LLM["LLMClient (tool-use)"]
+  end
+  subgraph KG["kg/runtime/ — advisory · additive (optional)"]
+    KS["KGSession: task_inferrer → path_finder → hint_generator"]
+  end
+  TASKS --> AD --> CO --> EX
+  EX <--> LLM
+  EX -. "KG_ENABLED일 때만 힌트 문자열 주입" .-> KS
+  EX --> CO --> OC --> RESP
+```
 
 구조 상세는 [ARCHITECTURE.md](ARCHITECTURE.md).
 
