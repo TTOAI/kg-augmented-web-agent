@@ -201,6 +201,7 @@ async def init_browser(
     task_output_dir: Path,
     storage_state_file: Path | None,
     headed: bool,
+    record_video: bool = False,
 ) -> tuple[Browser, BrowserContext]:
     """benchmark 로깅에 맞게 Playwright browser/context 생성"""
     browser = await playwright.chromium.launch(
@@ -224,6 +225,11 @@ async def init_browser(
     if storage_state_file and storage_state_file.exists():
         context_kwargs["storage_state"] = str(storage_state_file)
         logger.info("storage state 사용 위치: %s", storage_state_file)
+
+    if record_video:
+        video_dir = task_output_dir / "video"
+        context_kwargs["record_video_dir"] = str(video_dir)
+        logger.info("영상 녹화 활성화: %s", video_dir)
 
     context = await browser.new_context(**context_kwargs)
 
@@ -465,6 +471,7 @@ class WebArenaVerifiedAdapter:
         run_root: Path,
         config_path: Path | None,
         headed: bool,
+        record_video: bool = False,
         storage_state_file: Path | None,
     ) -> int:
         """WebArena-Verified task 하나를 실행하고 벤치마크 호환 산출물을 저장한다."""
@@ -493,6 +500,7 @@ class WebArenaVerifiedAdapter:
                     task_output_dir=task_output_dir,
                     storage_state_file=auth_artifact_path,
                     headed=headed,
+                    record_video=record_video,
                 )
                 pages = await open_start_pages(context, agent_input["start_urls"])
 
