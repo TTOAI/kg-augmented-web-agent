@@ -4,6 +4,7 @@ Inputs: <root>/cells.json (produced by aggregate_cells.py)
 Outputs:
     <root>/step_table.md            — per-task step statistics table
     <root>/figures/step_box.png     — per-trial step box plot
+    <root>/figures/step_counts.png  — per-condition median step bar chart
 """
 from __future__ import annotations
 
@@ -102,6 +103,77 @@ def render_step_box_plot(cells: dict, out_path: Path) -> None:
     print(f"[ok] {out_path}")
 
 
+def render_step_counts(cells: dict, out_path: Path) -> None:
+    """Per-condition median-step bar chart: v0 (gray) vs v1 (blue).
+
+    Bar height = median over valid (non-None) trials, matching the `중앙값`
+    column of render_step_table. A cell whose trials are all timeouts draws a
+    hatched bar at a red sentinel height; other no-data cells (error / mixed)
+    draw no bar. Reverse-engineered to reproduce the committed step_counts.png
+    (no generating script was kept).
+    """
+    import statistics
+
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Patch
+    except ImportError:
+        print("[warn] matplotlib not installed; skipping step counts", file=sys.stderr)
+        return
+    conditions = list(CONDITION_TO_TASK.keys())
+    task_ids = [CONDITION_TO_TASK[c] for c in conditions]
+    labels = [f"{c}\n#{tid}" for c, tid in zip(conditions, task_ids)]
+    width = 0.38
+
+    medians: dict[tuple[int, str], float] = {}
+    timeouts: set[tuple[int, str]] = set()
+    for tid in task_ids:
+        for variant in VARIANTS:
+            cell = cells.get(f"{tid}__{variant}") or {}
+            step = cell.get("step") or {}
+            raw = step.get("raw") or []
+            valid = [v for v in raw if v is not None]
+            if valid:
+                medians[(tid, variant)] = statistics.median(valid)
+            elif raw and (step.get("n_timeout") or 0) >= len(raw):
+                timeouts.add((tid, variant))
+
+    max_med = max(medians.values()) if medians else 20
+    sentinel = max_med + 5
+
+    fig, ax = plt.subplots(figsize=(11, 5.5))
+    for i, tid in enumerate(task_ids):
+        for j, variant in enumerate(VARIANTS):
+            offset = (j - (len(VARIANTS) - 1) / 2) * width
+            x = i + offset
+            color = "#888" if variant == "v0" else "#1f77b4"
+            if (tid, variant) in medians:
+                ax.bar(x, medians[(tid, variant)], width=width * 0.9,
+                       color=color, edgecolor="black")
+            elif (tid, variant) in timeouts:
+                ax.bar(x, sentinel, width=width * 0.9, color=color,
+                       edgecolor="black", hatch="//")
+    ax.axhline(sentinel, color="red", linestyle=":", linewidth=1)
+    ax.text(len(conditions) - 0.5, sentinel + 0.3, "timeout sentinel",
+            ha="right", fontsize=8, color="red")
+    ax.set_xticks(range(len(conditions)))
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.set_ylabel("step count (median over trials)")
+    ax.set_title("Step counts by condition × variant (hatched = timeout)")
+    legend_elements = [
+        Patch(facecolor="#888", edgecolor="black", label="v0"),
+        Patch(facecolor="#1f77b4", edgecolor="black", label="v1"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper left")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.set_ylim(0, sentinel + 2)
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"[ok] {out_path}")
+
+
 def render_step_table(cells: dict, out_path: Path) -> None:
     """Render per-task step statistics table.
 
@@ -166,6 +238,7 @@ def main(argv: list[str]) -> int:
     out_dir = args.out or args.root
     out_dir.mkdir(parents=True, exist_ok=True)
     render_step_box_plot(cells, out_dir / "figures" / "step_box.png")
+    render_step_counts(cells, out_dir / "figures" / "step_counts.png")
     render_step_table(cells, out_dir / "step_table.md")
     return 0
 
