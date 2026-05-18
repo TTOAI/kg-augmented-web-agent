@@ -14,21 +14,29 @@
 
 task 1건은 다음 경로로 수행된다.
 
-```
-run_webarena_verified.py            (루트 shim)
-  → runner.py                       (CLI 경계: 인자 파싱 → adapter)
-  → adapter.py  WebArenaVerifiedAdapter.run_task
-       backup → logging → load_agent_input(검증)
-       → setup_storage_state(사이트별 인증)
-       → init_browser(HAR) → open_start_pages
-       → run_agent(...)                          [벤치마크 무관]
-       → classify_outcome(중립 판정 → status)
-       → write_agent_response(agent_response.json) + network.har
-  → agent/core.py  run_agent          (composition root)
-       make_llm_client → analyze_intent → observe_page
-       → build_kg_session              [KG_ENABLED일 때, 아니면 None=baseline]
-       → execute_with_llm → ExecutionOutcome → AgentRunResult
-  → runtime/executor.py  execute_with_llm   (2중 루프 실행 엔진)
+```mermaid
+flowchart TD
+  SHIM["run_webarena_verified.py (루트 shim)"]
+  RUN["runner.py — CLI 경계: 인자 파싱 → adapter"]
+  subgraph ADP["adapter.py — WebArenaVerifiedAdapter.run_task"]
+    A1["backup → logging → load_agent_input(검증)"]
+    A2["setup_storage_state (사이트별 인증)"]
+    A3["init_browser(HAR) → open_start_pages"]
+    A4["run_agent(...) — 벤치마크 무관"]
+    A5["classify_outcome (중립 판정 → status)"]
+    A6["write_agent_response (agent_response.json) + network.har"]
+    A1 --> A2 --> A3 --> A4 --> A5 --> A6
+  end
+  subgraph CORE["agent/core.py — run_agent (composition root)"]
+    B1["make_llm_client → analyze_intent → observe_page"]
+    B2["build_kg_session — KG_ENABLED일 때, 아니면 None=baseline"]
+    B3["execute_with_llm → ExecutionOutcome → AgentRunResult"]
+    B1 --> B2 --> B3
+  end
+  EXEC["runtime/executor.py — execute_with_llm (2중 루프 실행 엔진)"]
+  SHIM --> RUN --> ADP
+  A4 --> CORE
+  B3 --> EXEC
 ```
 
 ### 1.1 벤치마크 어댑터 (`benchmarks/webarena_verified/`)
@@ -44,13 +52,13 @@ run_webarena_verified.py            (루트 shim)
 
 **복구 ladder (3단)**:
 
-```
-retry      : 같은 sub-goal 재시도 + checkpoint URL 복원 (_MAX_RETRIES_PER_GOAL, 기본 2)
-  ↓ 소진
-replan     : 실패 지점 이후 계획을 새로 생성 (_MAX_REPLANS_PER_TASK, 기본 1)
-             2차+ replan은 deep rollback (이전 checkpoint로 되감기 — 기본값에선 미발동)
-  ↓ 소진
-stuck      : 더 복구할 수 없음 → 종결
+```mermaid
+flowchart TD
+  RT["retry — 같은 sub-goal 재시도 + checkpoint URL 복원<br/>(_MAX_RETRIES_PER_GOAL, 기본 2)"]
+  RP["replan — 실패 지점 이후 계획 재생성 (_MAX_REPLANS_PER_TASK, 기본 1)<br/>2차+ replan은 deep rollback (이전 checkpoint로 되감기 — 기본값엔 미발동)"]
+  SK["stuck — 더 복구할 수 없음 → 종결"]
+  RT -- "소진" --> RP
+  RP -- "소진" --> SK
 ```
 
 `checkpoint_stack`은 성공한 sub-goal의 도착 URL을 쌓는다. retry는 마지막 checkpoint로 복원하고, deep rollback은 마지막 checkpoint를 버려 직전 sub-goal부터 다시 계획한다.
@@ -84,12 +92,15 @@ stuck      : 더 복구할 수 없음 → 종결
 
 런타임이 읽는 KG 자산은 측정 전 1회 오프라인으로 빌드된다.
 
-```
-kg/seed/run_crawl → run_derivation → run_freeze     (hybrid: crawl + LLM + manual)
-   → config/sites/<site>/frozen_kg/<timestamp>.json
-scripts/kg/build/*  (classify_rules가 frozen_kg를 reference로 소비 + 자체 crawl)
-   → output/validation/{rules, stage_c, kg_solution, stage_b}.json
-build_kg_session 이 위 4개를 DEFAULT_*_PATH로 로드             → 측정
+```mermaid
+flowchart TD
+  S["kg/seed/: run_crawl → run_derivation → run_freeze<br/>(hybrid: crawl + LLM + manual)"]
+  FZ["config/sites/&lt;site&gt;/frozen_kg/&lt;timestamp&gt;.json"]
+  BLD["scripts/kg/build/* — classify_rules가 frozen_kg를 reference로 소비 + 자체 crawl"]
+  OUT["output/validation/{rules, stage_c, kg_solution, stage_b}.json"]
+  LD["build_kg_session 이 위 4개를 DEFAULT_*_PATH로 로드"]
+  MEAS["측정"]
+  S --> FZ --> BLD --> OUT --> LD --> MEAS
 ```
 
 두 파이프라인은 경쟁이 아니라 **직렬 lineage**다(hybrid 자동 빌드 → frozen_kg → Stage A/B/C → runtime). 빌드와 런타임은 분리된다: 오프라인이 `output/validation/*`를 생산하고, 런타임은 읽기만 하며, 측정이 런타임을 baseline/KG로 반복한다.
@@ -102,14 +113,14 @@ KG 구축 프로토콜은 [`docs/method/`](docs/method/), seed 검증 보고서�
 
 ## 3. 측정/평가 파이프라인 (`scripts/eval/`)
 
-```
-run_round_{1,2}.sh
-   task × {v0=baseline(KG_ENABLED=0), v1=KG(KG_ENABLED=1, KG_MODE=minimal)} × 3 trial
-   → output/characterization/{v0,v1}/<task>/trial_*/{webarena_verified.log, agent_response.json}
-extract_signals  → trial별 signals.json (외부 공식 채점 + 자체 측정 로그 합본)
-aggregate_cells  → (task × variant) cell 집계 (cells.json, cells_summary.md)
-render_figures   → figures/ (step 분포 박스플롯, median 막대)
-                 + condition_synthesis.md
+```mermaid
+flowchart TD
+  R["run_round_{1,2}.sh<br/>task × {v0=baseline(KG_ENABLED=0), v1=KG(KG_ENABLED=1, KG_MODE=minimal)} × 3 trial"]
+  O1["output/characterization/{v0,v1}/&lt;task&gt;/trial_*/<br/>{webarena_verified.log, agent_response.json}"]
+  ES["extract_signals → trial별 signals.json (외부 공식 채점 + 자체 측정 로그 합본)"]
+  AC["aggregate_cells → (task × variant) cell 집계 (cells.json, cells_summary.md)"]
+  RF["render_figures → figures/ (step 분포 박스플롯, median 막대)<br/>+ condition_synthesis.md"]
+  R --> O1 --> ES --> AC --> RF
 ```
 
 - **단일 노브 ablation**: baseline(v0)과 KG(v1)는 코드 경로가 동일하고 env 스위치 2개(`KG_ENABLED`, `KG_MODE`)만 다르다. 교란변수를 최소화한다.
