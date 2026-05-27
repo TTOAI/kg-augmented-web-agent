@@ -1,7 +1,5 @@
 # Architecture
 
-이 문서는 시스템이 **어떻게** 구성되는지를 다룬다. **왜·무엇·결과**는 [README](README.md)를 참조.
-
 시스템은 세 흐름과 그 사이의 타입 계약으로 구성된다.
 
 1. 런타임 실행 (task 1건 수행)
@@ -18,24 +16,26 @@ task 1건은 다음 경로로 수행된다.
 flowchart TD
   SHIM["run_webarena_verified.py (루트 shim)"]
   RUN["runner.py — CLI 경계: 인자 파싱 → adapter"]
-  subgraph ADP["adapter.py — WebArenaVerifiedAdapter.run_task"]
+  subgraph ADP["adapter.py"]
+    A0["WebArenaVerifiedAdapter.run_task"]
     A1["backup → logging → load_agent_input(검증)"]
     A2["setup_storage_state (사이트별 인증)"]
     A3["init_browser(HAR) → open_start_pages"]
     A4["run_agent(...) — 벤치마크 무관"]
     A5["classify_outcome (중립 판정 → status)"]
     A6["write_agent_response (agent_response.json) + network.har"]
-    A1 --> A2 --> A3 --> A4 --> A5 --> A6
+    A0 --> A1 --> A2 --> A3 --> A4 --> A5 --> A6
   end
-  subgraph CORE["agent/core.py — run_agent (composition root)"]
+  subgraph CORE["agent/core.py"]
+    B0["run_agent (composition root)"]
     B1["make_llm_client → analyze_intent → observe_page"]
     B2["build_kg_session — KG_ENABLED일 때, 아니면 None=baseline"]
     B3["execute_with_llm → ExecutionOutcome → AgentRunResult"]
-    B1 --> B2 --> B3
+    B0 --> B1 --> B2 --> B3
   end
   EXEC["runtime/executor.py — execute_with_llm (2중 루프 실행 엔진)"]
-  SHIM --> RUN --> ADP
-  A4 --> CORE
+  SHIM --> RUN --> A0
+  A4 --> B0
   B3 --> EXEC
 ```
 
@@ -135,12 +135,12 @@ task 선정·metric·exclusion 정책은 [`docs/evaluation/`](docs/evaluation/) 
 
 ## 4. 타입 계약 (레이어 경계)
 
-| 모듈 | 정의 |
-|---|---|
-| `runtime/types.py` | `IntentPlan` · `PageObservation` · `ExecutionOutcome` · `AgentVerdict` · `TaskType` · `BrowserSession` |
-| `agent/types.py` | `AgentRunResult` (중립 판정, 벤치마크 무관) |
-| `benchmarks/webarena_verified/types.py` | `WebArenaRunResult` · `WebArenaStatus` · `TASK_LOG_FILENAME` |
-| `kg/types.py` | `SiteKG` 스키마: `StatePattern` · `InfoType` · `Action` · `RealizesEdge` · `LeadsToEdge` · `SiteConfig` · `IdentityParam` |
+| 모듈                                    | 정의                                                                                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `runtime/types.py`                      | `IntentPlan` · `PageObservation` · `ExecutionOutcome` · `AgentVerdict` · `TaskType` · `BrowserSession`                    |
+| `agent/types.py`                        | `AgentRunResult` (중립 판정, 벤치마크 무관)                                                                               |
+| `benchmarks/webarena_verified/types.py` | `WebArenaRunResult` · `WebArenaStatus` · `TASK_LOG_FILENAME`                                                              |
+| `kg/types.py`                           | `SiteKG` 스키마: `StatePattern` · `InfoType` · `Action` · `RealizesEdge` · `LeadsToEdge` · `SiteConfig` · `IdentityParam` |
 
 ---
 
