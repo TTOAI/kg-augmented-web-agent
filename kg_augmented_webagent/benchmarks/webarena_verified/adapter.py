@@ -229,7 +229,16 @@ async def init_browser(
     if record_video:
         video_dir = task_output_dir / "video"
         context_kwargs["record_video_dir"] = str(video_dir)
-        logger.info("영상 녹화 활성화: %s", video_dir)
+        # 데모 영상 품질 위해 실제 viewport 1280x720 렌더(영상도 동일 크기 →
+        # 여백 없음). M1은 no_viewport(headless 기본 800x600)이므로 record_video
+        # 경로는 viewport가 M1과 다름 = confound(plan §5 caveat). record_video
+        # 미사용 경로는 no_viewport 유지 → M1 재현 경로 불변.
+        context_kwargs["viewport"] = {"width": 1280, "height": 720}
+        context_kwargs["no_viewport"] = False
+        # viewport만으론 Playwright가 영상을 800 박스로 다운스케일 → record_video_size도
+        # 명시해야 풀 1280x720로 캡처(여백 없음).
+        context_kwargs["record_video_size"] = {"width": 1280, "height": 720}
+        logger.info("영상 녹화 활성화: %s (viewport+video 1280x720)", video_dir)
 
     context = await browser.new_context(**context_kwargs)
 
